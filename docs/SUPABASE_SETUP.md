@@ -59,9 +59,15 @@ Pour configurer le footer (À propos, contact, TikTok, YouTube, Instagram et Fac
 
 Exécutez `supabase/migrations/20260926_featured_products.sql` dans le SQL Editor pour ajouter le champ `featured` à la table produits existante. Dans **Admin → Produits**, cochez **Mettre en produit vedette**. La vitrine affiche jusqu’à trois produits vedettes dans son bandeau et propose les filtres **Tous**, **Produits vedettes** et **Disponibles**.
 
-## 6. Vérifier tables et RPC
+## 6. Profils clients
 
-Les migrations doivent rendre disponibles les tables `products`, `product_images`, `favorites`, `orders`, `pickup_points` et la fonction RPC `place_order`. Les commandes sont initialement créées en `pending_payment`, avec un total calculé par PostgreSQL et une référence `JAL-...`. Aucun paiement Wave ou Orange Money n’est prétendu ni prélevé tant qu’un prestataire n’est pas configuré.
+Exécutez `supabase/migrations/20260926_user_profiles.sql` dans le SQL Editor. L’inscription Jalims demande un nom complet et un téléphone, les transmet comme métadonnées Auth, puis le trigger `on_auth_user_created_create_profile` crée automatiquement la ligne liée dans `public.profiles`, même si la confirmation e-mail est en attente. La migration remplit aussi les profils des utilisateurs existants et active RLS afin que chacun ne puisse lire/modifier que son propre profil.
+
+Si la migration de profils avait déjà été exécutée avant l’ajout de la règle INSERT, exécutez `supabase/migrations/20260926_profiles_insert_rls_fix.sql` pour permettre à chaque utilisateur de créer uniquement sa propre ligne de profil.
+
+## 7. Vérifier tables et RPC
+
+Les migrations doivent rendre disponibles les tables `products`, `product_images`, `profiles`, `favorites`, `orders`, `pickup_points` et la fonction RPC `place_order`. Les commandes sont initialement créées en `pending_payment`, avec un total calculé par PostgreSQL et une référence `JAL-...`. Aucun paiement Wave ou Orange Money n’est prétendu ni prélevé tant qu’un prestataire n’est pas configuré.
 
 Si l’API renvoie encore une colonne ou fonction absente après la migration, rechargez le cache PostgREST. Ne désactivez pas RLS pour contourner l’erreur.
 
@@ -70,6 +76,7 @@ Si l’API renvoie encore une colonne ou fonction absente après la migration, r
 - `column products.moq does not exist` : la migration n’a pas été exécutée ou le cache de schéma n’a pas été rechargé.
 - `Could not find the table public.favorites` : exécuter la migration et recharger le cache.
 - `Could not find the function public.place_order` : exécuter la migration et recharger le cache.
+- `new row violates row-level security policy for table profiles` : exécuter `20260926_profiles_insert_rls_fix.sql`; la politique permet uniquement d’insérer une ligne dont l’identifiant correspond à l’utilisateur connecté.
 - `new row violates row-level security policy` lors de l’envoi photo : exécuter la migration `20260926_product_gallery_storage_rls.sql`, vérifier que `app_metadata.role` vaut `admin` puis renouveler la session.
 - `new row violates row-level security policy for table products` : vérifier le résultat de `auth.users.raw_app_meta_data ->> 'role'`, exécuter la migration `20260926_product_gallery_storage_rls.sql`, puis se déconnecter/reconnecter pour renouveler le JWT.
 - Les écrans admin sont réservés à `jalimsofficiel@gmail.com` avec `app_metadata.role = admin`; exécuter `20260926_designate_jalims_admin.sql` pour imposer cette restriction dans Supabase.

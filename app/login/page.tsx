@@ -6,6 +6,8 @@ import { useRouter } from 'next/navigation'
 import { hasJalimsAdminAccess } from '../../lib/admin-access'
 
 export default function Login() {
+  const [fullName, setFullName] = useState('')
+  const [phone, setPhone] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [isSignUp, setIsSignUp] = useState(false)
@@ -48,11 +50,25 @@ export default function Login() {
           setError('Choisissez un mot de passe d’au moins 8 caractères.')
           return
         }
+        if (fullName.trim().length < 2) {
+          setError('Saisissez votre nom complet.')
+          return
+        }
+        if (phone.trim().replace(/\D/g, '').length < 7) {
+          setError('Saisissez un numéro de téléphone valide.')
+          return
+        }
 
         const { data, error } = await supabase.auth.signUp({
           email: normalizedEmail,
           password,
-          options: { emailRedirectTo: getConfirmationUrl() },
+          options: {
+            emailRedirectTo: getConfirmationUrl(),
+            data: {
+              full_name: fullName.trim(),
+              phone: phone.trim(),
+            },
+          },
         })
         if (error) throw error
 
@@ -133,6 +149,30 @@ export default function Login() {
           className="bg-white p-6 rounded-2xl shadow-lg shadow-orange-100 border border-orange-100"
         >
           <div className="space-y-3">
+            {isSignUp && !forgotPassword && (
+              <>
+                <input
+                  type="text"
+                  autoComplete="name"
+                  placeholder="Nom complet"
+                  maxLength={120}
+                  value={fullName}
+                  onChange={(event) => setFullName(event.target.value)}
+                  className="w-full border border-gray-200 rounded-xl p-3 text-sm outline-none focus:border-orange-400 focus:ring-2 focus:ring-orange-100 transition"
+                  required
+                />
+                <input
+                  type="tel"
+                  autoComplete="tel"
+                  placeholder="Téléphone (ex. +221 77 000 00 00)"
+                  maxLength={30}
+                  value={phone}
+                  onChange={(event) => setPhone(event.target.value)}
+                  className="w-full border border-gray-200 rounded-xl p-3 text-sm outline-none focus:border-orange-400 focus:ring-2 focus:ring-orange-100 transition"
+                  required
+                />
+              </>
+            )}
             <input
               type="email"
               placeholder="Email"
