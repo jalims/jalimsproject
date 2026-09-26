@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import Image from 'next/image'
 import Link from 'next/link'
+import { Search, MessageCircle } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import FavoriteButton from './ui/favorite-button'
 import { defaultHomepageContent, type HomepageContent } from '../lib/homepage-content'
@@ -170,7 +171,7 @@ export default function Home() {
             Jalims<span>market</span>
           </Link>
           <label className="search-field market-search">
-            <span className="search-icon" aria-hidden="true" />
+            <Search className="search-lucide" aria-hidden="true" size={19} strokeWidth={2} />
             <span className="sr-only">Rechercher un produit</span>
             <input
               type="search"
@@ -182,7 +183,7 @@ export default function Home() {
               <button className="clear-search" type="button" onClick={() => setSearch('')} aria-label="Effacer la recherche">×</button>
             )}
             <button className="market-search-submit" type="button" aria-label="Rechercher">
-              <span className="search-icon" aria-hidden="true" />
+              <Search aria-hidden="true" size={18} strokeWidth={2.3} />
             </button>
           </label>
         </div>
@@ -389,7 +390,7 @@ export default function Home() {
             <section className="market-footer-column market-footer-contact" aria-labelledby="footer-contact-title">
               <h2 id="footer-contact-title">{homepageContent.footer_contact_title}</h2>
               {homepageContent.footer_contact_email && <a href={`mailto:${homepageContent.footer_contact_email}`}>{homepageContent.footer_contact_email}</a>}
-              {homepageContent.footer_contact_phone && <a href={`https://wa.me/${homepageContent.footer_contact_phone.replace(/\D/g, '')}`} target="_blank" rel="noreferrer">{homepageContent.footer_contact_phone}</a>}
+                {homepageContent.footer_contact_phone && <a href={`https://wa.me/${homepageContent.footer_contact_phone.replace(/\D/g, '')}`} target="_blank" rel="noreferrer"><MessageCircle aria-hidden="true" size={15} /> {homepageContent.footer_contact_phone}</a>}
             </section>
             <section className="market-footer-column" aria-labelledby="footer-social-title">
               <h2 id="footer-social-title">Suivez-nous</h2>

@@ -2,6 +2,7 @@
 
 import Image from 'next/image'
 import Link from 'next/link'
+import { Search } from 'lucide-react'
 import { FormEvent, useEffect, useState } from 'react'
 import { supabase } from '../../lib/supabase'
 import { hasJalimsAdminAccess } from '../../lib/admin-access'
@@ -588,7 +589,7 @@ export default function AdminPage() {
               <span className="admin-product-count">{products.length}</span>
             </div>
             <label className="admin-search-field">
-              <span className="search-icon" aria-hidden="true" />
+              <Search aria-hidden="true" size={17} strokeWidth={2} />
               <span className="sr-only">Rechercher dans les produits</span>
               <input placeholder="Rechercher un produit..." value={productSearch} onChange={(event) => setProductSearch(event.target.value)} />
             </label>

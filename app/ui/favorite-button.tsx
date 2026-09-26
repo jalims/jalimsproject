@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
+import { Heart } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 
 export default function FavoriteButton({ productId, productName }: { productId: string; productName: string }) {
@@ -57,9 +58,7 @@ export default function FavoriteButton({ productId, productName }: { productId: 
         disabled={loading}
         onClick={() => void toggleFavorite()}
       >
-        <svg viewBox="0 0 24 24" fill={favorite ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-          <path d="M20.2 8.65c0 4.15-8.2 9.35-8.2 9.35S3.8 12.8 3.8 8.65A4.15 4.15 0 0 1 12 6.9a4.15 4.15 0 0 1 8.2 1.75Z" />
-        </svg>
+        <Heart aria-hidden="true" fill={favorite ? 'currentColor' : 'none'} size={20} strokeWidth={2} />
       </button>
       {errorMessage && <span className="favorite-error" role="alert">Favori non enregistré : {errorMessage}</span>}
     </>

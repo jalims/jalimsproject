@@ -139,7 +139,7 @@ export default function Login() {
       <div className="w-full max-w-sm">
         <div className="text-center mb-8">
           <h1 className="text-3xl font-extrabold text-orange-500 tracking-tight">Jalims</h1>
-          <p className="text-gray-400 text-sm mt-1">
+            <p className="text-gray-600 text-sm mt-1 leading-relaxed">
             {forgotPassword ? 'Recevoir un lien pour choisir un nouveau mot de passe' : isSignUp ? 'Crée ton compte en quelques secondes' : 'Content de te revoir'}
           </p>
         </div>
@@ -195,11 +195,11 @@ export default function Login() {
           </div>
 
           {error && (
-            <p className="text-red-500 text-xs mt-3 bg-red-50 rounded-lg p-2">{error}</p>
+            <p className="text-red-700 text-sm mt-3 bg-red-50 rounded-lg p-3 leading-relaxed">{error}</p>
           )}
 
           {success && (
-            <p className="text-green-700 text-xs mt-3 bg-green-50 rounded-lg p-2" role="status">{success}</p>
+            <p className="text-green-800 text-sm mt-3 bg-green-50 rounded-lg p-3 leading-relaxed" role="status">{success}</p>
           )}
 
           {needsConfirmation && !forgotPassword && (
