@@ -58,6 +58,7 @@ export default function AdminPage() {
   const [imagePreviews, setImagePreviews] = useState<{ file: File; url: string }[]>([])
   const [saving, setSaving] = useState(false)
   const [feedback, setFeedback] = useState<{ kind: 'success' | 'error'; text: string } | null>(null)
+  const [categoryOptions, setCategoryOptions] = useState<string[]>([]) 
 
   async function loadProducts() {
     const { data, error } = await supabase
@@ -73,7 +74,13 @@ export default function AdminPage() {
     setProductsError('')
     setProducts((data ?? []) as Product[])
   }
-
+  useEffect(() => {
+  async function loadCategories() {
+    const { data } = await supabase.from('categories').select('name').order('name')
+    setCategoryOptions((data ?? []).map((c) => c.name))
+  }
+  void loadCategories()
+}, [])
   useEffect(() => {
     let mounted = true
 
@@ -456,20 +463,20 @@ export default function AdminPage() {
                   />
                 </label>
                 <label>
-                  <span>Catégorie</span>
-                  <input
-                    list="product-categories"
-                    placeholder="Choisir ou saisir"
-                    value={form.category}
-                    onChange={(event) => setForm({ ...form, category: event.target.value })}
-                  />
-                  <datalist id="product-categories">
-                    <option value="Électronique" />
-                    <option value="Mode" />
-                    <option value="Maison" />
-                    <option value="Beauté" />
-                  </datalist>
-                </label>
+  <span>Catégorie</span>
+  <select
+    required
+    value={form.category}
+    onChange={(event) => setForm({ ...form, category: event.target.value })}
+  >
+    <option value="">Choisir une catégorie</option>
+    {categoryOptions.map((cat) => (
+      <option key={cat} value={cat}>
+        {cat}
+      </option>
+    ))}
+  </select>
+</label>
               </div>
 
               <label className="featured-checkbox-row">
