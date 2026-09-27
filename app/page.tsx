@@ -361,10 +361,22 @@ export default function Home() {
                       <p className="product-price">{Number(product.price).toLocaleString('fr-FR')} <span>FCFA</span></p>
                       <div className="product-actions">
                         <div className="quantity-control" aria-label={`Quantité de ${product.name}`}>
-                          <button type="button" aria-label="Diminuer la quantité" onClick={() => changeQuantity(productKey, -1)}>−</button>
-                          <span aria-live="polite">{quantity}</span>
-                          <button type="button" aria-label="Augmenter la quantité" onClick={() => changeQuantity(productKey, 1)}>+</button>
-                        </div>
+  <button type="button" aria-label="Diminuer la quantité" onClick={() => changeQuantity(productKey, -1)}>−</button>
+  <input
+    type="number"
+    min={minimumQuantity}
+    value={quantity}
+    aria-live="polite"
+    onChange={(event) => {
+      const value = Number(event.target.value)
+      setQuantities((current) => ({
+        ...current,
+        [productKey]: Number.isFinite(value) && value >= minimumQuantity ? value : minimumQuantity,
+      }))
+    }}
+  />
+  <button type="button" aria-label="Augmenter la quantité" onClick={() => changeQuantity(productKey, 1)}>+</button>
+</div>
                         <Link className="order-button" href={checkoutUrl}>
                           Commander <span aria-hidden="true">→</span>
                         </Link>

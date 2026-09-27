@@ -1295,9 +1295,23 @@ button {
   background: var(--orange-pale);
 }
 
-.quantity-control span {
+.quantity-control span,
+.quantity-control input {
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: inherit;
   font-size: 12px;
   font-weight: 650;
+  text-align: center;
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+.quantity-control input::-webkit-outer-spin-button,
+.quantity-control input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
 }
 
 .order-button {
@@ -5649,9 +5663,10 @@ button {
       font-size: 22px;
     }
 
-    .market-catalog .quantity-control span {
-      font-size: 14px;
-    }
+    .market-catalog .quantity-control span,
+.market-catalog .quantity-control input {
+  font-size: 14px;
+}
 
     .market-catalog .order-button {
       min-height: 42px;
