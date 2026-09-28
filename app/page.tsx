@@ -71,7 +71,7 @@ export default function Home() {
   const [search, setSearch] = useState('')
   const [activeCategory, setActiveCategory] = useState('')
   const [productFilter, setProductFilter] = useState<'all' | 'featured' | 'available'>('all')
-  const [quantities, setQuantities] = useState<Record<string, number>>({})
+  const [quantities, setQuantities] = useState<Record<string, number | string>>({})
   const [headerHidden, setHeaderHidden] = useState(false)
   const previousScrollY = useRef(0)
 
@@ -151,11 +151,16 @@ export default function Home() {
   const featuredProducts = (markedProducts.length > 0 ? markedProducts : products).slice(0, 3)
 
   function changeQuantity(productKey: string, delta: number) {
-    setQuantities((current) => ({
+  const minimumQuantity = products.find((product) => String(product.id) === productKey)?.moq ?? 1
+  setQuantities((current) => {
+    const currentValue = current[productKey]
+    const numericCurrent = currentValue === '' || currentValue === undefined ? minimumQuantity : Number(currentValue)
+    return {
       ...current,
-      [productKey]: Math.max(products.find((product) => String(product.id) === productKey)?.moq ?? 1, (current[productKey] ?? products.find((product) => String(product.id) === productKey)?.moq ?? 1) + delta),
-    }))
-  }
+      [productKey]: Math.max(minimumQuantity, numericCurrent + delta),
+    }
+  })
+}
 
   return (
     <main className="shop-page market-home">
@@ -363,18 +368,25 @@ export default function Home() {
                         <div className="quantity-control" aria-label={`Quantité de ${product.name}`}>
   <button type="button" aria-label="Diminuer la quantité" onClick={() => changeQuantity(productKey, -1)}>−</button>
   <input
-    type="number"
-    min={minimumQuantity}
-    value={quantity}
-    aria-live="polite"
-    onChange={(event) => {
-      const value = Number(event.target.value)
-      setQuantities((current) => ({
-        ...current,
-        [productKey]: Number.isFinite(value) && value >= minimumQuantity ? value : minimumQuantity,
-      }))
-    }}
-  />
+  type="number"
+  min={minimumQuantity}
+  value={quantity}
+  aria-live="polite"
+  onChange={(event) => {
+    const rawValue = event.target.value
+    setQuantities((current) => ({
+      ...current,
+      [productKey]: rawValue === '' ? '' : Number(rawValue),
+    }))
+  }}
+  onBlur={(event) => {
+    const value = Number(event.target.value)
+    setQuantities((current) => ({
+      ...current,
+      [productKey]: Number.isFinite(value) && value >= minimumQuantity ? value : minimumQuantity,
+    }))
+  }}
+/>
   <button type="button" aria-label="Augmenter la quantité" onClick={() => changeQuantity(productKey, 1)}>+</button>
 </div>
                         <Link className="order-button" href={checkoutUrl}>
