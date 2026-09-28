@@ -6,6 +6,7 @@ import Link from 'next/link'
 import { Search, MessageCircle } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import FavoriteButton from './ui/favorite-button'
+import QuantityInput from './ui/quantity-input'
 import { defaultHomepageContent, type HomepageContent } from '../lib/homepage-content'
 
 type Product = {
@@ -71,7 +72,7 @@ export default function Home() {
   const [search, setSearch] = useState('')
   const [activeCategory, setActiveCategory] = useState('')
   const [productFilter, setProductFilter] = useState<'all' | 'featured' | 'available'>('all')
-  const [quantities, setQuantities] = useState<Record<string, number | string>>({})
+  const [quantities, setQuantities] = useState<Record<string, string>>({})
   const [headerHidden, setHeaderHidden] = useState(false)
   const previousScrollY = useRef(0)
 
@@ -157,7 +158,7 @@ export default function Home() {
     const numericCurrent = currentValue === '' || currentValue === undefined ? minimumQuantity : Number(currentValue)
     return {
       ...current,
-      [productKey]: Math.max(minimumQuantity, numericCurrent + delta),
+      [productKey]: String(Math.max(minimumQuantity, numericCurrent + delta)),
     }
   })
 }
@@ -348,8 +349,10 @@ export default function Home() {
               {visibleProducts.map((product) => {
                 const productKey = String(product.id)
                 const minimumQuantity = product.moq ?? 1
-                const quantity = quantities[productKey] ?? minimumQuantity
-                const checkoutUrl = `/checkout?product=${encodeURIComponent(productKey)}&quantity=${quantity}`
+                const quantity = quantities[productKey] ?? String(minimumQuantity)
+                const parsedQuantity = Number.parseInt(quantity, 10)
+                const orderQuantity = Number.isFinite(parsedQuantity) ? Math.max(minimumQuantity, parsedQuantity) : minimumQuantity
+                const checkoutUrl = `/checkout?product=${encodeURIComponent(productKey)}&quantity=${orderQuantity}`
 
                 return (
                   <article className="product-card" key={productKey}>
@@ -367,26 +370,12 @@ export default function Home() {
                       <div className="product-actions">
                         <div className="quantity-control" aria-label={`Quantité de ${product.name}`}>
   <button type="button" aria-label="Diminuer la quantité" onClick={() => changeQuantity(productKey, -1)}>−</button>
-  <input
-  type="number"
-  min={minimumQuantity}
-  value={quantity}
-  aria-live="polite"
-  onChange={(event) => {
-    const rawValue = event.target.value
-    setQuantities((current) => ({
-      ...current,
-      [productKey]: rawValue === '' ? '' : Number(rawValue),
-    }))
-  }}
-  onBlur={(event) => {
-    const value = Number(event.target.value)
-    setQuantities((current) => ({
-      ...current,
-      [productKey]: Number.isFinite(value) && value >= minimumQuantity ? value : minimumQuantity,
-    }))
-  }}
-/>
+  <QuantityInput
+    ariaLabel={`Quantité de ${product.name}`}
+    minimum={minimumQuantity}
+    value={quantity}
+    onChange={(value) => setQuantities((current) => ({ ...current, [productKey]: value }))}
+  />
   <button type="button" aria-label="Augmenter la quantité" onClick={() => changeQuantity(productKey, 1)}>+</button>
 </div>
                         <Link className="order-button" href={checkoutUrl}>

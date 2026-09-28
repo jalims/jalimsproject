@@ -2,19 +2,22 @@
 
 import Link from 'next/link'
 import { useState } from 'react'
+import QuantityInput from '../../ui/quantity-input'
 
 export default function ProductPurchaseControls({ productId, minimumQuantity, unavailable }: { productId: string; minimumQuantity: number; unavailable: boolean }) {
-  const [quantity, setQuantity] = useState(minimumQuantity)
-  const checkoutUrl = `/checkout?product=${encodeURIComponent(productId)}&quantity=${quantity}`
+  const [quantity, setQuantity] = useState(String(minimumQuantity))
+  const parsedQuantity = Number.parseInt(quantity, 10)
+  const orderQuantity = Number.isFinite(parsedQuantity) ? Math.max(minimumQuantity, parsedQuantity) : minimumQuantity
+  const checkoutUrl = `/checkout?product=${encodeURIComponent(productId)}&quantity=${orderQuantity}`
 
   return (
     <div className="detail-purchase">
       <div className="detail-quantity-block">
         <span>Quantité</span>
         <div className="quantity-control" aria-label="Choisir la quantité">
-          <button type="button" aria-label="Diminuer la quantité" onClick={() => setQuantity((value) => Math.max(minimumQuantity, value - 1))}>−</button>
-          <span aria-live="polite">{quantity}</span>
-          <button type="button" aria-label="Augmenter la quantité" onClick={() => setQuantity((value) => value + 1)}>+</button>
+          <button type="button" aria-label="Diminuer la quantité" onClick={() => setQuantity(String(Math.max(minimumQuantity, (Number(quantity) || minimumQuantity) - 1)))}>−</button>
+          <QuantityInput ariaLabel="Quantité" minimum={minimumQuantity} value={quantity} onChange={setQuantity} />
+          <button type="button" aria-label="Augmenter la quantité" onClick={() => setQuantity(String((Number(quantity) || minimumQuantity) + 1))}>+</button>
         </div>
       </div>
       {unavailable ? (

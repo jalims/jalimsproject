@@ -6,6 +6,7 @@ import { Search } from 'lucide-react'
 import { FormEvent, useEffect, useState } from 'react'
 import { supabase } from '../../lib/supabase'
 import { hasJalimsAdminAccess } from '../../lib/admin-access'
+import QuantityInput from '../ui/quantity-input'
 
 type Product = {
   id: string | number
@@ -491,12 +492,12 @@ export default function AdminPage() {
               <div className="admin-form-row">
                 <label>
                   <span>Quantité minimale (MOQ)</span>
-                  <input
-                    min="1"
+                  <QuantityInput
+                    ariaLabel="Quantité minimale (MOQ)"
+                    minimum={1}
                     required
-                    type="number"
                     value={form.moq}
-                    onChange={(event) => setForm({ ...form, moq: event.target.value })}
+                    onChange={(value) => setForm({ ...form, moq: value })}
                   />
                 </label>
                 <label>
