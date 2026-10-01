@@ -196,7 +196,7 @@ export async function POST(request: Request) {
   autofillParameters.set('nn', customerPhone.national)
   autofillParameters.set('fn', profile.full_name.trim())
   autofillParameters.set('tp', paymentMethod)
-  autofillParameters.set('nac', paymentMethod === 'Carte Bancaire' ? '0' : '1')
+  autofillParameters.set('nac', '0')
   const encodedQuery = [...autofillParameters.entries()]
     .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`)
     .join('&')
@@ -211,7 +211,21 @@ export async function POST(request: Request) {
     .maybeSingle()
 
   if (updateError || !updatedOrder) {
-    return Response.json({ error: 'Impossible d’enregistrer le paiement sur la commande.' }, { status: 409 })
+    console.error('[Payment] Could not persist PayTech payment on order', {
+      orderId: order.id,
+      paytechRefCommand,
+      reason: updateError ? 'database_error' : 'no_matching_order',
+      databaseError: updateError ? {
+        code: updateError.code,
+        message: updateError.message,
+        details: updateError.details,
+        hint: updateError.hint,
+      } : null,
+    })
+    return Response.json(
+      { error: 'Impossible d’enregistrer le paiement sur la commande.' },
+      { status: updateError ? 500 : 409 },
+    )
   }
 
   return Response.json({ redirect_url: redirectUrl.toString() })
