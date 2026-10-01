@@ -2,7 +2,6 @@ import { createSupabaseAdminClient } from '../../../../lib/paytech-admin'
 
 type CreatePaymentBody = {
   order_id?: unknown
-  amount?: unknown
   paymentMethod?: unknown
 }
 
@@ -45,14 +44,11 @@ export async function POST(request: Request) {
     return Response.json({ error: 'Requête invalide.' }, { status: 400 })
   }
 
-  if (
-    typeof body.order_id !== 'string'
-    || typeof body.amount !== 'number'
-    || !Number.isFinite(body.amount)
-    || typeof body.paymentMethod !== 'string'
-    || !paymentMethods.includes(body.paymentMethod as (typeof paymentMethods)[number])
-  ) {
-    return Response.json({ error: 'Commande ou montant invalide.' }, { status: 400 })
+  if (typeof body.order_id !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(body.order_id)) {
+    return Response.json({ error: 'Identifiant de commande invalide.' }, { status: 400 })
+  }
+  if (typeof body.paymentMethod !== 'string' || !paymentMethods.includes(body.paymentMethod as (typeof paymentMethods)[number])) {
+    return Response.json({ error: 'Moyen de paiement manquant ou invalide.' }, { status: 400 })
   }
   const paymentMethod = body.paymentMethod as (typeof paymentMethods)[number]
 
@@ -86,8 +82,8 @@ export async function POST(request: Request) {
   }
 
   const orderAmount = Number(order.total_price)
-  if (!Number.isFinite(orderAmount) || Math.abs(orderAmount - body.amount) > 0.001) {
-    return Response.json({ error: 'Le montant ne correspond pas à la commande.' }, { status: 400 })
+  if (!Number.isFinite(orderAmount) || orderAmount <= 0) {
+    return Response.json({ error: 'Le montant enregistré sur la commande est invalide.' }, { status: 500 })
   }
 
   const { data: profile, error: profileError } = await supabase
@@ -156,15 +152,30 @@ export async function POST(request: Request) {
     return Response.json({ error: 'PayTech est momentanément inaccessible.' }, { status: 502 })
   }
 
-  let payment: { success?: number; token?: string; redirect_url?: string }
+  const responseText = await paytechResponse.text()
+  let payment: { success?: number; token?: string; redirect_url?: string; message?: string; error?: string }
   try {
-    payment = await paytechResponse.json() as typeof payment
+    payment = JSON.parse(responseText) as typeof payment
   } catch {
-    return Response.json({ error: 'Réponse PayTech invalide.' }, { status: 502 })
+    const details = responseText.trim().slice(0, 500)
+    console.error('[PayTech] Non-JSON response', { status: paytechResponse.status, details })
+    return Response.json({
+      error: `Réponse PayTech invalide (HTTP ${paytechResponse.status})${details ? ` : ${details}` : '.'}`,
+    }, { status: 502 })
   }
 
   if (!paytechResponse.ok || payment.success !== 1 || !payment.token || !payment.redirect_url) {
-    return Response.json({ error: 'PayTech n’a pas pu créer le paiement.' }, { status: 502 })
+    const paytechMessage = payment.message ?? payment.error ?? 'Aucun message fourni par PayTech.'
+    console.error('[PayTech] Payment request rejected', {
+      status: paytechResponse.status,
+      success: payment.success ?? null,
+      message: paytechMessage,
+    })
+    return Response.json({
+      error: `PayTech (HTTP ${paytechResponse.status}) : ${paytechMessage}`,
+      paytech_status: paytechResponse.status,
+      paytech_message: paytechMessage,
+    }, { status: 502 })
   }
 
   let redirectUrl: URL
@@ -177,11 +188,16 @@ export async function POST(request: Request) {
     return Response.json({ error: 'URL de paiement PayTech invalide.' }, { status: 502 })
   }
 
-  redirectUrl.searchParams.set('pn', customerPhone.international)
-  redirectUrl.searchParams.set('nn', customerPhone.national)
-  redirectUrl.searchParams.set('fn', profile.full_name.trim())
-  redirectUrl.searchParams.set('tp', paymentMethod)
-  redirectUrl.searchParams.set('nac', paymentMethod === 'Carte Bancaire' ? '0' : '1')
+  const autofillParameters = new URLSearchParams(redirectUrl.search)
+  autofillParameters.set('pn', customerPhone.international)
+  autofillParameters.set('nn', customerPhone.national)
+  autofillParameters.set('fn', profile.full_name.trim())
+  autofillParameters.set('tp', paymentMethod)
+  autofillParameters.set('nac', paymentMethod === 'Carte Bancaire' ? '0' : '1')
+  const encodedQuery = [...autofillParameters.entries()]
+    .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`)
+    .join('&')
+  redirectUrl.search = encodedQuery ? `?${encodedQuery}` : ''
 
   const { data: updatedOrder, error: updateError } = await supabase
     .from('orders')

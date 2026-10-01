@@ -22,6 +22,17 @@ type Product = {
 }
 
 type AccessState = 'checking' | 'signed-out' | 'not-admin' | 'auth-error' | 'ready'
+type AttributeDefinition = {
+  attribute_key: string
+  label: string
+  sort_order: number
+}
+
+type VariantDraft = {
+  stock: string
+  priceAdjustment: string
+}
+
 
 const emptyForm = {
   name: '',
@@ -43,6 +54,23 @@ function getPreviewUrl(value: string) {
   }
 }
 
+function parseAttributeValues(value: string) {
+  return [...new Set(value.split(/[\n,]/).map((entry) => entry.trim()).filter(Boolean))]
+}
+
+function getVariantKey(attributeValues: Record<string, string>) {
+  return JSON.stringify(Object.fromEntries(Object.entries(attributeValues).sort(([left], [right]) => left.localeCompare(right))))
+}
+
+function buildVariantCombinations(attributes: { key: string; values: string[] }[]) {
+  if (attributes.length === 0 || attributes.some((attribute) => attribute.values.length === 0)) return []
+
+  return attributes.reduce<Record<string, string>[]>(
+    (combinations, attribute) => combinations.flatMap((combination) => attribute.values.map((value) => ({ ...combination, [attribute.key]: value }))),
+    [{}],
+  )
+}
+
 export default function AdminPage() {
   const [access, setAccess] = useState<AccessState>('checking')
   const [adminEmail, setAdminEmail] = useState('')
@@ -60,6 +88,11 @@ export default function AdminPage() {
   const [saving, setSaving] = useState(false)
   const [feedback, setFeedback] = useState<{ kind: 'success' | 'error'; text: string } | null>(null)
   const [categoryOptions, setCategoryOptions] = useState<string[]>([]) 
+  const [attributeDefinitions, setAttributeDefinitions] = useState<AttributeDefinition[]>([])
+  const [selectedAttributeKeys, setSelectedAttributeKeys] = useState<string[]>([])
+  const [attributeValueInputs, setAttributeValueInputs] = useState<Record<string, string>>({})
+  const [variantDrafts, setVariantDrafts] = useState<Record<string, VariantDraft>>({})
+  const [variantConfigLoading, setVariantConfigLoading] = useState(false)
 
   async function loadProducts() {
     const { data, error } = await supabase
@@ -74,6 +107,29 @@ export default function AdminPage() {
 
     setProductsError('')
     setProducts((data ?? []) as Product[])
+  }
+
+  async function loadAttributeDefinitions() {
+    const { data, error } = await supabase
+      .from('product_attribute_definitions')
+      .select('attribute_key, label, sort_order')
+      .eq('enabled', true)
+      .order('sort_order')
+
+    if (error) {
+      setFeedback({ kind: 'error', text: `Impossible de charger les attributs produit : ${error.message}` })
+      return
+    }
+
+    setAttributeDefinitions((data ?? []) as AttributeDefinition[])
+  }
+
+  function updateVariantDraft(attributeValues: Record<string, string>, field: keyof VariantDraft, value: string) {
+    const key = getVariantKey(attributeValues)
+    setVariantDrafts((current) => ({
+      ...current,
+      [key]: { ...(current[key] ?? { stock: '0', priceAdjustment: '0' }), [field]: value },
+    }))
   }
   useEffect(() => {
   async function loadCategories() {
@@ -117,6 +173,7 @@ export default function AdminPage() {
 
       setAccess('ready')
       void loadProducts()
+      void loadAttributeDefinitions()
     }
 
     void checkAccess()
@@ -153,9 +210,41 @@ export default function AdminPage() {
     const price = Number(form.price)
     const moq = Number(form.moq)
     const imageUrl = getPreviewUrl(form.imageUrl.trim())
+    const configuredAttributes = selectedAttributeKeys.map((attributeKey) => ({
+      attribute_key: attributeKey,
+      attribute_values: parseAttributeValues(attributeValueInputs[attributeKey] ?? ''),
+    }))
+    const variantCombinations = buildVariantCombinations(configuredAttributes.map((attribute) => ({
+      key: attribute.attribute_key,
+      values: attribute.attribute_values,
+    })))
 
     if (!name || !Number.isFinite(price) || price <= 0 || !Number.isInteger(moq) || moq < 1) {
       setFeedback({ kind: 'error', text: 'Vérifiez le nom, le prix et la quantité minimale.' })
+      return
+    }
+
+    if (variantConfigLoading || configuredAttributes.some((attribute) => attribute.attribute_values.length === 0)) {
+      setFeedback({ kind: 'error', text: 'Ajoutez au moins une valeur pour chaque attribut activé.' })
+      return
+    }
+
+    const configuredVariants = variantCombinations.map((attributeValues) => {
+      const draft = variantDrafts[getVariantKey(attributeValues)] ?? { stock: '0', priceAdjustment: '0' }
+      return {
+        attribute_values: attributeValues,
+        stock: Number(draft.stock),
+        price_adjustment: Number(draft.priceAdjustment),
+      }
+    })
+
+    if (configuredVariants.some((variant) => (
+      !Number.isInteger(variant.stock)
+      || variant.stock < 0
+      || !Number.isFinite(variant.price_adjustment)
+      || price + variant.price_adjustment <= 0
+    ))) {
+      setFeedback({ kind: 'error', text: 'Vérifiez le stock et les ajustements de prix de chaque combinaison.' })
       return
     }
 
@@ -269,12 +358,12 @@ export default function AdminPage() {
       moq,
       stock_status: form.stockStatus,
       featured: form.featured,
-      active: editingId ? editingActive : true,
+      active: editingId ? editingActive : false,
     }
     const { error } = await supabase.from('products').update(productValues).eq('id', productId)
-    setSaving(false)
 
     if (error) {
+      setSaving(false)
       if (uploadedPaths.length) await supabase.storage.from('products').remove(uploadedPaths)
       if (createdProduct) await supabase.from('products').delete().eq('id', productId)
       setFeedback({
@@ -284,9 +373,39 @@ export default function AdminPage() {
       return
     }
 
+    const { error: variantError } = await supabase.rpc('save_product_variant_configuration', {
+      p_product_id: productId,
+      p_attributes: configuredAttributes,
+      p_variants: configuredVariants,
+    })
+
+    if (variantError) {
+      setSaving(false)
+      if (createdProduct) {
+        if (uploadedPaths.length) await supabase.storage.from('products').remove(uploadedPaths)
+        await supabase.from('products').delete().eq('id', productId)
+      }
+      setFeedback({ kind: 'error', text: `Configuration des variantes refusée : ${variantError.message}` })
+      return
+    }
+
+    if (createdProduct) {
+      const { error: activateError } = await supabase.from('products').update({ active: true }).eq('id', productId)
+      if (activateError) {
+        setSaving(false)
+        setFeedback({ kind: 'error', text: `Variantes enregistrées, mais le produit n’a pas pu être publié : ${activateError.message}` })
+        return
+      }
+    }
+
+    setSaving(false)
+
     setForm(emptyForm)
     setImageFiles([])
     setEditingId(null)
+    setSelectedAttributeKeys([])
+    setAttributeValueInputs({})
+    setVariantDrafts({})
     setFeedback({ kind: 'success', text: editingId ? 'Produit modifié.' : 'Produit publié dans le catalogue.' })
     setImagePreviews([])
     await loadProducts()
@@ -297,6 +416,9 @@ export default function AdminPage() {
     setEditingActive(product.active)
     setImageFiles([])
     setImagePreviews([])
+    setSelectedAttributeKeys([])
+    setAttributeValueInputs({})
+    setVariantDrafts({})
     setForm({
       name: product.name,
       description: product.description ?? '',
@@ -308,7 +430,36 @@ export default function AdminPage() {
       featured: product.featured ?? false,
     })
     setFeedback(null)
+    void loadProductVariantConfiguration(String(product.id))
     window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
+  async function loadProductVariantConfiguration(productId: string) {
+    setVariantConfigLoading(true)
+    const [{ data: attributes, error: attributesError }, { data: variants, error: variantsError }] = await Promise.all([
+      supabase.from('product_attributes').select('attribute_key, attribute_values').eq('product_id', productId),
+      supabase.from('product_variants').select('attribute_values, stock, price_adjustment').eq('product_id', productId).eq('active', true),
+    ])
+
+    setVariantConfigLoading(false)
+    if (attributesError || variantsError) {
+      setFeedback({ kind: 'error', text: `Impossible de charger les variantes : ${(attributesError ?? variantsError)?.message}` })
+      return
+    }
+
+    const configuredAttributes = attributes ?? []
+    setSelectedAttributeKeys(configuredAttributes.map((attribute) => attribute.attribute_key))
+    setAttributeValueInputs(Object.fromEntries(configuredAttributes.map((attribute) => [
+      attribute.attribute_key,
+      (attribute.attribute_values as string[]).join('\n'),
+    ])))
+    setVariantDrafts(Object.fromEntries((variants ?? []).map((variant) => {
+      const attributeValues = variant.attribute_values as Record<string, string>
+      return [getVariantKey(attributeValues), {
+        stock: String(variant.stock),
+        priceAdjustment: String(variant.price_adjustment ?? 0),
+      }]
+    })))
   }
 
   async function toggleProduct(product: Product) {
@@ -323,6 +474,9 @@ export default function AdminPage() {
       setForm(emptyForm)
       setImageFiles([])
       setImagePreviews([])
+      setSelectedAttributeKeys([])
+      setAttributeValueInputs({})
+      setVariantDrafts({})
     }
     await loadProducts()
   }
@@ -377,6 +531,12 @@ export default function AdminPage() {
     const matchesFilter = productFilter === 'all' || (productFilter === 'active' ? product.active : !product.active)
     return matchesSearch && matchesFilter
   })
+  const configuredAttributes = selectedAttributeKeys.map((attributeKey) => ({
+    key: attributeKey,
+    label: attributeDefinitions.find((definition) => definition.attribute_key === attributeKey)?.label ?? attributeKey,
+    values: parseAttributeValues(attributeValueInputs[attributeKey] ?? ''),
+  }))
+  const variantCombinations = buildVariantCombinations(configuredAttributes)
 
   return (
     <main className="admin-page">
@@ -510,6 +670,74 @@ export default function AdminPage() {
                 </label>
               </div>
 
+              <section className="variant-editor" aria-labelledby="variant-editor-title">
+                <div className="variant-editor-heading">
+                  <h3 id="variant-editor-title">Variantes et stock</h3>
+                  <p>Activez les caractéristiques vendues avec plusieurs choix. Sans attribut actif, la disponibilité générale reste utilisée.</p>
+                </div>
+                {variantConfigLoading ? (
+                  <p role="status">Chargement des variantes...</p>
+                ) : (
+                  <>
+                    <div className="variant-attribute-list">
+                      {attributeDefinitions.map((definition) => (
+                        <label className="featured-checkbox-row" key={definition.attribute_key}>
+                          <input
+                            checked={selectedAttributeKeys.includes(definition.attribute_key)}
+                            disabled={saving}
+                            onChange={(event) => setSelectedAttributeKeys((current) => (
+                              event.target.checked
+                                ? [...current, definition.attribute_key]
+                                : current.filter((key) => key !== definition.attribute_key)
+                            ))}
+                            type="checkbox"
+                          />
+                          <span><strong>{definition.label}</strong></span>
+                        </label>
+                      ))}
+                    </div>
+                    {configuredAttributes.map((attribute) => (
+                      <label className="variant-values-field" key={attribute.key}>
+                        <span>Valeurs : {attribute.label}</span>
+                        <textarea
+                          disabled={saving}
+                          onChange={(event) => setAttributeValueInputs((current) => ({ ...current, [attribute.key]: event.target.value }))}
+                          placeholder="Une valeur par ligne ou séparée par des virgules"
+                          rows={3}
+                          value={attributeValueInputs[attribute.key] ?? ''}
+                        />
+                      </label>
+                    ))}
+                    {selectedAttributeKeys.length === 0 ? (
+                      <p className="variant-editor-note">Aucune variante : le produit utilise son statut général Disponible / Indisponible.</p>
+                    ) : variantCombinations.length === 0 ? (
+                      <p className="variant-editor-note">Ajoutez des valeurs pour chaque attribut afin de générer les combinaisons.</p>
+                    ) : (
+                      <div className="variant-table-wrap">
+                        <table className="variant-table">
+                          <thead>
+                            <tr><th>Combinaison</th><th>Stock</th><th>Ajustement du prix (FCFA)</th></tr>
+                          </thead>
+                          <tbody>
+                            {variantCombinations.map((attributeValues) => {
+                              const key = getVariantKey(attributeValues)
+                              const draft = variantDrafts[key] ?? { stock: '0', priceAdjustment: '0' }
+                              return (
+                                <tr key={key}>
+                                  <th scope="row">{configuredAttributes.map((attribute) => `${attribute.label} : ${attributeValues[attribute.key]}`).join(' · ')}</th>
+                                  <td><input aria-label={`Stock ${key}`} disabled={saving} min="0" step="1" type="number" value={draft.stock} onChange={(event) => updateVariantDraft(attributeValues, 'stock', event.target.value)} /></td>
+                                  <td><input aria-label={`Ajustement de prix ${key}`} disabled={saving} step="any" type="number" value={draft.priceAdjustment} onChange={(event) => updateVariantDraft(attributeValues, 'priceAdjustment', event.target.value)} /></td>
+                                </tr>
+                              )
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </>
+                )}
+              </section>
+
               <label>
                 <span>Photo du produit</span>
                 <input
@@ -584,7 +812,7 @@ export default function AdminPage() {
                 {saving ? 'Enregistrement...' : editingId ? 'Enregistrer les modifications' : 'Publier le produit'}
                 {!saving && <span aria-hidden="true">→</span>}
               </button>
-              {editingId && <button className="admin-cancel-edit" type="button" onClick={() => { setEditingId(null); setImageFiles([]); setImagePreviews([]); setForm(emptyForm); setFeedback(null) }}>Annuler la modification</button>}
+              {editingId && <button className="admin-cancel-edit" type="button" onClick={() => { setEditingId(null); setImageFiles([]); setImagePreviews([]); setSelectedAttributeKeys([]); setAttributeValueInputs({}); setVariantDrafts({}); setForm(emptyForm); setFeedback(null) }}>Annuler la modification</button>}
             </form>
           </section>
 

@@ -15,6 +15,9 @@ type Order = {
   jalims_code: string
   quantity: number
   total_price: number
+  variant_id: string | null
+  variant_values: Record<string, string>
+  variant_stock_committed: boolean
   status: string
   created_at: string
   products: { name: string; image_url: string | null } | null
@@ -30,6 +33,15 @@ const statusLabels: Record<string, string> = {
   arrivé: 'Arrivé au Sénégal',
   récupéré: 'Récupéré',
   cancelled: 'Annulé',
+}
+
+const attributeLabels: Record<string, string> = {
+  color: 'Couleur',
+  size: 'Taille',
+  capacity: 'Capacité / volume',
+  dimensions: 'Dimensions',
+  model: 'Modèle',
+  weight: 'Poids',
 }
 
 function OrdersContent() {
@@ -56,7 +68,7 @@ function OrdersContent() {
       setSignedIn(true)
       const { data, error } = await supabase
         .from('orders')
-        .select('id, product_id, pickup_point_id, jalims_code, quantity, total_price, status, created_at')
+        .select('id, product_id, pickup_point_id, jalims_code, quantity, total_price, variant_id, variant_values, variant_stock_committed, status, created_at')
         .order('created_at', { ascending: false })
 
       if (!active) return
@@ -160,6 +172,8 @@ function OrdersContent() {
                   <div className="order-product-name">
                     <strong>{order.products?.name ?? 'Produit Jalims'}</strong>
                     <span>Quantité : {order.quantity}</span>
+                    {Object.entries(order.variant_values ?? {}).map(([key, value]) => <span key={key}>{attributeLabels[key] ?? key.replaceAll('_', ' ')} : {value}</span>)}
+                    {order.variant_id && !['pending_payment', 'cancelled'].includes(order.status) && !order.variant_stock_committed && <span className="variant-stock-warning">Notre équipe confirme la disponibilité de cette variante.</span>}
                     {order.pickup_points && <span>Retrait : {order.pickup_points.name}, {order.pickup_points.city}</span>}
                   </div>
                   <b className="order-total">{Number(order.total_price).toLocaleString('fr-FR')} FCFA</b>
@@ -169,7 +183,7 @@ function OrdersContent() {
                   <span>{order.status === 'pending_payment' ? 'Paiement sécurisé via Orange Money, Wave ou Free Money.' : 'Le statut sera actualisé au fil de l’acheminement.'}</span>
                 </div>
                 {order.status === 'pending_payment' && (
-                  <PayOrderButton orderId={order.id} amount={Number(order.total_price)} />
+                  <PayOrderButton orderId={order.id} />
                 )}
               </article>
             ))}

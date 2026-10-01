@@ -352,7 +352,7 @@ export default function Home() {
                 const quantity = quantities[productKey] ?? String(minimumQuantity)
                 const parsedQuantity = Number.parseInt(quantity, 10)
                 const orderQuantity = Number.isFinite(parsedQuantity) ? Math.max(minimumQuantity, parsedQuantity) : minimumQuantity
-                const checkoutUrl = `/checkout?product=${encodeURIComponent(productKey)}&quantity=${orderQuantity}`
+                const checkoutUrl = `/products/${encodeURIComponent(productKey)}?quantity=${orderQuantity}`
 
                 return (
                   <article className="product-card" key={productKey}>

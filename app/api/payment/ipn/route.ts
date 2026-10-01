@@ -88,6 +88,18 @@ export async function POST(request: Request) {
   const allowedStatuses = isPaid ? ['pending_payment', 'cancelled'] : ['pending_payment']
   const nextStatus = isPaid ? 'payé' : 'cancelled'
 
+  if (isPaid) {
+    const { data: confirmed, error: confirmError } = await supabase.rpc('confirm_paytech_product_order', {
+      p_order_id: order.id,
+    })
+
+    if (confirmError || !confirmed) {
+      return Response.json({ error: 'Impossible de confirmer la commande payée.' }, { status: 409 })
+    }
+
+    return new Response('IPN OK', { status: 200 })
+  }
+
   if (allowedStatuses.includes(order.status)) {
     const { error: updateError } = await supabase
       .from('orders')

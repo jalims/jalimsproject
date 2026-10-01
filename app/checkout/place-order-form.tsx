@@ -15,11 +15,13 @@ type PlaceOrderFormProps = {
   productId: string
   quantity: number
   pickupPoints: PickupPoint[]
+  variantValues: Record<string, string>
+  variantUnavailable: boolean
 }
 
 const paymentMethods = ['Wave', 'Orange Money', 'Free Money', 'Carte Bancaire'] as const
 
-export default function PlaceOrderForm({ productId, quantity, pickupPoints }: PlaceOrderFormProps) {
+export default function PlaceOrderForm({ productId, quantity, pickupPoints, variantValues, variantUnavailable }: PlaceOrderFormProps) {
   const [authLoading, setAuthLoading] = useState(true)
   const [signedIn, setSignedIn] = useState(false)
   const [pickupPointId, setPickupPointId] = useState(pickupPoints[0]?.id ?? '')
@@ -50,6 +52,7 @@ export default function PlaceOrderForm({ productId, quantity, pickupPoints }: Pl
       p_product_id: productId,
       p_quantity: quantity,
       p_pickup_point_id: pickupPointId || null,
+      p_variant_values: variantValues,
     })
 
     if (error) {
@@ -83,7 +86,6 @@ export default function PlaceOrderForm({ productId, quantity, pickupPoints }: Pl
         },
         body: JSON.stringify({
           order_id: order.order_id,
-          amount: order.total_price,
           paymentMethod,
         }),
       })
@@ -136,6 +138,7 @@ export default function PlaceOrderForm({ productId, quantity, pickupPoints }: Pl
       ) : (
         <p className="pickup-pending">Le point de retrait sera confirmé par Jalims avant le paiement.</p>
       )}
+      {variantUnavailable && <p className="variant-stock-message" role="alert">La quantité demandée dépasse le stock disponible pour cette variante. Retournez à la fiche produit.</p>}
       {errorMessage && (
         <div className="admin-feedback error" role="alert">
           {createdOrderCode
@@ -144,7 +147,7 @@ export default function PlaceOrderForm({ productId, quantity, pickupPoints }: Pl
           {createdOrderCode && <Link href="/orders">Reprendre le paiement dans Mes commandes</Link>}
         </div>
       )}
-      <button className="order-button checkout-confirm" type="submit" disabled={submitting || (pickupPoints.length > 0 && !pickupPointId)}>
+      <button className="order-button checkout-confirm" type="submit" disabled={submitting || variantUnavailable || (pickupPoints.length > 0 && !pickupPointId)}>
         {submitting ? 'Ouverture du paiement...' : 'Confirmer ma commande'}
         {!submitting && <span aria-hidden="true">→</span>}
       </button>

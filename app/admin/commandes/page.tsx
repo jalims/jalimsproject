@@ -13,6 +13,9 @@ type AdminOrder = {
   jalims_code: string
   quantity: number
   total_price: number
+  variant_id: string | null
+  variant_values: Record<string, string>
+  variant_stock_committed: boolean
   status: string
   created_at: string
   products: { name: string; image_url: string | null } | null
@@ -29,6 +32,15 @@ const statuses = [
   ['récupéré', 'Récupéré'],
   ['cancelled', 'Annulé'],
 ]
+
+const attributeLabels: Record<string, string> = {
+  color: 'Couleur',
+  size: 'Taille',
+  capacity: 'Capacité / volume',
+  dimensions: 'Dimensions',
+  model: 'Modèle',
+  weight: 'Poids',
+}
 
 export default function AdminOrdersPage() {
   const [checking, setChecking] = useState(true)
@@ -48,7 +60,7 @@ export default function AdminOrdersPage() {
       }
       const { data, error } = await supabase
         .from('orders')
-        .select('id, product_id, pickup_point_id, jalims_code, quantity, total_price, status, created_at')
+        .select('id, product_id, pickup_point_id, jalims_code, quantity, total_price, variant_id, variant_values, variant_stock_committed, status, created_at')
         .order('created_at', { ascending: false })
       if (!active) return
       if (error) {
@@ -139,6 +151,8 @@ export default function AdminOrdersPage() {
                 <div className="admin-order-main">
                   <strong>{order.products?.name ?? 'Produit Jalims'}</strong>
                   <span>{order.jalims_code} · {order.quantity} unité{order.quantity === 1 ? '' : 's'}</span>
+                  {Object.entries(order.variant_values ?? {}).map(([key, value]) => <span key={key}>{attributeLabels[key] ?? key.replaceAll('_', ' ')} : {value}</span>)}
+                  {order.variant_id && !['pending_payment', 'cancelled'].includes(order.status) && !order.variant_stock_committed && <span className="variant-stock-warning">Paiement tardif : vérifier le stock de cette variante.</span>}
                   <span>{order.pickup_points ? `${order.pickup_points.name}, ${order.pickup_points.city}` : 'Point de retrait à confirmer'}</span>
                 </div>
                 <b className="admin-order-total">{Number(order.total_price).toLocaleString('fr-FR')} FCFA</b>

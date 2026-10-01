@@ -2614,6 +2614,68 @@ button {
   font-weight: 450;
 }
 
+.variant-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-top: 15px;
+  border-top: 1px solid #eee3d9;
+}
+
+.variant-editor-heading h3 {
+  margin: 0;
+  color: #3d332c;
+  font-size: 14px;
+}
+
+.variant-editor-heading p,
+.variant-editor-note {
+  margin: 5px 0 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.variant-attribute-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px 12px;
+}
+
+.variant-values-field {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.variant-table-wrap {
+  overflow-x: auto;
+  border: 1px solid #eee3d9;
+  border-radius: 6px;
+}
+
+.variant-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+}
+
+.variant-table th,
+.variant-table td {
+  padding: 8px;
+  border-bottom: 1px solid #f1e9e2;
+  text-align: left;
+}
+
+.variant-table tr:last-child > * {
+  border-bottom: 0;
+}
+
+.variant-table input {
+  width: 115px;
+  min-height: 36px;
+}
+
 @media (min-width: 1000px) {
   .market-catalog .product-grid {
     grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -3211,6 +3273,46 @@ button {
 .detail-quantity-block .quantity-control button {
   width: 42px;
   height: 40px;
+}
+
+.variant-selector {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  color: #5d5148;
+  font-size: 12px;
+  font-weight: 620;
+}
+
+.variant-selector select {
+  width: 100%;
+  min-height: 42px;
+  padding: 0 11px;
+  border: 1px solid #e8dbce;
+  border-radius: 6px;
+  background: #fff;
+  color: #3d332c;
+  font: inherit;
+}
+
+.variant-price,
+.variant-stock-message {
+  margin: -6px 0 0;
+  font-size: 12px;
+}
+
+.variant-price {
+  color: var(--orange-dark);
+  font-weight: 700;
+}
+
+.variant-stock-message {
+  color: #a43e27;
+}
+
+.variant-stock-warning {
+  color: #a43e27 !important;
+  font-weight: 650;
 }
 
 .detail-order-button {

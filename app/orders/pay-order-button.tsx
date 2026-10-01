@@ -7,10 +7,9 @@ const paymentMethods = ['Wave', 'Orange Money', 'Free Money', 'Carte Bancaire'] 
 
 type PayOrderButtonProps = {
   orderId: string
-  amount: number
 }
 
-export default function PayOrderButton({ orderId, amount }: PayOrderButtonProps) {
+export default function PayOrderButton({ orderId }: PayOrderButtonProps) {
   const [paymentMethod, setPaymentMethod] = useState<(typeof paymentMethods)[number]>('Wave')
   const [loading, setLoading] = useState(false)
   const [errorMessage, setErrorMessage] = useState('')
@@ -33,7 +32,7 @@ export default function PayOrderButton({ orderId, amount }: PayOrderButtonProps)
           Authorization: `Bearer ${sessionData.session.access_token}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ order_id: orderId, amount, paymentMethod }),
+        body: JSON.stringify({ order_id: orderId, paymentMethod }),
       })
       const result = await response.json() as { redirect_url?: string; error?: string }
 

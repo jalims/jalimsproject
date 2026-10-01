@@ -88,7 +88,15 @@ Récupérez `SUPABASE_SERVICE_ROLE_KEY` dans les paramètres API du projet Supab
 
 Les paiements sont envoyés avec `env=test` et les moyens Orange Money, Wave et Free Money. PayTech indique qu’en test le montant débité est aléatoire (100 à 150 FCFA) et que le sandbox est réservé aux tests internes; ne l’utilisez pas pour des transactions publiques. Le retour du navigateur ne confirme pas le paiement : seul l’IPN valide le statut.
 
-## 4. Erreurs fréquentes
+## 9. Attributs et variantes produit
+
+Dans le SQL Editor, exécutez `supabase/migrations/20261002_product_variants.sql`, puis rechargez le cache PostgREST. Cette migration ajoute le catalogue extensible d’attributs, les attributs/valeurs activés par produit, les combinaisons avec stock et ajustement de prix, ainsi qu’un instantané des choix et l’état de réservation sur les commandes.
+
+La migration active `pg_cron` et planifie chaque minute l’annulation des commandes de variantes dont le paiement n’est pas confirmé sous 30 minutes. L’annulation, par IPN ou expiration, restitue le stock une seule fois. Une confirmation PayTech tardive tente de réserver à nouveau la variante; si son stock est insuffisant, la commande reste payée mais un avertissement apparaît dans l’administration et l’historique client afin que Jalims traite le cas sans perdre la notification de paiement.
+
+Les produits sans attribut actif continuent d’utiliser `products.stock_status` (`available`, `preorder`, `out_of_stock`); aucune quantité globale n’est ajoutée. Les commandes existantes gardent un instantané de variante vide et restent lisibles.
+
+## Erreurs fréquentes
 
 - `column products.moq does not exist` : la migration n’a pas été exécutée ou le cache de schéma n’a pas été rechargé.
 - `Could not find the table public.favorites` : exécuter la migration et recharger le cache.
