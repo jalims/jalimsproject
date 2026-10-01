@@ -34,7 +34,7 @@ export default async function CheckoutPage({ searchParams }: CheckoutPageProps) 
     .order('sort_order')
 
   const variantValues: Record<string, string> = {}
-  let selectedVariant: { stock: number; price_adjustment: number } | null = null
+  let selectedVariant: { stock: number | null; price_adjustment: number } | null = null
   if ((configuredAttributes ?? []).length > 0) {
     let parsedVariant: unknown
     try {
@@ -84,7 +84,9 @@ export default async function CheckoutPage({ searchParams }: CheckoutPageProps) 
 
   const unitPrice = Number(product.price) + (selectedVariant?.price_adjustment ?? 0)
   const total = unitPrice * quantity
-  const variantUnavailable = selectedVariant !== null && selectedVariant.stock < quantity
+  const variantUnavailable = selectedVariant !== null
+    && selectedVariant.stock !== null
+    && selectedVariant.stock < quantity
 
   const attributeLabels = new Map((configuredAttributes ?? []).map((attribute) => [attribute.attribute_key, attribute.attribute_key]))
   if ((configuredAttributes ?? []).length > 0) {

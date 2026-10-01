@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { createSupabaseAdminClient } from '../../../../lib/paytech-admin'
 
 type CreatePaymentBody = {
@@ -124,6 +125,8 @@ export async function POST(request: Request) {
     return Response.json({ error: 'L’URL IPN PayTech doit utiliser HTTPS.' }, { status: 500 })
   }
 
+  const paytechRefCommand = `PAY-${randomUUID()}`
+
   let paytechResponse: Response
   try {
     paytechResponse = await fetch('https://paytech.sn/api/payment/request-payment', {
@@ -137,7 +140,7 @@ export async function POST(request: Request) {
         item_name: product.name,
         item_price: orderAmount,
         currency: 'XOF',
-        ref_command: order.jalims_code,
+        ref_command: paytechRefCommand,
         command_name: `Commande ${order.jalims_code} - ${product.name}`,
         target_payment: paymentMethod,
         env: 'test',
@@ -201,7 +204,7 @@ export async function POST(request: Request) {
 
   const { data: updatedOrder, error: updateError } = await supabase
     .from('orders')
-    .update({ paytech_token: payment.token })
+    .update({ paytech_token: payment.token, paytech_ref_command: paytechRefCommand })
     .eq('id', order.id)
     .eq('status', 'pending_payment')
     .select('id')

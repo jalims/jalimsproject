@@ -92,6 +92,12 @@ Les paiements sont envoyés avec `env=test` et les moyens Orange Money, Wave et 
 
 Dans le SQL Editor, exécutez `supabase/migrations/20261002_product_variants.sql`, puis rechargez le cache PostgREST. Cette migration ajoute le catalogue extensible d’attributs, les attributs/valeurs activés par produit, les combinaisons avec stock et ajustement de prix, ainsi qu’un instantané des choix et l’état de réservation sur les commandes.
 
+Exécutez ensuite `supabase/migrations/20261003_paytech_ref_and_variant_json_fix.sql`. Elle attribue une référence PayTech unique à chaque tentative, conserve le lien IPN avec la commande et remplace les fonctions variantes pour compter les clés JSONB avec `jsonb_object_keys()`. Cette seconde migration est obligatoire sur un projet où `20261002_product_variants.sql` a déjà été exécutée.
+
+Exécutez enfin `supabase/migrations/20261004_variant_optional_stock.sql` pour permettre un stock `NULL`, traité comme illimité, et mettre à jour les RPC de réservation/commande. Un chiffre saisi reste suivi normalement. Les stocks existants, y compris les zéros, ne sont pas modifiés; pour rendre une combinaison illimitée, ouvrez le produit dans l’admin, effacez son champ Stock, puis enregistrez.
+
+Exécutez ensuite `supabase/migrations/20261005_variant_cart_and_colors.sql`. Elle ajoute les codes hex par valeur Couleur et les lignes de commande nécessaires pour regrouper plusieurs variantes d’un même produit dans un seul paiement. Le panier Jalims ne mélange volontairement pas plusieurs produits dans une commande.
+
 La migration active `pg_cron` et planifie chaque minute l’annulation des commandes de variantes dont le paiement n’est pas confirmé sous 30 minutes. L’annulation, par IPN ou expiration, restitue le stock une seule fois. Une confirmation PayTech tardive tente de réserver à nouveau la variante; si son stock est insuffisant, la commande reste payée mais un avertissement apparaît dans l’administration et l’historique client afin que Jalims traite le cas sans perdre la notification de paiement.
 
 Les produits sans attribut actif continuent d’utiliser `products.stock_status` (`available`, `preorder`, `out_of_stock`); aucune quantité globale n’est ajoutée. Les commandes existantes gardent un instantané de variante vide et restent lisibles.

@@ -12,7 +12,7 @@ const navigationItems = [
   },
   {
     href: '/orders',
-    label: 'Mes commandes',
+    label: 'Commandes',
     Icon: Package,
   },
   {

@@ -34,13 +34,14 @@ create table if not exists public.product_variants (
   id uuid primary key default gen_random_uuid(),
   product_id uuid not null references public.products(id) on delete cascade,
   attribute_values jsonb not null,
-  stock integer not null default 0 check (stock >= 0),
+  stock integer default null,
   price_adjustment numeric(12, 2) not null default 0,
   active boolean not null default true,
   created_at timestamptz not null default now(),
   constraint product_variants_values_object check (
     jsonb_typeof(attribute_values) = 'object' and attribute_values <> '{}'::jsonb
   ),
+  constraint product_variants_stock_nonnegative_check check (stock is null or stock >= 0),
   unique (product_id, attribute_values)
 );
 
@@ -200,14 +201,17 @@ begin
   for v_variant in select value from jsonb_array_elements(p_variants)
   loop
     v_attribute_values_json := v_variant -> 'attribute_values';
-    v_stock := (v_variant ->> 'stock')::integer;
+    v_stock := nullif(v_variant ->> 'stock', '')::integer;
     v_price_adjustment := coalesce(nullif(v_variant ->> 'price_adjustment', '')::numeric, 0);
 
-    if jsonb_typeof(v_attribute_values_json) is distinct from 'object' or v_stock < 0 then
+    if jsonb_typeof(v_attribute_values_json) is distinct from 'object' or (v_stock is not null and v_stock < 0) then
       raise exception 'invalid_product_variant' using errcode = '22023';
     end if;
 
-    if jsonb_object_length(v_attribute_values_json) <> v_attribute_count then
+    select count(*) into v_matching_attribute_count
+    from jsonb_object_keys(v_attribute_values_json);
+
+    if v_matching_attribute_count <> v_attribute_count then
       raise exception 'variant_must_define_every_active_attribute' using errcode = '22023';
     end if;
 
@@ -246,9 +250,13 @@ begin
   if old.variant_stock_reserved = true and new.status <> old.status then
     new.variant_stock_reserved := false;
     new.variant_reservation_expires_at := null;
-    if new.status = 'payé' then
-      new.variant_stock_committed := true;
-    end if;
+  end if;
+
+  if new.status = 'payé' and old.variant_id is not null and (
+    old.variant_stock_reserved = true
+    or exists (select 1 from public.product_variants where id = old.variant_id and stock is null)
+  ) then
+    new.variant_stock_committed := true;
   end if;
 
   return new;
@@ -316,6 +324,7 @@ as $$
 declare
   v_order public.orders%rowtype;
   v_reserved_variant_id uuid;
+  v_variant_stock integer;
 begin
   select * into v_order
   from public.orders
@@ -339,6 +348,25 @@ begin
     return false;
   end if;
 
+  if v_order.status = 'pending_payment' and v_order.variant_stock_reserved = false then
+    select stock into v_variant_stock
+    from public.product_variants
+    where id = v_order.variant_id and active = true
+    for update;
+
+    if not found then
+      return false;
+    end if;
+
+    if v_variant_stock is null then
+      update public.orders
+      set status = 'payé', variant_stock_committed = true,
+          variant_reservation_expires_at = null
+      where id = p_order_id;
+      return true;
+    end if;
+  end if;
+
   if v_order.status = 'pending_payment' and v_order.variant_stock_reserved = true then
     update public.orders
     set status = 'payé', variant_stock_committed = true
@@ -347,6 +375,23 @@ begin
   end if;
 
   if v_order.status = 'cancelled' and v_order.variant_stock_reserved = false then
+    select stock into v_variant_stock
+    from public.product_variants
+    where id = v_order.variant_id and active = true
+    for update;
+
+    if not found then
+      return false;
+    end if;
+
+    if v_variant_stock is null then
+      update public.orders
+      set status = 'payé', variant_stock_reserved = false,
+          variant_stock_committed = true, variant_reservation_expires_at = null
+      where id = p_order_id;
+      return true;
+    end if;
+
     update public.product_variants
     set stock = stock - v_order.quantity
     where id = v_order.variant_id and active = true and stock >= v_order.quantity
@@ -392,6 +437,7 @@ declare
   v_matching_attribute_count integer;
   v_variant_id uuid;
   v_reservation_expires_at timestamptz;
+  v_variant_stock_reserved boolean := false;
 begin
   if v_user_id is null then
     raise exception 'authentication_required' using errcode = '28000';
@@ -425,7 +471,10 @@ begin
   v_unit_price := v_product.price;
 
   if v_attribute_count > 0 then
-    if jsonb_object_length(p_variant_values) <> v_attribute_count then
+    select count(*) into v_matching_attribute_count
+    from jsonb_object_keys(p_variant_values);
+
+    if v_matching_attribute_count <> v_attribute_count then
       raise exception 'variant_selection_required' using errcode = '22023';
     end if;
 
@@ -448,7 +497,7 @@ begin
     if not found then
       raise exception 'product_variant_not_found' using errcode = 'P0002';
     end if;
-    if v_variant.stock < p_quantity then
+    if v_variant.stock is not null and v_variant.stock < p_quantity then
       raise exception 'product_variant_out_of_stock' using errcode = 'P0002';
     end if;
 
@@ -457,12 +506,17 @@ begin
       raise exception 'invalid_variant_price' using errcode = '22023';
     end if;
 
-    update public.product_variants
-    set stock = stock - p_quantity
-    where id = v_variant.id;
+    if v_variant.stock is not null then
+      update public.product_variants
+      set stock = stock - p_quantity
+      where id = v_variant.id;
+      v_variant_stock_reserved := true;
+      v_reservation_expires_at := now() + interval '30 minutes';
+    else
+      v_reservation_expires_at := null;
+    end if;
 
     v_variant_id := v_variant.id;
-    v_reservation_expires_at := now() + interval '30 minutes';
   else
     if p_variant_values <> '{}'::jsonb then
       raise exception 'product_has_no_variants' using errcode = '22023';
@@ -489,7 +543,7 @@ begin
   values (
     v_user_id, p_product_id, p_quantity, v_total, 'pending_payment', p_pickup_point_id, v_jalims_code,
     v_variant_id, case when v_variant_id is null then '{}'::jsonb else p_variant_values end,
-    v_variant_id is not null, v_reservation_expires_at
+    v_variant_stock_reserved, v_reservation_expires_at
   )
   returning created_order.id, created_order.jalims_code, created_order.total_price
   into order_id, jalims_code, total_price;

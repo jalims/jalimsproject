@@ -18,6 +18,7 @@ type Order = {
   variant_id: string | null
   variant_values: Record<string, string>
   variant_stock_committed: boolean
+  variant_lines: { id: string; attribute_values: Record<string, string>; quantity: number; unit_price: number; line_total: number }[]
   status: string
   created_at: string
   products: { name: string; image_url: string | null } | null
@@ -76,25 +77,36 @@ function OrdersContent() {
         setErrorMessage(error.message)
       } else {
         const orderRows = data ?? []
+        const orderIds = orderRows.map((order) => order.id)
         const productIds = [...new Set(orderRows.map((order) => order.product_id))]
         const pickupPointIds = [...new Set(orderRows.map((order) => order.pickup_point_id).filter((id): id is string => Boolean(id)))]
-        const [{ data: products, error: productsError }, { data: pickupPoints, error: pickupError }] = await Promise.all([
+        const [{ data: products, error: productsError }, { data: pickupPoints, error: pickupError }, { data: variantLines, error: variantLinesError }] = await Promise.all([
           productIds.length
             ? supabase.from('products').select('id, name, image_url').in('id', productIds)
             : Promise.resolve({ data: [], error: null }),
           pickupPointIds.length
             ? supabase.from('pickup_points').select('id, name, address, city').in('id', pickupPointIds)
             : Promise.resolve({ data: [], error: null }),
+          orderIds.length
+            ? supabase.from('order_variant_lines').select('id, order_id, attribute_values, quantity, unit_price, line_total').in('order_id', orderIds)
+            : Promise.resolve({ data: [], error: null }),
         ])
 
         if (!active) return
-        if (productsError || pickupError) {
-          setErrorMessage(productsError?.message ?? pickupError?.message ?? 'Impossible de charger les détails des commandes.')
+        if (productsError || pickupError || variantLinesError) {
+          setErrorMessage(productsError?.message ?? pickupError?.message ?? variantLinesError?.message ?? 'Impossible de charger les détails des commandes.')
         } else {
           const productById = new Map((products ?? []).map((product) => [product.id, product]))
           const pickupPointById = new Map((pickupPoints ?? []).map((point) => [point.id, point]))
+          const linesByOrderId = new Map<string, Order['variant_lines']>()
+          for (const line of variantLines ?? []) {
+            const lines = linesByOrderId.get(line.order_id) ?? []
+            lines.push(line as Order['variant_lines'][number])
+            linesByOrderId.set(line.order_id, lines)
+          }
           setOrders(orderRows.map((order) => ({
             ...order,
+            variant_lines: linesByOrderId.get(order.id) ?? [],
             products: productById.get(order.product_id) ?? null,
             pickup_points: order.pickup_point_id ? pickupPointById.get(order.pickup_point_id) ?? null : null,
           })) as Order[])
@@ -172,8 +184,12 @@ function OrdersContent() {
                   <div className="order-product-name">
                     <strong>{order.products?.name ?? 'Produit Jalims'}</strong>
                     <span>Quantité : {order.quantity}</span>
-                    {Object.entries(order.variant_values ?? {}).map(([key, value]) => <span key={key}>{attributeLabels[key] ?? key.replaceAll('_', ' ')} : {value}</span>)}
-                    {order.variant_id && !['pending_payment', 'cancelled'].includes(order.status) && !order.variant_stock_committed && <span className="variant-stock-warning">Notre équipe confirme la disponibilité de cette variante.</span>}
+                    {order.variant_lines.length > 0 ? order.variant_lines.map((line) => (
+                      <span key={line.id}>
+                        {Object.entries(line.attribute_values).map(([key, value]) => `${attributeLabels[key] ?? key.replaceAll('_', ' ')} : ${value}`).join(' · ')} · {line.quantity} × {Number(line.unit_price).toLocaleString('fr-FR')} FCFA
+                      </span>
+                    )) : Object.entries(order.variant_values ?? {}).map(([key, value]) => <span key={key}>{attributeLabels[key] ?? key.replaceAll('_', ' ')} : {value}</span>)}
+                    {(order.variant_id || order.variant_lines.length > 0) && !['pending_payment', 'cancelled'].includes(order.status) && !order.variant_stock_committed && <span className="variant-stock-warning">Notre équipe confirme la disponibilité de certaines variantes.</span>}
                     {order.pickup_points && <span>Retrait : {order.pickup_points.name}, {order.pickup_points.city}</span>}
                   </div>
                   <b className="order-total">{Number(order.total_price).toLocaleString('fr-FR')} FCFA</b>

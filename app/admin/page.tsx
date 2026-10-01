@@ -91,6 +91,7 @@ export default function AdminPage() {
   const [attributeDefinitions, setAttributeDefinitions] = useState<AttributeDefinition[]>([])
   const [selectedAttributeKeys, setSelectedAttributeKeys] = useState<string[]>([])
   const [attributeValueInputs, setAttributeValueInputs] = useState<Record<string, string>>({})
+  const [attributeColorInputs, setAttributeColorInputs] = useState<Record<string, Record<string, string>>>({})
   const [variantDrafts, setVariantDrafts] = useState<Record<string, VariantDraft>>({})
   const [variantConfigLoading, setVariantConfigLoading] = useState(false)
 
@@ -128,7 +129,7 @@ export default function AdminPage() {
     const key = getVariantKey(attributeValues)
     setVariantDrafts((current) => ({
       ...current,
-      [key]: { ...(current[key] ?? { stock: '0', priceAdjustment: '0' }), [field]: value },
+      [key]: { ...(current[key] ?? { stock: '', priceAdjustment: '0' }), [field]: value },
     }))
   }
   useEffect(() => {
@@ -213,6 +214,7 @@ export default function AdminPage() {
     const configuredAttributes = selectedAttributeKeys.map((attributeKey) => ({
       attribute_key: attributeKey,
       attribute_values: parseAttributeValues(attributeValueInputs[attributeKey] ?? ''),
+      attribute_colors: attributeKey === 'color' ? attributeColorInputs[attributeKey] ?? {} : {},
     }))
     const variantCombinations = buildVariantCombinations(configuredAttributes.map((attribute) => ({
       key: attribute.attribute_key,
@@ -230,17 +232,16 @@ export default function AdminPage() {
     }
 
     const configuredVariants = variantCombinations.map((attributeValues) => {
-      const draft = variantDrafts[getVariantKey(attributeValues)] ?? { stock: '0', priceAdjustment: '0' }
+      const draft = variantDrafts[getVariantKey(attributeValues)] ?? { stock: '', priceAdjustment: '0' }
       return {
         attribute_values: attributeValues,
-        stock: Number(draft.stock),
+        stock: draft.stock.trim() === '' ? null : Number(draft.stock),
         price_adjustment: Number(draft.priceAdjustment),
       }
     })
 
     if (configuredVariants.some((variant) => (
-      !Number.isInteger(variant.stock)
-      || variant.stock < 0
+      (variant.stock !== null && (!Number.isInteger(variant.stock) || variant.stock < 0))
       || !Number.isFinite(variant.price_adjustment)
       || price + variant.price_adjustment <= 0
     ))) {
@@ -405,6 +406,7 @@ export default function AdminPage() {
     setEditingId(null)
     setSelectedAttributeKeys([])
     setAttributeValueInputs({})
+    setAttributeColorInputs({})
     setVariantDrafts({})
     setFeedback({ kind: 'success', text: editingId ? 'Produit modifié.' : 'Produit publié dans le catalogue.' })
     setImagePreviews([])
@@ -437,7 +439,7 @@ export default function AdminPage() {
   async function loadProductVariantConfiguration(productId: string) {
     setVariantConfigLoading(true)
     const [{ data: attributes, error: attributesError }, { data: variants, error: variantsError }] = await Promise.all([
-      supabase.from('product_attributes').select('attribute_key, attribute_values').eq('product_id', productId),
+      supabase.from('product_attributes').select('attribute_key, attribute_values, attribute_colors').eq('product_id', productId),
       supabase.from('product_variants').select('attribute_values, stock, price_adjustment').eq('product_id', productId).eq('active', true),
     ])
 
@@ -453,10 +455,14 @@ export default function AdminPage() {
       attribute.attribute_key,
       (attribute.attribute_values as string[]).join('\n'),
     ])))
+    setAttributeColorInputs(Object.fromEntries(configuredAttributes.map((attribute) => [
+      attribute.attribute_key,
+      (attribute.attribute_colors ?? {}) as Record<string, string>,
+    ])))
     setVariantDrafts(Object.fromEntries((variants ?? []).map((variant) => {
       const attributeValues = variant.attribute_values as Record<string, string>
       return [getVariantKey(attributeValues), {
-        stock: String(variant.stock),
+        stock: variant.stock === null ? '' : String(variant.stock),
         priceAdjustment: String(variant.price_adjustment ?? 0),
       }]
     })))
@@ -476,6 +482,7 @@ export default function AdminPage() {
       setImagePreviews([])
       setSelectedAttributeKeys([])
       setAttributeValueInputs({})
+      setAttributeColorInputs({})
       setVariantDrafts({})
     }
     await loadProducts()
@@ -697,16 +704,47 @@ export default function AdminPage() {
                       ))}
                     </div>
                     {configuredAttributes.map((attribute) => (
-                      <label className="variant-values-field" key={attribute.key}>
-                        <span>Valeurs : {attribute.label}</span>
-                        <textarea
-                          disabled={saving}
-                          onChange={(event) => setAttributeValueInputs((current) => ({ ...current, [attribute.key]: event.target.value }))}
-                          placeholder="Une valeur par ligne ou séparée par des virgules"
-                          rows={3}
-                          value={attributeValueInputs[attribute.key] ?? ''}
-                        />
-                      </label>
+                      <div className="variant-values-field" key={attribute.key}>
+                        <label>
+                          <span>Valeurs : {attribute.label}</span>
+                          <textarea
+                            disabled={saving}
+                            onChange={(event) => {
+                              const nextValue = event.target.value
+                              const nextValues = parseAttributeValues(nextValue)
+                              setAttributeValueInputs((current) => ({ ...current, [attribute.key]: nextValue }))
+                              if (attribute.key === 'color') {
+                                setAttributeColorInputs((current) => ({
+                                  ...current,
+                                  color: Object.fromEntries(nextValues.map((value) => [value, current.color?.[value] ?? '#808080'])),
+                                }))
+                              }
+                            }}
+                            placeholder="Une valeur par ligne ou séparée par des virgules"
+                            rows={3}
+                            value={attributeValueInputs[attribute.key] ?? ''}
+                          />
+                        </label>
+                        {attribute.key === 'color' && attribute.values.length > 0 && (
+                          <div className="variant-color-editor-list">
+                            {attribute.values.map((value) => (
+                              <label className="variant-color-editor-row" key={value}>
+                                <span><i style={{ backgroundColor: attributeColorInputs.color?.[value] ?? '#808080' }} />{value}</span>
+                                <input
+                                  aria-label={`Couleur ${value}`}
+                                  disabled={saving}
+                                  type="color"
+                                  value={attributeColorInputs.color?.[value] ?? '#808080'}
+                                  onChange={(event) => setAttributeColorInputs((current) => ({
+                                    ...current,
+                                    color: { ...current.color, [value]: event.target.value },
+                                  }))}
+                                />
+                              </label>
+                            ))}
+                          </div>
+                        )}
+                      </div>
                     ))}
                     {selectedAttributeKeys.length === 0 ? (
                       <p className="variant-editor-note">Aucune variante : le produit utilise son statut général Disponible / Indisponible.</p>
@@ -716,12 +754,12 @@ export default function AdminPage() {
                       <div className="variant-table-wrap">
                         <table className="variant-table">
                           <thead>
-                            <tr><th>Combinaison</th><th>Stock</th><th>Ajustement du prix (FCFA)</th></tr>
+                            <tr><th>Combinaison</th><th>Stock (vide = illimité)</th><th>Ajustement du prix (FCFA)</th></tr>
                           </thead>
                           <tbody>
                             {variantCombinations.map((attributeValues) => {
                               const key = getVariantKey(attributeValues)
-                              const draft = variantDrafts[key] ?? { stock: '0', priceAdjustment: '0' }
+                              const draft = variantDrafts[key] ?? { stock: '', priceAdjustment: '0' }
                               return (
                                 <tr key={key}>
                                   <th scope="row">{configuredAttributes.map((attribute) => `${attribute.label} : ${attributeValues[attribute.key]}`).join(' · ')}</th>
@@ -812,7 +850,7 @@ export default function AdminPage() {
                 {saving ? 'Enregistrement...' : editingId ? 'Enregistrer les modifications' : 'Publier le produit'}
                 {!saving && <span aria-hidden="true">→</span>}
               </button>
-              {editingId && <button className="admin-cancel-edit" type="button" onClick={() => { setEditingId(null); setImageFiles([]); setImagePreviews([]); setSelectedAttributeKeys([]); setAttributeValueInputs({}); setVariantDrafts({}); setForm(emptyForm); setFeedback(null) }}>Annuler la modification</button>}
+              {editingId && <button className="admin-cancel-edit" type="button" onClick={() => { setEditingId(null); setImageFiles([]); setImagePreviews([]); setSelectedAttributeKeys([]); setAttributeValueInputs({}); setAttributeColorInputs({}); setVariantDrafts({}); setForm(emptyForm); setFeedback(null) }}>Annuler la modification</button>}
             </form>
           </section>
 

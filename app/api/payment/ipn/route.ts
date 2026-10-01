@@ -68,7 +68,7 @@ export async function POST(request: Request) {
   const { data: order, error: orderError } = await supabase
     .from('orders')
     .select('id, status, total_price')
-    .eq('jalims_code', notification.ref_command)
+    .eq('paytech_ref_command', notification.ref_command)
     .eq('paytech_token', notification.token)
     .maybeSingle()
 

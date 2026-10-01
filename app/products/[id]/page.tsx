@@ -23,7 +23,7 @@ export default async function ProductPage({ params, searchParams }: ProductPageP
 
   const { data: productAttributes } = await supabase
     .from('product_attributes')
-    .select('attribute_key, attribute_values, sort_order')
+    .select('attribute_key, attribute_values, attribute_colors, sort_order')
     .eq('product_id', id)
     .order('sort_order')
 
@@ -42,8 +42,9 @@ export default async function ProductPage({ params, searchParams }: ProductPageP
     label: labelByKey.get(attribute.attribute_key) ?? attribute.attribute_key,
     values: attribute.attribute_values as string[],
   }))
+  const colorValues = ((productAttributes ?? []).find((attribute) => attribute.attribute_key === 'color')?.attribute_colors ?? {}) as Record<string, string>
   const isUnavailable = variantAttributes.length > 0
-    ? !(variants ?? []).some((variant) => variant.stock > 0)
+    ? !(variants ?? []).some((variant) => variant.stock === null || variant.stock > 0)
     : product.stock_status === 'out_of_stock'
 
   const { data: galleryImages } = await supabase
@@ -78,6 +79,7 @@ export default async function ProductPage({ params, searchParams }: ProductPageP
             <ProductPurchaseControls
               attributes={variantAttributes}
               basePrice={Number(product.price)}
+              colorValues={colorValues}
               initialQuantity={Number(quantityParam) || product.moq || 1}
               minimumQuantity={product.moq ?? 1}
               productId={String(product.id)}
