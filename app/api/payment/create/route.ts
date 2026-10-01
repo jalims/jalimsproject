@@ -196,7 +196,7 @@ export async function POST(request: Request) {
   autofillParameters.set('nn', customerPhone.national)
   autofillParameters.set('fn', profile.full_name.trim())
   autofillParameters.set('tp', paymentMethod)
-  autofillParameters.set('nac', '0')
+  autofillParameters.set('nac', paymentMethod === 'Carte Bancaire' ? '0' : '1')
   const encodedQuery = [...autofillParameters.entries()]
     .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`)
     .join('&')
