@@ -6,6 +6,7 @@ import { Suspense } from 'react'
 import { useEffect, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { supabase } from '../../lib/supabase'
+import PayOrderButton from './pay-order-button'
 
 type Order = {
   id: string
@@ -34,6 +35,7 @@ const statusLabels: Record<string, string> = {
 function OrdersContent() {
   const searchParams = useSearchParams()
   const newOrderCode = searchParams.get('new')
+  const paymentResult = searchParams.get('payment')
   const [loading, setLoading] = useState(true)
   const [signedIn, setSignedIn] = useState(false)
   const [orders, setOrders] = useState<Order[]>([])
@@ -111,6 +113,20 @@ function OrdersContent() {
           </div>
         )}
 
+        {paymentResult === 'return' && (
+          <div className="order-created-banner" role="status">
+            <strong>Retour de PayTech reçu</strong>
+            <span>La confirmation du paiement est en cours. Le statut sera mis à jour après vérification.</span>
+          </div>
+        )}
+
+        {paymentResult === 'cancelled' && (
+          <div className="order-created-banner" role="status">
+            <strong>Paiement interrompu</strong>
+            <span>La commande reste visible ici. Vous pourrez relancer le paiement si elle est toujours en attente.</span>
+          </div>
+        )}
+
         {loading ? (
           <div className="orders-state" role="status">Chargement de vos commandes...</div>
         ) : !signedIn ? (
@@ -150,8 +166,11 @@ function OrdersContent() {
                 </div>
                 <div className="order-card-footer">
                   <span>Passée le {new Date(order.created_at).toLocaleDateString('fr-FR')}</span>
-                  <span>{order.status === 'pending_payment' ? 'Jalims vous contactera pour confirmer le paiement.' : 'Le statut sera actualisé au fil de l’acheminement.'}</span>
+                  <span>{order.status === 'pending_payment' ? 'Paiement sécurisé via Orange Money, Wave ou Free Money.' : 'Le statut sera actualisé au fil de l’acheminement.'}</span>
                 </div>
+                {order.status === 'pending_payment' && (
+                  <PayOrderButton orderId={order.id} amount={Number(order.total_price)} />
+                )}
               </article>
             ))}
           </div>

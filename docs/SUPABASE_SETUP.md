@@ -71,6 +71,23 @@ Les migrations doivent rendre disponibles les tables `products`, `product_images
 
 Si l’API renvoie encore une colonne ou fonction absente après la migration, rechargez le cache PostgREST. Ne désactivez pas RLS pour contourner l’erreur.
 
+## 8. Activer les paiements PayTech en test
+
+Dans le SQL Editor, exécutez `supabase/migrations/20261001_paytech_payments.sql`, puis rechargez le cache de schéma. Cette migration ajoute `orders.paytech_token`; la référence PayTech réutilise `orders.jalims_code`. Le bouton **Confirmer ma commande** crée la commande puis lance immédiatement le paiement; si le paiement ne démarre pas, le client peut le reprendre dans **Mes commandes**.
+
+Ajoutez ces variables à `.env.local` et aux variables d’environnement Vercel, puis redéployez :
+
+```text
+PAYTECH_API_KEY=...
+PAYTECH_API_SECRET=...
+NEXT_PUBLIC_SITE_URL=https://votre-domaine
+SUPABASE_SERVICE_ROLE_KEY=...
+```
+
+Récupérez `SUPABASE_SERVICE_ROLE_KEY` dans les paramètres API du projet Supabase. Cette clé contourne RLS et doit rester une variable serveur secrète : ne la préfixez jamais avec `NEXT_PUBLIC_` et ne l’exposez pas au navigateur. Les routes paiement authentifient le client et vérifient sa propriété de la commande avant toute création de paiement; l’IPN met à jour la commande uniquement après validation HMAC-SHA256.
+
+Les paiements sont envoyés avec `env=test` et les moyens Orange Money, Wave et Free Money. PayTech indique qu’en test le montant débité est aléatoire (100 à 150 FCFA) et que le sandbox est réservé aux tests internes; ne l’utilisez pas pour des transactions publiques. Le retour du navigateur ne confirme pas le paiement : seul l’IPN valide le statut.
+
 ## 4. Erreurs fréquentes
 
 - `column products.moq does not exist` : la migration n’a pas été exécutée ou le cache de schéma n’a pas été rechargé.

@@ -2,7 +2,6 @@
 
 import Link from 'next/link'
 import { FormEvent, useEffect, useState } from 'react'
-import { useRouter } from 'next/navigation'
 import { supabase } from '../../lib/supabase'
 
 type PickupPoint = {
@@ -18,13 +17,16 @@ type PlaceOrderFormProps = {
   pickupPoints: PickupPoint[]
 }
 
+const paymentMethods = ['Wave', 'Orange Money', 'Free Money', 'Carte Bancaire'] as const
+
 export default function PlaceOrderForm({ productId, quantity, pickupPoints }: PlaceOrderFormProps) {
-  const router = useRouter()
   const [authLoading, setAuthLoading] = useState(true)
   const [signedIn, setSignedIn] = useState(false)
   const [pickupPointId, setPickupPointId] = useState(pickupPoints[0]?.id ?? '')
+  const [paymentMethod, setPaymentMethod] = useState<(typeof paymentMethods)[number]>('Wave')
   const [submitting, setSubmitting] = useState(false)
   const [errorMessage, setErrorMessage] = useState('')
+  const [createdOrderCode, setCreatedOrderCode] = useState('')
 
   useEffect(() => {
     let active = true
@@ -42,6 +44,7 @@ export default function PlaceOrderForm({ productId, quantity, pickupPoints }: Pl
     event.preventDefault()
     setSubmitting(true)
     setErrorMessage('')
+    setCreatedOrderCode('')
 
     const { data, error } = await supabase.rpc('place_order', {
       p_product_id: productId,
@@ -49,16 +52,52 @@ export default function PlaceOrderForm({ productId, quantity, pickupPoints }: Pl
       p_pickup_point_id: pickupPointId || null,
     })
 
-    setSubmitting(false)
-
     if (error) {
       setErrorMessage(error.message.replaceAll('_', ' '))
+      setSubmitting(false)
       return
     }
 
-    const order = Array.isArray(data) ? data[0] as { jalims_code?: string } | undefined : undefined
-    const orderCode = order?.jalims_code ?? ''
-    router.push(`/orders${orderCode ? `?new=${encodeURIComponent(orderCode)}` : ''}`)
+    const order = Array.isArray(data)
+      ? data[0] as { order_id?: string; jalims_code?: string; total_price?: number } | undefined
+      : undefined
+    if (!order?.order_id || typeof order.total_price !== 'number') {
+      setErrorMessage('La commande a été créée, mais ses informations de paiement sont indisponibles.')
+      setSubmitting(false)
+      return
+    }
+
+    setCreatedOrderCode(order.jalims_code ?? '')
+
+    try {
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession()
+      if (sessionError || !sessionData.session) {
+        throw new Error('Votre session a expiré. Reconnectez-vous pour payer.')
+      }
+
+      const response = await fetch('/api/payment/create', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${sessionData.session.access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          order_id: order.order_id,
+          amount: order.total_price,
+          paymentMethod,
+        }),
+      })
+      const payment = await response.json() as { redirect_url?: string; error?: string }
+
+      if (!response.ok || !payment.redirect_url) {
+        throw new Error(payment.error ?? 'Impossible de démarrer le paiement.')
+      }
+
+      window.location.assign(payment.redirect_url)
+    } catch (paymentError) {
+      setErrorMessage(paymentError instanceof Error ? paymentError.message : 'Impossible de démarrer le paiement.')
+      setSubmitting(false)
+    }
   }
 
   if (authLoading) {
@@ -77,6 +116,14 @@ export default function PlaceOrderForm({ productId, quantity, pickupPoints }: Pl
 
   return (
     <form className="place-order-form" onSubmit={submitOrder}>
+      <label className="pickup-select">
+        <span>Moyen de paiement</span>
+        <select value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value as (typeof paymentMethods)[number])}>
+          {paymentMethods.map((method) => (
+            <option key={method} value={method}>{method}</option>
+          ))}
+        </select>
+      </label>
       {pickupPoints.length > 0 ? (
         <label className="pickup-select">
           <span>Point de retrait</span>
@@ -89,12 +136,19 @@ export default function PlaceOrderForm({ productId, quantity, pickupPoints }: Pl
       ) : (
         <p className="pickup-pending">Le point de retrait sera confirmé par Jalims avant le paiement.</p>
       )}
-      {errorMessage && <p className="admin-feedback error" role="alert">La commande n’a pas été enregistrée : {errorMessage}</p>}
+      {errorMessage && (
+        <div className="admin-feedback error" role="alert">
+          {createdOrderCode
+            ? `Commande ${createdOrderCode} enregistrée, mais le paiement n’a pas pu démarrer : ${errorMessage}`
+            : errorMessage}
+          {createdOrderCode && <Link href="/orders">Reprendre le paiement dans Mes commandes</Link>}
+        </div>
+      )}
       <button className="order-button checkout-confirm" type="submit" disabled={submitting || (pickupPoints.length > 0 && !pickupPointId)}>
-        {submitting ? 'Enregistrement...' : 'Confirmer ma commande'}
+        {submitting ? 'Ouverture du paiement...' : 'Confirmer ma commande'}
         {!submitting && <span aria-hidden="true">→</span>}
       </button>
-      <p className="payment-disclaimer">Votre commande sera enregistrée en attente de paiement. Aucun prélèvement n’est effectué pour le moment.</p>
+      <p className="payment-disclaimer">Après confirmation, vous serez redirigé vers PayTech pour finaliser votre paiement par {paymentMethod}.</p>
     </form>
   )
 }

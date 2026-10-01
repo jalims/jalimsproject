@@ -4393,6 +4393,37 @@ button {
   border-top: 1px solid #f3ece5;
 }
 
+.order-pay-actions {
+  padding: 0 15px 14px;
+}
+
+.order-pay-button {
+  width: 100%;
+  min-height: 38px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--orange);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 680;
+  cursor: pointer;
+}
+
+.order-pay-button:hover:not(:disabled) {
+  background: var(--orange-dark);
+}
+
+.order-pay-button:disabled {
+  cursor: wait;
+  opacity: 0.7;
+}
+
+.order-pay-error {
+  margin: 0 0 8px;
+  color: #a43e27;
+  font-size: 12px;
+}
+
 .account-panel {
   display: flex;
   width: min(480px, 100%);
