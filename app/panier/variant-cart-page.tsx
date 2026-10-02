@@ -280,6 +280,7 @@ export default function VariantCartPage() {
                 <select value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value as (typeof paymentMethods)[number])}>
                   {paymentMethods.map((method) => <option key={method} value={method}>{method}</option>)}
                 </select>
+                {paymentMethod === 'Wave' && <small className="payment-method-note">Nécessite l’application Wave installée sur votre téléphone.</small>}
               </label>
               <div className="checkout-total"><span>Total ({totalQuantity} unité(s))</span><strong>{total.toLocaleString('fr-FR')} FCFA</strong></div>
               {belowMinimum && <p className="variant-stock-message" role="alert">La quantité totale doit atteindre le minimum de commande : {product.moq}.</p>}

@@ -3238,6 +3238,26 @@ button {
   font-size: 14px;
 }
 
+.product-delivery-estimate {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: -7px 0 16px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.product-delivery-estimate svg {
+  flex: 0 0 auto;
+  color: var(--orange-dark);
+}
+
+.product-delivery-estimate strong {
+  color: var(--foreground);
+  font-weight: 650;
+}
+
 .detail-description {
   margin: 0;
   color: #71645a;
@@ -5084,6 +5104,13 @@ button {
 .pickup-select select {
   min-height: 44px;
   font-size: 12px;
+}
+
+.payment-method-note {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 400;
+  line-height: 1.4;
 }
 
 .pickup-pending,

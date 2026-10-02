@@ -125,6 +125,7 @@ export default function PlaceOrderForm({ productId, quantity, pickupPoints, vari
             <option key={method} value={method}>{method}</option>
           ))}
         </select>
+        {paymentMethod === 'Wave' && <small className="payment-method-note">Nécessite l’application Wave installée sur votre téléphone.</small>}
       </label>
       {pickupPoints.length > 0 ? (
         <label className="pickup-select">

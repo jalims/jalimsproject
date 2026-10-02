@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import { Truck } from 'lucide-react'
 import { notFound } from 'next/navigation'
 import { supabase } from '../../../lib/supabase'
 import ProductImageGallery from './product-image-gallery'
@@ -14,12 +15,13 @@ export default async function ProductPage({ params, searchParams }: ProductPageP
   const { quantity: quantityParam } = await searchParams
   const { data: product } = await supabase
     .from('products')
-    .select('id, name, description, price, image_url, category, moq, stock_status, active')
+    .select('id, name, description, price, delivery_estimate, image_url, category, moq, stock_status, active')
     .eq('id', id)
     .eq('active', true)
     .maybeSingle()
 
   if (!product) notFound()
+  const deliveryEstimate = product.delivery_estimate?.trim()
 
   const { data: productAttributes } = await supabase
     .from('product_attributes')
@@ -67,6 +69,12 @@ export default async function ProductPage({ params, searchParams }: ProductPageP
             <p className="eyebrow">{product.category || 'SÉLECTION JALIMS'}</p>
             <h1>{product.name}</h1>
             <p className="detail-price">{Number(product.price).toLocaleString('fr-FR')} <span>FCFA</span></p>
+            {deliveryEstimate && (
+              <p className="product-delivery-estimate">
+                <Truck aria-hidden="true" size={16} strokeWidth={1.8} />
+                <span>Délai de livraison estimé : <strong>{deliveryEstimate}</strong></span>
+              </p>
+            )}
             <p className="detail-description">{product.description || 'Commandez ce produit depuis la Chine. Jalims organise son acheminement et le dédouanement jusqu’à votre point de retrait au Sénégal.'}</p>
             <div className="product-specs">
               <span>Commande minimum</span><strong>{product.moq ?? 1} unité{(product.moq ?? 1) > 1 ? 's' : ''}</strong>

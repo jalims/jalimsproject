@@ -61,6 +61,7 @@ export default function PayOrderButton({ orderId }: PayOrderButtonProps) {
             <option key={method} value={method}>{method}</option>
           ))}
         </select>
+        {paymentMethod === 'Wave' && <small className="payment-method-note">Nécessite l’application Wave installée sur votre téléphone.</small>}
       </label>
       <button className="order-pay-button" type="button" onClick={startPayment} disabled={loading}>
         {loading ? 'Connexion à PayTech...' : 'Payer'}

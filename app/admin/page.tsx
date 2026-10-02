@@ -13,6 +13,7 @@ type Product = {
   name: string
   description: string
   price: number
+  delivery_estimate: string | null
   image_url: string | null
   category: string | null
   moq: number
@@ -38,6 +39,7 @@ const emptyForm = {
   name: '',
   description: '',
   price: '',
+  deliveryEstimate: '',
   imageUrl: '',
   category: '',
   moq: '1',
@@ -98,7 +100,7 @@ export default function AdminPage() {
   async function loadProducts() {
     const { data, error } = await supabase
       .from('products')
-      .select('id, name, description, price, image_url, category, moq, stock_status, active, featured')
+      .select('id, name, description, price, delivery_estimate, image_url, category, moq, stock_status, active, featured')
       .order('name')
 
     if (error) {
@@ -354,6 +356,7 @@ export default function AdminPage() {
       name,
       description: form.description.trim(),
       price,
+      delivery_estimate: form.deliveryEstimate.trim() || null,
       image_url: productImageUrl,
       category: form.category.trim() || null,
       moq,
@@ -425,6 +428,7 @@ export default function AdminPage() {
       name: product.name,
       description: product.description ?? '',
       price: String(product.price),
+      deliveryEstimate: product.delivery_estimate ?? '',
       imageUrl: product.image_url ?? '',
       category: product.category ?? '',
       moq: String(product.moq ?? 1),
@@ -646,6 +650,17 @@ export default function AdminPage() {
   </select>
 </label>
               </div>
+
+              <label>
+                <span>Délai de livraison estimé</span>
+                <input
+                  maxLength={100}
+                  placeholder="Ex. 5 à 12 jours"
+                  type="text"
+                  value={form.deliveryEstimate}
+                  onChange={(event) => setForm({ ...form, deliveryEstimate: event.target.value })}
+                />
+              </label>
 
               <label className="featured-checkbox-row">
                 <input
