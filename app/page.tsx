@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import Image from 'next/image'
 import Link from 'next/link'
-import { Search, MessageCircle } from 'lucide-react'
+import { MapPin, MessageCircle, Route, Search, ShieldCheck } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import FavoriteButton from './ui/favorite-button'
 import QuantityInput from './ui/quantity-input'
@@ -261,17 +261,17 @@ export default function Home() {
 
         <section className="market-benefits" aria-label="Les services Jalims">
           <div className="benefit-item">
-            <span className="benefit-symbol benefit-route" aria-hidden="true">↗</span>
+            <span className="benefit-symbol benefit-route" aria-hidden="true"><Route size={18} strokeWidth={2} /></span>
             <span><strong>{homepageContent.benefit_one_title}</strong><small>{homepageContent.benefit_one_description}</small></span>
           </div>
           <span className="benefit-divider" />
           <div className="benefit-item">
-            <span className="benefit-symbol benefit-shield" aria-hidden="true">✓</span>
+            <span className="benefit-symbol benefit-shield" aria-hidden="true"><ShieldCheck size={18} strokeWidth={2} /></span>
             <span><strong>{homepageContent.benefit_two_title}</strong><small>{homepageContent.benefit_two_description}</small></span>
           </div>
           <span className="benefit-divider" />
           <div className="benefit-item">
-            <span className="benefit-symbol benefit-pin" aria-hidden="true">⌖</span>
+            <span className="benefit-symbol benefit-pin" aria-hidden="true"><MapPin size={18} strokeWidth={2} /></span>
             <span><strong>{homepageContent.benefit_three_title}</strong><small>{homepageContent.benefit_three_description}</small></span>
           </div>
         </section>
