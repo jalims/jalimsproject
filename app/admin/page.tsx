@@ -393,6 +393,30 @@ export default function AdminPage() {
       return
     }
 
+    const colorAttribute = configuredAttributes.find((attribute) => attribute.attribute_key === 'color')
+    if (colorAttribute) {
+      const { data: savedColorAttribute, error: colorError } = await supabase
+        .from('product_attributes')
+        .update({ attribute_colors: colorAttribute.attribute_colors })
+        .eq('product_id', productId)
+        .eq('attribute_key', 'color')
+        .select('product_id')
+        .maybeSingle()
+
+      if (colorError || !savedColorAttribute) {
+        setSaving(false)
+        if (createdProduct) {
+          if (uploadedPaths.length) await supabase.storage.from('products').remove(uploadedPaths)
+          await supabase.from('products').delete().eq('id', productId)
+        }
+        setFeedback({
+          kind: 'error',
+          text: `Les variantes sont enregistrées, mais les couleurs n’ont pas pu être enregistrées${colorError ? ` : ${colorError.message}` : '.'}`,
+        })
+        return
+      }
+    }
+
     if (createdProduct) {
       const { error: activateError } = await supabase.from('products').update({ active: true }).eq('id', productId)
       if (activateError) {
