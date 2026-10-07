@@ -7,6 +7,7 @@ type CreatePaymentBody = {
 }
 
 const paymentMethods = ['Wave', 'Orange Money', 'Free Money', 'Carte Bancaire'] as const
+const paytechIpnUrl = 'https://jalims.com/api/payment/ipn'
 
 function normalizeSenegalPhone(phone: string) {
   let compact = phone.trim().replace(/[\s().-]/g, '')
@@ -115,17 +116,12 @@ export async function POST(request: Request) {
     return Response.json({ error: 'Impossible de charger le produit de la commande.' }, { status: 500 })
   }
 
-  let ipnUrl: URL
-  try {
-    ipnUrl = new URL('/api/payment/ipn', siteUrl)
-  } catch {
-    return Response.json({ error: 'URL du site invalide.' }, { status: 500 })
-  }
-  if (ipnUrl.protocol !== 'https:') {
-    return Response.json({ error: 'L’URL IPN PayTech doit utiliser HTTPS.' }, { status: 500 })
-  }
-
   const paytechRefCommand = `PAY-${randomUUID()}`
+
+  console.info('[PayTech] Creating payment request', {
+    ipnUrl: paytechIpnUrl,
+    refCommand: paytechRefCommand,
+  })
 
   let paytechResponse: Response
   try {
@@ -144,7 +140,7 @@ export async function POST(request: Request) {
         command_name: `Commande ${order.jalims_code} - ${product.name}`,
         target_payment: paymentMethod,
         env: 'test',
-        ipn_url: ipnUrl.toString(),
+        ipn_url: paytechIpnUrl,
         success_url: `${siteUrl}/orders?payment=return`,
         cancel_url: `${siteUrl}/orders?payment=cancelled`,
         custom_field: JSON.stringify({ order_id: order.id }),
@@ -152,6 +148,7 @@ export async function POST(request: Request) {
       cache: 'no-store',
     })
   } catch {
+    console.error('[PayTech] Payment request failed', { reason: 'network_error' })
     return Response.json({ error: 'PayTech est momentanément inaccessible.' }, { status: 502 })
   }
 

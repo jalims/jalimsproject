@@ -80,13 +80,13 @@ Ajoutez ces variables à `.env.local` et aux variables d’environnement Vercel,
 ```text
 PAYTECH_API_KEY=...
 PAYTECH_API_SECRET=...
-NEXT_PUBLIC_SITE_URL=https://votre-domaine
+NEXT_PUBLIC_SITE_URL=https://jalims.com
 SUPABASE_SERVICE_ROLE_KEY=...
 ```
 
 Récupérez `SUPABASE_SERVICE_ROLE_KEY` dans les paramètres API du projet Supabase. Cette clé contourne RLS et doit rester une variable serveur secrète : ne la préfixez jamais avec `NEXT_PUBLIC_` et ne l’exposez pas au navigateur. Les routes paiement authentifient le client et vérifient sa propriété de la commande avant toute création de paiement; l’IPN met à jour la commande uniquement après validation HMAC-SHA256.
 
-Les paiements sont envoyés avec `env=test` et les moyens Orange Money, Wave et Free Money. PayTech indique qu’en test le montant débité est aléatoire (100 à 150 FCFA) et que le sandbox est réservé aux tests internes; ne l’utilisez pas pour des transactions publiques. Le retour du navigateur ne confirme pas le paiement : seul l’IPN valide le statut.
+Les paiements sont envoyés avec `env=test` et les moyens Orange Money, Wave et Free Money. L’IPN envoyé à PayTech est `https://jalims.com/api/payment/ipn`; il est indépendant de `NEXT_PUBLIC_SITE_URL` et ce domaine ne doit pas rediriger cette URL. PayTech indique qu’en test le montant débité est aléatoire (100 à 150 FCFA) et que le sandbox est réservé aux tests internes; ne l’utilisez pas pour des transactions publiques. Le retour du navigateur ne confirme pas le paiement : seul l’IPN valide le statut.
 
 ## 9. Attributs et variantes produit
 
