@@ -177,6 +177,10 @@ export async function POST(request: Request) {
       paytech_message: paytechMessage,
     }, { status: 502 })
   }
+  console.info('[PayTech] Payment request accepted', {
+    status: paytechResponse.status,
+    refCommand: paytechRefCommand,
+  })
 
   let redirectUrl: URL
   try {
@@ -224,6 +228,11 @@ export async function POST(request: Request) {
       { status: updateError ? 500 : 409 },
     )
   }
+
+  console.info('[PayTech] Payment linked to order', {
+    orderId: order.id,
+    refCommand: paytechRefCommand,
+  })
 
   return Response.json({ redirect_url: redirectUrl.toString() })
 }

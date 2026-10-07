@@ -1,12 +1,15 @@
-import { createHmac, timingSafeEqual } from 'node:crypto'
+import { createHash, createHmac, timingSafeEqual } from 'node:crypto'
 import { createSupabaseAdminClient } from '../../../../lib/paytech-admin'
 
 type PayTechNotification = {
   type_event?: string
   item_price?: string | number
+  final_item_price?: string | number
   ref_command?: string
   token?: string
   hmac_compute?: string
+  api_key_sha256?: string
+  api_secret_sha256?: string
 }
 
 function parseNotification(value: unknown): PayTechNotification | null {
@@ -14,13 +17,19 @@ function parseNotification(value: unknown): PayTechNotification | null {
 
   const fields = value as Record<string, unknown>
   const itemPrice = fields.item_price
+  const finalItemPrice = fields.final_item_price
 
   return {
     type_event: typeof fields.type_event === 'string' ? fields.type_event : undefined,
     item_price: typeof itemPrice === 'string' || typeof itemPrice === 'number' ? itemPrice : undefined,
+    final_item_price: typeof finalItemPrice === 'string' || typeof finalItemPrice === 'number'
+      ? finalItemPrice
+      : undefined,
     ref_command: typeof fields.ref_command === 'string' ? fields.ref_command : undefined,
     token: typeof fields.token === 'string' ? fields.token : undefined,
     hmac_compute: typeof fields.hmac_compute === 'string' ? fields.hmac_compute : undefined,
+    api_key_sha256: typeof fields.api_key_sha256 === 'string' ? fields.api_key_sha256 : undefined,
+    api_secret_sha256: typeof fields.api_secret_sha256 === 'string' ? fields.api_secret_sha256 : undefined,
   }
 }
 
@@ -45,18 +54,32 @@ async function readNotification(request: Request): Promise<PayTechNotification |
   return null
 }
 
-function isValidHmac(notification: PayTechNotification, apiKey: string, apiSecret: string) {
-  if (notification.item_price === undefined || !notification.ref_command || !notification.hmac_compute) {
-    return false
+function matchesHexDigest(receivedHex: string, expected: Buffer) {
+  if (!/^[a-f\d]{64}$/i.test(receivedHex)) return false
+
+  const received = Buffer.from(receivedHex, 'hex')
+  return received.length === expected.length && timingSafeEqual(received, expected)
+}
+
+function verifySignature(notification: PayTechNotification, apiKey: string, apiSecret: string) {
+  if (notification.hmac_compute) {
+    const amount = notification.final_item_price ?? notification.item_price
+    if (amount === undefined || !notification.ref_command) return null
+
+    const expected = createHmac('sha256', apiSecret)
+      .update(`${amount}|${notification.ref_command}|${apiKey}`)
+      .digest()
+    return matchesHexDigest(notification.hmac_compute, expected) ? 'hmac' : null
   }
 
-  const expected = createHmac('sha256', apiSecret)
-    .update(`${notification.item_price}|${notification.ref_command}|${apiKey}`)
-    .digest()
-  if (!/^[a-f\d]{64}$/i.test(notification.hmac_compute)) return false
+  if (!notification.api_key_sha256 || !notification.api_secret_sha256) return null
 
-  const received = Buffer.from(notification.hmac_compute, 'hex')
-  return received.length === expected.length && timingSafeEqual(received, expected)
+  const expectedApiKeyHash = createHash('sha256').update(apiKey).digest()
+  const expectedApiSecretHash = createHash('sha256').update(apiSecret).digest()
+  return matchesHexDigest(notification.api_key_sha256, expectedApiKeyHash)
+    && matchesHexDigest(notification.api_secret_sha256, expectedApiSecretHash)
+    ? 'sha256'
+    : null
 }
 
 function errorResponse(reason: string, message: string, status: number, context: Record<string, unknown> = {}) {
@@ -89,13 +112,15 @@ export async function POST(request: Request) {
     return errorResponse('unsupported_or_invalid_payload', 'Corps de notification invalide.', 400)
   }
 
-  if (!isValidHmac(notification, apiKey, apiSecret)) {
+  const signatureMethod = verifySignature(notification, apiKey, apiSecret)
+  if (!signatureMethod) {
     return errorResponse('invalid_signature', 'Signature IPN invalide.', 403, {
       refCommand: notification.ref_command ?? null,
       event: notification.type_event ?? null,
     })
   }
   console.info('[PayTech IPN] Signature verified', {
+    method: signatureMethod,
     refCommand: notification.ref_command,
     event: notification.type_event,
   })
@@ -143,7 +168,7 @@ export async function POST(request: Request) {
   }
   console.info('[PayTech IPN] Order matched', { orderId: order.id, refCommand: notification.ref_command })
 
-  const notifiedAmount = Number(notification.item_price)
+  const notifiedAmount = Number(notification.final_item_price ?? notification.item_price)
   if (!Number.isFinite(notifiedAmount) || Math.abs(Number(order.total_price) - notifiedAmount) > 0.001) {
     return errorResponse('amount_mismatch', 'Le montant IPN ne correspond pas à la commande.', 400, {
       orderId: order.id,
@@ -155,6 +180,7 @@ export async function POST(request: Request) {
   const nextStatus = isPaid ? 'payé' : 'cancelled'
 
   if (isPaid) {
+    console.info('[PayTech IPN] Confirming paid order', { orderId: order.id })
     const { data: confirmed, error: confirmError } = await supabase.rpc('confirm_paytech_product_order', {
       p_order_id: order.id,
     })
@@ -176,6 +202,7 @@ export async function POST(request: Request) {
   }
 
   if (allowedStatuses.includes(order.status)) {
+    console.info('[PayTech IPN] Updating order status', { orderId: order.id, status: nextStatus })
     const { data: updatedOrder, error: updateError } = await supabase
       .from('orders')
       .update({ status: nextStatus })
