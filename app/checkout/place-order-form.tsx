@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { FormEvent, useEffect, useState } from 'react'
 import { supabase } from '../../lib/supabase'
+import { logClientError } from '../../lib/user-facing-errors'
 
 type PickupPoint = {
   id: string
@@ -56,7 +57,8 @@ export default function PlaceOrderForm({ productId, quantity, pickupPoints, vari
     })
 
     if (error) {
-      setErrorMessage(error.message.replaceAll('_', ' '))
+      logClientError('Order creation failed', error)
+      setErrorMessage('La commande n’a pas pu être créée. Vérifiez vos informations et réessayez.')
       setSubmitting(false)
       return
     }
@@ -92,12 +94,13 @@ export default function PlaceOrderForm({ productId, quantity, pickupPoints, vari
       const payment = await response.json() as { redirect_url?: string; error?: string }
 
       if (!response.ok || !payment.redirect_url) {
-        throw new Error(payment.error ?? 'Impossible de démarrer le paiement.')
+        throw new Error('Impossible de démarrer le paiement.')
       }
 
       window.location.assign(payment.redirect_url)
     } catch (paymentError) {
-      setErrorMessage(paymentError instanceof Error ? paymentError.message : 'Impossible de démarrer le paiement.')
+      logClientError('Payment startup failed', paymentError)
+      setErrorMessage('Impossible de démarrer le paiement. Vous pourrez le reprendre depuis vos commandes.')
       setSubmitting(false)
     }
   }

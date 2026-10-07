@@ -57,8 +57,9 @@ export async function POST(request: Request) {
   let supabase
   try {
     supabase = createSupabaseAdminClient()
-  } catch {
-    return Response.json({ error: 'Ajoutez SUPABASE_SERVICE_ROLE_KEY aux variables serveur Supabase.' }, { status: 500 })
+  } catch (error) {
+    console.error('[Payment] Server payment configuration unavailable', error)
+    return Response.json({ error: 'Le paiement est momentanément indisponible. Veuillez réessayer plus tard.' }, { status: 500 })
   }
 
   const { data: authData, error: authError } = await supabase.auth.getUser(accessToken)
@@ -172,9 +173,7 @@ export async function POST(request: Request) {
       message: paytechMessage,
     })
     return Response.json({
-      error: `PayTech (HTTP ${paytechResponse.status}) : ${paytechMessage}`,
-      paytech_status: paytechResponse.status,
-      paytech_message: paytechMessage,
+      error: 'PayTech n’a pas pu démarrer le paiement. Veuillez réessayer.',
     }, { status: 502 })
   }
   console.info('[PayTech] Payment request accepted', {

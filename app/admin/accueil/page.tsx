@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { FormEvent, useEffect, useState } from 'react'
 import { hasJalimsAdminAccess } from '../../../lib/admin-access'
+import { logClientError } from '../../../lib/user-facing-errors'
 import { defaultHomepageContent, type HomepageContent } from '../../../lib/homepage-content'
 import { supabase } from '../../../lib/supabase'
 
@@ -58,7 +59,8 @@ export default function AdminHomepageSettingsPage() {
 
       if (!active) return
       if (error) {
-        setFeedback({ kind: 'error', text: `Impossible de charger les textes : ${error.message}. Vérifiez la migration homepage_content.` })
+        logClientError('Homepage settings load failed', error)
+        setFeedback({ kind: 'error', text: 'Impossible de charger les textes de l’accueil pour le moment.' })
       } else if (data) {
         setContent({ ...defaultHomepageContent, ...data })
       }
@@ -89,7 +91,8 @@ export default function AdminHomepageSettingsPage() {
     setSaving(false)
 
     if (error) {
-      setFeedback({ kind: 'error', text: `Enregistrement impossible : ${error.message}. Exécutez la migration supabase/migrations/20260926_homepage_content.sql.` })
+      logClientError('Homepage settings save failed', error)
+      setFeedback({ kind: 'error', text: 'Les textes de l’accueil n’ont pas pu être enregistrés.' })
       return
     }
 

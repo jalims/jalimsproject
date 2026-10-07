@@ -6,6 +6,7 @@ import { Suspense } from 'react'
 import { useEffect, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { supabase } from '../../lib/supabase'
+import { logClientError } from '../../lib/user-facing-errors'
 import PayOrderButton from './pay-order-button'
 
 type Order = {
@@ -74,7 +75,8 @@ function OrdersContent() {
 
       if (!active) return
       if (error) {
-        setErrorMessage(error.message)
+        logClientError('Order history load failed', error)
+        setErrorMessage('Impossible de charger vos commandes pour le moment.')
       } else {
         const orderRows = data ?? []
         const orderIds = orderRows.map((order) => order.id)
@@ -94,7 +96,8 @@ function OrdersContent() {
 
         if (!active) return
         if (productsError || pickupError || variantLinesError) {
-          setErrorMessage(productsError?.message ?? pickupError?.message ?? variantLinesError?.message ?? 'Impossible de charger les détails des commandes.')
+          logClientError('Order details load failed', productsError ?? pickupError ?? variantLinesError)
+          setErrorMessage('Les détails de vos commandes sont momentanément indisponibles.')
         } else {
           const productById = new Map((products ?? []).map((product) => [product.id, product]))
           const pickupPointById = new Map((pickupPoints ?? []).map((point) => [point.id, point]))

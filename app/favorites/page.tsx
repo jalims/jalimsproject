@@ -4,6 +4,7 @@ import Image from 'next/image'
 import Link from 'next/link'
 import { useEffect, useState } from 'react'
 import { supabase } from '../../lib/supabase'
+import { logClientError } from '../../lib/user-facing-errors'
 
 type FavoriteProduct = {
   id: string
@@ -35,7 +36,10 @@ export default function FavoritesPage() {
         .from('favorites')
         .select('products(id, name, price, image_url, category, moq)')
       if (!active) return
-      if (error) setErrorMessage(error.message)
+      if (error) {
+        logClientError('Favorites load failed', error)
+        setErrorMessage('Impossible de charger vos favoris pour le moment.')
+      }
       else {
         const favoriteProducts = (data ?? [])
           .flatMap((favorite) => favorite.products)

@@ -5,6 +5,7 @@ import Image from 'next/image'
 import Link from 'next/link'
 import { MapPin, MessageCircle, Route, Search, ShieldCheck } from 'lucide-react'
 import { supabase } from '../lib/supabase'
+import { logClientError } from '../lib/user-facing-errors'
 import FavoriteButton from './ui/favorite-button'
 import QuantityInput from './ui/quantity-input'
 import { defaultHomepageContent, type HomepageContent } from '../lib/homepage-content'
@@ -96,7 +97,8 @@ export default function Home() {
       if (contentData) setHomepageContent({ ...defaultHomepageContent, ...contentData })
 
       if (error) {
-        setLoadError(error.message)
+        logClientError('Product catalog load failed', error)
+        setLoadError('Le catalogue est momentanément indisponible. Veuillez réessayer.')
       } else {
         setProducts((data ?? []) as Product[])
       }

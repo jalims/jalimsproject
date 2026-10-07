@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { FormEvent, useEffect, useState } from 'react'
 import { supabase } from '../../../lib/supabase'
 import { hasJalimsAdminAccess } from '../../../lib/admin-access'
+import { logClientError } from '../../../lib/user-facing-errors'
 
 type PickupPoint = {
   id: string
@@ -26,8 +27,10 @@ export default function AdminPickupPointsPage() {
 
   async function loadPoints() {
     const { data, error } = await supabase.from('pickup_points').select('id, name, address, city, active').order('city')
-    if (error) setFeedback(`Erreur Supabase : ${error.message}`)
-    else setPoints((data ?? []) as PickupPoint[])
+    if (error) {
+      logClientError('Pickup point list load failed', error)
+      setFeedback('Impossible de charger les points de retrait.')
+    } else setPoints((data ?? []) as PickupPoint[])
   }
 
   useEffect(() => {
@@ -54,7 +57,8 @@ export default function AdminPickupPointsPage() {
       : await supabase.from('pickup_points').insert(values)
     setSaving(false)
     if (result.error) {
-      setFeedback(`Enregistrement refusé : ${result.error.message}`)
+      logClientError('Pickup point save failed', result.error)
+      setFeedback('Le point de retrait n’a pas pu être enregistré.')
       return
     }
     setForm(emptyForm)
@@ -65,8 +69,10 @@ export default function AdminPickupPointsPage() {
 
   async function togglePoint(point: PickupPoint) {
     const { error } = await supabase.from('pickup_points').update({ active: !point.active }).eq('id', point.id)
-    if (error) setFeedback(`Modification refusée : ${error.message}`)
-    else await loadPoints()
+    if (error) {
+      logClientError('Pickup point update failed', error)
+      setFeedback('La modification du point de retrait a échoué.')
+    } else await loadPoints()
   }
 
   if (checking) return <main className="admin-page"><div className="admin-state">Vérification de l’accès...</div></main>

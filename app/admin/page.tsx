@@ -6,6 +6,7 @@ import { Search } from 'lucide-react'
 import { FormEvent, useEffect, useState } from 'react'
 import { supabase } from '../../lib/supabase'
 import { hasJalimsAdminAccess } from '../../lib/admin-access'
+import { getAuthErrorMessage, logClientError } from '../../lib/user-facing-errors'
 import QuantityInput from '../ui/quantity-input'
 
 type Product = {
@@ -76,7 +77,6 @@ function buildVariantCombinations(attributes: { key: string; values: string[] }[
 export default function AdminPage() {
   const [access, setAccess] = useState<AccessState>('checking')
   const [adminEmail, setAdminEmail] = useState('')
-  const [currentRole, setCurrentRole] = useState('')
   const [authError, setAuthError] = useState('')
   const [products, setProducts] = useState<Product[]>([])
   const [productsError, setProductsError] = useState('')
@@ -104,7 +104,8 @@ export default function AdminPage() {
       .order('name')
 
     if (error) {
-      setProductsError(error.message)
+      logClientError('Admin product list load failed', error)
+      setProductsError('Impossible de charger le catalogue pour le moment.')
       return
     }
 
@@ -120,7 +121,8 @@ export default function AdminPage() {
       .order('sort_order')
 
     if (error) {
-      setFeedback({ kind: 'error', text: `Impossible de charger les attributs produit : ${error.message}` })
+      logClientError('Admin product attributes load failed', error)
+      setFeedback({ kind: 'error', text: 'Impossible de charger les options produit pour le moment.' })
       return
     }
 
@@ -155,7 +157,7 @@ export default function AdminPage() {
       }
 
       if (error) {
-        setAuthError(error.message)
+        setAuthError(getAuthErrorMessage(error))
         setAccess('auth-error')
         return
       }
@@ -165,9 +167,7 @@ export default function AdminPage() {
         return
       }
 
-      const role = typeof data.user.app_metadata?.role === 'string' ? data.user.app_metadata.role : ''
       setAdminEmail(data.user.email ?? '')
-      setCurrentRole(role)
 
       if (!hasJalimsAdminAccess(data.user)) {
         setAccess('not-admin')
@@ -263,9 +263,10 @@ export default function AdminPage() {
 
     const { data: refreshedAuth, error: refreshError } = await supabase.auth.refreshSession()
     if (refreshError || !hasJalimsAdminAccess(refreshedAuth.session?.user)) {
+      if (refreshError) logClientError('Admin access refresh failed', refreshError)
       setFeedback({
         kind: 'error',
-        text: 'Impossible de confirmer le rôle admin dans le jeton renouvelé. Vérifiez app_metadata.role = admin dans Supabase, puis déconnectez-vous et reconnectez-vous.',
+        text: 'Impossible de vérifier votre accès administrateur. Reconnectez-vous puis réessayez.',
       })
       return
     }
@@ -293,10 +294,8 @@ export default function AdminPage() {
 
       if (error) {
         setSaving(false)
-        const policyHelp = error?.message.toLowerCase().includes('row-level security')
-          ? ` Compte connecté : ${refreshedAuth.session?.user.email ?? 'inconnu'} · rôle JWT : ${String(refreshedAuth.session?.user.app_metadata?.role ?? 'absent')}. Vérifiez la politique SQL products puis reconnectez-vous.`
-          : ''
-        setFeedback({ kind: 'error', text: `Création refusée : ${error.message}.${policyHelp}` })
+        logClientError('Admin product creation failed', error)
+        setFeedback({ kind: 'error', text: 'Le produit n’a pas pu être créé. Vérifiez votre accès administrateur et réessayez.' })
         return
       }
       createdProduct = true
@@ -321,13 +320,11 @@ export default function AdminPage() {
         })
 
         if (uploadError) {
+          logClientError('Admin product image upload failed', uploadError)
           if (uploadedPaths.length) await supabase.storage.from('products').remove(uploadedPaths)
           if (createdProduct) await supabase.from('products').delete().eq('id', productId)
           setSaving(false)
-          const roleIssue = uploadError.message.toLowerCase().includes('row-level security')
-            ? ' Dans Supabase SQL Editor, exécutez supabase/migrations/20260926_product_gallery_storage_rls.sql. Le bucket products doit autoriser les photos et la session doit avoir role admin.'
-            : ''
-          setFeedback({ kind: 'error', text: `Envoi photo ${index + 1}/${imageFiles.length} refusé : ${uploadError.message}.${roleIssue}` })
+          setFeedback({ kind: 'error', text: `La photo ${index + 1}/${imageFiles.length} n’a pas pu être envoyée. Vérifiez votre accès administrateur et réessayez.` })
           return
         }
 
@@ -344,10 +341,11 @@ export default function AdminPage() {
 
       const { error: galleryError } = await supabase.from('product_images').insert(galleryRows)
       if (galleryError) {
+        logClientError('Admin product gallery save failed', galleryError)
         await supabase.storage.from('products').remove(uploadedPaths)
         if (createdProduct) await supabase.from('products').delete().eq('id', productId)
         setSaving(false)
-        setFeedback({ kind: 'error', text: `Photos envoyées, mais la galerie n’a pas pu être enregistrée : ${galleryError.message}. Vérifiez que la migration galerie est appliquée.` })
+        setFeedback({ kind: 'error', text: 'Les photos ont été envoyées, mais elles n’ont pas pu être ajoutées au produit.' })
         return
       }
     }
@@ -367,12 +365,13 @@ export default function AdminPage() {
     const { error } = await supabase.from('products').update(productValues).eq('id', productId)
 
     if (error) {
+      logClientError('Admin product update failed', error)
       setSaving(false)
       if (uploadedPaths.length) await supabase.storage.from('products').remove(uploadedPaths)
       if (createdProduct) await supabase.from('products').delete().eq('id', productId)
       setFeedback({
         kind: 'error',
-        text: `Publication refusée par Supabase : ${error.message}`,
+        text: 'Le produit n’a pas pu être enregistré. Veuillez réessayer.',
       })
       return
     }
@@ -384,12 +383,13 @@ export default function AdminPage() {
     })
 
     if (variantError) {
+      logClientError('Admin product variant save failed', variantError)
       setSaving(false)
       if (createdProduct) {
         if (uploadedPaths.length) await supabase.storage.from('products').remove(uploadedPaths)
         await supabase.from('products').delete().eq('id', productId)
       }
-      setFeedback({ kind: 'error', text: `Configuration des variantes refusée : ${variantError.message}` })
+      setFeedback({ kind: 'error', text: 'Les options du produit n’ont pas pu être enregistrées.' })
       return
     }
 
@@ -404,6 +404,7 @@ export default function AdminPage() {
         .maybeSingle()
 
       if (colorError || !savedColorAttribute) {
+        if (colorError) logClientError('Admin product color save failed', colorError)
         setSaving(false)
         if (createdProduct) {
           if (uploadedPaths.length) await supabase.storage.from('products').remove(uploadedPaths)
@@ -411,7 +412,7 @@ export default function AdminPage() {
         }
         setFeedback({
           kind: 'error',
-          text: `Les variantes sont enregistrées, mais les couleurs n’ont pas pu être enregistrées${colorError ? ` : ${colorError.message}` : '.'}`,
+          text: 'Les options sont enregistrées, mais les couleurs n’ont pas pu être enregistrées.',
         })
         return
       }
@@ -420,8 +421,9 @@ export default function AdminPage() {
     if (createdProduct) {
       const { error: activateError } = await supabase.from('products').update({ active: true }).eq('id', productId)
       if (activateError) {
+        logClientError('Admin product publish failed', activateError)
         setSaving(false)
-        setFeedback({ kind: 'error', text: `Variantes enregistrées, mais le produit n’a pas pu être publié : ${activateError.message}` })
+        setFeedback({ kind: 'error', text: 'Les options sont enregistrées, mais le produit n’a pas pu être publié.' })
         return
       }
     }
@@ -473,7 +475,8 @@ export default function AdminPage() {
 
     setVariantConfigLoading(false)
     if (attributesError || variantsError) {
-      setFeedback({ kind: 'error', text: `Impossible de charger les variantes : ${(attributesError ?? variantsError)?.message}` })
+      logClientError('Admin product variant load failed', attributesError ?? variantsError)
+      setFeedback({ kind: 'error', text: 'Impossible de charger les options de ce produit.' })
       return
     }
 
@@ -499,7 +502,8 @@ export default function AdminPage() {
   async function toggleProduct(product: Product) {
     const { error } = await supabase.from('products').update({ active: !product.active }).eq('id', product.id)
     if (error) {
-      setFeedback({ kind: 'error', text: `Modification refusée : ${error.message}` })
+      logClientError('Admin product status update failed', error)
+      setFeedback({ kind: 'error', text: 'La modification du produit n’a pas pu être enregistrée.' })
       return
     }
     if (editingId === String(product.id)) {
@@ -535,22 +539,16 @@ export default function AdminPage() {
             {access === 'signed-out'
               ? 'Connexion requise'
               : access === 'auth-error'
-                ? 'Connexion à Supabase impossible'
+                ? 'Connexion momentanément indisponible'
                 : 'Accès réservé'}
           </h1>
           <p>
             {access === 'signed-out'
               ? 'Connectez-vous avec un compte administrateur pour gérer le catalogue.'
               : access === 'auth-error'
-                ? `Erreur d’authentification : ${authError}`
+                ? authError
                 : 'Ce compte ne dispose pas du rôle administrateur.'}
           </p>
-          {access === 'not-admin' && (
-            <p className="admin-diagnostic" role="status">
-              Compte détecté : <strong>{adminEmail || 'adresse indisponible'}</strong><br />
-              Rôle reçu : <strong>{currentRole || 'absent'}</strong>
-            </p>
-          )}
           <Link className="admin-primary-link" href="/login?next=%2Fadmin">Se connecter</Link>
           <Link className="admin-secondary-link" href="/">Retour au catalogue</Link>
         </section>

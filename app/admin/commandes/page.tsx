@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useEffect, useState } from 'react'
 import { supabase } from '../../../lib/supabase'
 import { hasJalimsAdminAccess } from '../../../lib/admin-access'
+import { logClientError } from '../../../lib/user-facing-errors'
 
 type AdminOrder = {
   id: string
@@ -65,10 +66,8 @@ export default function AdminOrdersPage() {
         .order('created_at', { ascending: false })
       if (!active) return
       if (error) {
-        const isRlsError = error.message.toLowerCase().includes('row-level security') || error.code === '42501'
-        setErrorMessage(isRlsError
-          ? `Supabase bloque la lecture des commandes (RLS). Exécutez la migration supabase/migrations/20260926_designate_jalims_admin.sql, puis reconnectez le compte admin. Détail : ${error.message}`
-          : error.message)
+        logClientError('Admin order list load failed', error)
+        setErrorMessage('Impossible de charger les commandes. Vérifiez votre accès administrateur et réessayez.')
       }
       else {
         const orderRows = data ?? []
@@ -89,10 +88,8 @@ export default function AdminOrdersPage() {
         if (!active) return
         if (productsError || pickupError || variantLinesError) {
           const detailError = productsError ?? pickupError ?? variantLinesError
-          const isRlsError = detailError?.message.toLowerCase().includes('row-level security') || detailError?.code === '42501'
-          setErrorMessage(isRlsError
-            ? `Les commandes sont chargées, mais Supabase bloque les détails (RLS). Vérifiez la migration designate_jalims_admin.sql. Détail : ${detailError?.message}`
-            : detailError?.message ?? 'Impossible de charger les détails des commandes.')
+          if (detailError) logClientError('Admin order details load failed', detailError)
+          setErrorMessage('Les commandes sont chargées, mais certains détails sont indisponibles.')
         } else {
           const productById = new Map((products ?? []).map((product) => [product.id, product]))
           const pickupPointById = new Map((pickupPoints ?? []).map((point) => [point.id, point]))
@@ -125,10 +122,8 @@ export default function AdminOrdersPage() {
     const { error } = await supabase.from('orders').update({ status }).eq('id', orderId)
     setSavingId('')
     if (error) {
-      const isRlsError = error.message.toLowerCase().includes('row-level security') || error.code === '42501'
-      setErrorMessage(isRlsError
-        ? `Supabase a refusé la mise à jour (RLS). Vérifiez que le compte est jalimsofficiel@gmail.com avec le rôle admin et appliquez la migration designate_jalims_admin.sql. Détail : ${error.message}`
-        : error.message)
+      logClientError('Admin order status update failed', error)
+      setErrorMessage('Le statut de la commande n’a pas pu être modifié. Vérifiez votre accès administrateur.')
       return
     }
     setOrders((current) => current.map((order) => order.id === orderId ? { ...order, status } : order))
@@ -152,7 +147,7 @@ export default function AdminOrdersPage() {
           <div><p className="eyebrow">JALIMS · ADMINISTRATION</p><h1>Commandes</h1><p>Actualisez le statut après chaque étape du parcours.</p></div>
           <Link className="admin-catalog-link" href="/admin">Gestion des produits →</Link>
         </header>
-        {errorMessage && <p className="admin-feedback error" role="alert">Erreur Supabase : {errorMessage}</p>}
+        {errorMessage && <p className="admin-feedback error" role="alert">{errorMessage}</p>}
         {orders.length === 0 ? (
           <div className="orders-state">Aucune commande enregistrée pour le moment.</div>
         ) : (

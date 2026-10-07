@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { supabase } from '../../lib/supabase'
 import { useRouter } from 'next/navigation'
 import { hasJalimsAdminAccess } from '../../lib/admin-access'
+import { getAuthErrorMessage } from '../../lib/user-facing-errors'
 
 export default function Login() {
   const [fullName, setFullName] = useState('')
@@ -74,11 +75,11 @@ export default function Login() {
 
         if (data.user?.identities?.length === 0) {
           setIsSignUp(false)
-          setSuccess('Un compte existe peut-être déjà avec cette adresse. Connectez-vous ou utilisez « Mot de passe oublié ? ».')
+          setSuccess('Un compte existe déjà avec cette adresse. Connectez-vous ou utilisez « Mot de passe oublié ? ».')
         } else if (!data.session) {
           setIsSignUp(false)
           setNeedsConfirmation(true)
-          setSuccess('Inscription enregistrée. Ouvrez l’e-mail de confirmation envoyé par Supabase, puis revenez vous connecter.')
+          setSuccess('Compte créé ! Un e-mail de confirmation vient de vous être envoyé. Cliquez sur le lien qu’il contient pour activer votre compte, puis connectez-vous.')
         } else {
           router.replace(getDestination(hasJalimsAdminAccess(data.user)))
           router.refresh()
@@ -94,19 +95,7 @@ export default function Login() {
         router.refresh()
       }
     } catch (caughtError) {
-      const authError = caughtError instanceof Error ? caughtError : new Error('Erreur de connexion inconnue.')
-      const message = authError.message.toLowerCase()
-      if (message.includes('rate limit') || message.includes('email rate limit')) {
-        setError('Supabase limite temporairement les e-mails. Attendez avant de réessayer ou configurez un SMTP dans Supabase → Authentication → SMTP Settings.')
-      } else if (message.includes('invalid login credentials')) {
-        setError('Adresse e-mail ou mot de passe incorrect. Si le compte vient d’être créé, confirmez d’abord l’adresse e-mail.')
-      } else if (message.includes('email not confirmed')) {
-        setError('Adresse e-mail non confirmée. Ouvrez le message de confirmation envoyé par Supabase.')
-      } else if (message.includes('weak_password')) {
-        setError('Le mot de passe est trop faible. Utilisez au moins 8 caractères.')
-      } else {
-        setError(authError.message)
-      }
+      setError(getAuthErrorMessage(caughtError))
     } finally {
       setLoading(false)
     }
@@ -125,10 +114,7 @@ export default function Login() {
       if (error) throw error
       setSuccess('Lien de confirmation renvoyé. Vérifiez aussi le dossier indésirable.')
     } catch (caughtError) {
-      const message = caughtError instanceof Error ? caughtError.message : 'Erreur de renvoi inconnue.'
-      setError(message.toLowerCase().includes('rate limit')
-        ? 'Limite d’e-mails Supabase atteinte. Attendez ou configurez un SMTP avant de renvoyer le lien.'
-        : message)
+      setError(getAuthErrorMessage(caughtError))
     } finally {
       setLoading(false)
     }

@@ -1,0 +1,19 @@
+warning: in the working copy of 'app/page.tsx', LF will be replaced by CRLF the next time Git touches it
+ app/account/page.tsx              | 15 [32m++++++++[m[31m--[m
+ app/admin/accueil/page.tsx        |  7 [32m+++[m[31m--[m
+ app/admin/commandes/page.tsx      | 21 [32m++++++[m[31m--------[m
+ app/admin/page.tsx                | 58 [32m+++++++++++++++++++[m[31m--------------------[m
+ app/admin/retraits/page.tsx       | 16 [32m+++++++[m[31m----[m
+ app/api/payment/create/route.ts   |  9 [32m+++[m[31m---[m
+ app/api/payment/ipn/route.ts      | 10 [32m+++++[m[31m--[m
+ app/auth/callback/page.tsx        |  4 [32m++[m[31m-[m
+ app/checkout/place-order-form.tsx |  9 [32m++++[m[31m--[m
+ app/favorites/page.tsx            |  6 [32m+++[m[31m-[m
+ app/login/page.tsx                | 24 [32m++++[m[31m------------[m
+ app/orders/page.tsx               |  7 [32m+++[m[31m--[m
+ app/orders/pay-order-button.tsx   |  6 [32m++[m[31m--[m
+ app/page.tsx                      |  4 [32m++[m[31m-[m
+ app/panier/variant-cart-page.tsx  | 13 [32m++++++[m[31m---[m
+ app/reset-password/page.tsx       |  4 [32m++[m[31m-[m
+ app/ui/favorite-button.tsx        |  7 [32m+++[m[31m--[m
+ 17 files changed, 124 insertions(+), 96 deletions(-)

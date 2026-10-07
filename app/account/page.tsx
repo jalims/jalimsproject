@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { useEffect, useState } from 'react'
 import { supabase } from '../../lib/supabase'
 import { hasJalimsAdminAccess } from '../../lib/admin-access'
+import { logClientError } from '../../lib/user-facing-errors'
 
 export default function AccountPage() {
   const [loading, setLoading] = useState(true)
@@ -42,7 +43,12 @@ export default function AccountPage() {
 
   async function signOut() {
     const { error } = await supabase.auth.signOut()
-    setMessage(error ? `Déconnexion impossible : ${error.message}` : 'Vous êtes déconnecté.')
+    if (error) {
+      logClientError('Account sign-out failed', error)
+      setMessage('La déconnexion est momentanément impossible. Veuillez réessayer.')
+    } else {
+      setMessage('Vous êtes déconnecté.')
+    }
     if (!error) setEmail('')
   }
 
@@ -59,7 +65,12 @@ export default function AccountPage() {
     })
 
     setSaving(false)
-    setMessage(error ? `Profil non enregistré : ${error.message}` : 'Profil enregistré.')
+    if (error) {
+      logClientError('Profile update failed', error)
+      setMessage('Votre profil n’a pas pu être enregistré. Veuillez réessayer.')
+    } else {
+      setMessage('Profil enregistré.')
+    }
   }
 
   return (

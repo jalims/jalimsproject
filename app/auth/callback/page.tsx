@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { Suspense } from 'react'
 import { supabase } from '../../../lib/supabase'
 import { hasJalimsAdminAccess } from '../../../lib/admin-access'
+import { getAuthErrorMessage } from '../../../lib/user-facing-errors'
 
 function AuthCallbackContent() {
   const router = useRouter()
@@ -22,7 +23,8 @@ function AuthCallbackContent() {
 
       if (error || !data.session) {
         setFailed(true)
-        setMessage(error?.message ?? 'Le lien est expiré ou invalide. Demandez un nouvel e-mail de confirmation.')
+        if (error) setMessage(getAuthErrorMessage(error))
+        else setMessage('Le lien est expiré ou invalide. Demandez un nouvel e-mail de confirmation.')
         return
       }
 

@@ -4,6 +4,7 @@ import Image from 'next/image'
 import Link from 'next/link'
 import { useEffect, useState } from 'react'
 import { supabase } from '../../lib/supabase'
+import { logClientError } from '../../lib/user-facing-errors'
 import { clearVariantCart, readVariantCart, saveVariantCart, type VariantCart } from '../../lib/variant-cart'
 
 type Product = {
@@ -71,7 +72,9 @@ export default function VariantCartPage() {
 
       if (!active) return
       if (productError || variantsError || attributesError || !loadedProduct) {
-        setErrorMessage(productError?.message ?? variantsError?.message ?? attributesError?.message ?? 'Ce produit n’est plus disponible.')
+        const error = productError ?? variantsError ?? attributesError
+        if (error) logClientError('Variant cart load failed', error)
+        setErrorMessage('Impossible de charger ce panier. Vérifiez que le produit est toujours disponible.')
         setLoading(false)
         return
       }
@@ -161,7 +164,8 @@ export default function VariantCartPage() {
     })
 
     if (error) {
-      setErrorMessage(error.message.replaceAll('_', ' '))
+      logClientError('Variant order creation failed', error)
+      setErrorMessage('La commande n’a pas pu être créée. Vérifiez votre panier et réessayez.')
       setSubmitting(false)
       return
     }
@@ -195,11 +199,12 @@ export default function VariantCartPage() {
       })
       const payment = await response.json() as { redirect_url?: string; error?: string }
       if (!response.ok || !payment.redirect_url) {
-        throw new Error(payment.error ?? 'Impossible de démarrer le paiement.')
+        throw new Error('Impossible de démarrer le paiement.')
       }
       window.location.assign(payment.redirect_url)
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : 'La commande est créée, mais le paiement n’a pas pu démarrer.')
+      logClientError('Variant payment startup failed', error)
+      setErrorMessage('La commande est créée, mais le paiement n’a pas pu démarrer. Vous pourrez le reprendre depuis vos commandes.')
       setSubmitting(false)
     }
   }

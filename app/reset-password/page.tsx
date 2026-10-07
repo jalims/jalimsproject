@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { FormEvent, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '../../lib/supabase'
+import { getAuthErrorMessage, logClientError } from '../../lib/user-facing-errors'
 
 export default function ResetPasswordPage() {
   const router = useRouter()
@@ -19,6 +20,7 @@ export default function ResetPasswordPage() {
     let active = true
     void supabase.auth.getSession().then(({ data, error }) => {
       if (!active) return
+      if (error) logClientError('Password recovery session check failed', error)
       setValidRecovery(!error && Boolean(data.session))
       setChecking(false)
     })
@@ -46,7 +48,7 @@ export default function ResetPasswordPage() {
     setSubmitting(false)
 
     if (error) {
-      setErrorMessage(error.message)
+      setErrorMessage(getAuthErrorMessage(error))
       return
     }
 

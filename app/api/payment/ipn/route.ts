@@ -131,7 +131,7 @@ export async function POST(request: Request) {
     })
   }
   if (!notification.token) {
-    return errorResponse('missing_payment_token', 'Token PayTech manquant.', 400, {
+    return errorResponse('missing_payment_token', 'Informations de paiement manquantes.', 400, {
       refCommand: notification.ref_command ?? null,
     })
   }
@@ -140,9 +140,10 @@ export async function POST(request: Request) {
   try {
     supabase = createSupabaseAdminClient()
   } catch (error) {
+    console.error('[PayTech IPN] Server database configuration unavailable', error)
     return errorResponse(
       'supabase_admin_configuration',
-      'Ajoutez SUPABASE_SERVICE_ROLE_KEY aux variables serveur Supabase.',
+      'Le traitement du paiement est momentanément indisponible.',
       500,
       { errorName: error instanceof Error ? error.name : 'unknown' },
     )
@@ -156,13 +157,14 @@ export async function POST(request: Request) {
     .maybeSingle()
 
   if (orderError) {
+    console.error('[PayTech IPN] Order lookup failed', orderError)
     return errorResponse('order_lookup_failed', 'Impossible de retrouver la commande.', 500, {
       refCommand: notification.ref_command,
       databaseCode: orderError.code,
     })
   }
   if (!order) {
-    return errorResponse('order_not_found', 'Commande ou token PayTech introuvable.', 404, {
+    return errorResponse('order_not_found', 'Commande de paiement introuvable.', 404, {
       refCommand: notification.ref_command,
     })
   }
@@ -186,6 +188,7 @@ export async function POST(request: Request) {
     })
 
     if (confirmError) {
+      console.error('[PayTech IPN] Order confirmation failed', confirmError)
       return errorResponse('order_confirmation_failed', 'Impossible de confirmer la commande payée.', 409, {
         orderId: order.id,
         databaseCode: confirmError.code,
@@ -212,6 +215,7 @@ export async function POST(request: Request) {
       .maybeSingle()
 
     if (updateError) {
+      console.error('[PayTech IPN] Order status update failed', updateError)
       return errorResponse('order_update_failed', 'Impossible de mettre à jour le statut de la commande.', 500, {
         orderId: order.id,
         databaseCode: updateError.code,

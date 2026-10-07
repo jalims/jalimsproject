@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { supabase } from '../../lib/supabase'
+import { logClientError } from '../../lib/user-facing-errors'
 
 const paymentMethods = ['Wave', 'Orange Money', 'Free Money', 'Carte Bancaire'] as const
 
@@ -37,12 +38,13 @@ export default function PayOrderButton({ orderId }: PayOrderButtonProps) {
       const result = await response.json() as { redirect_url?: string; error?: string }
 
       if (!response.ok || !result.redirect_url) {
-        throw new Error(result.error ?? 'Impossible de démarrer le paiement.')
+        throw new Error('Impossible de démarrer le paiement.')
       }
 
       window.location.assign(result.redirect_url)
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : 'Une erreur est survenue.')
+      logClientError('Order payment startup failed', error)
+      setErrorMessage('Impossible de démarrer le paiement. Veuillez réessayer.')
       setLoading(false)
     }
   }
