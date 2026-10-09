@@ -1,3 +1,8 @@
+drop function if exists public.import_product_from_source(
+  text, text, text, numeric, numeric, numeric, numeric, integer,
+  text, text, text, text, text[], text[]
+);
+
 create or replace function public.import_product_from_source(
   p_sku text,
   p_supplier_url text,
@@ -12,7 +17,8 @@ create or replace function public.import_product_from_source(
   p_name_fr text,
   p_description_fr text,
   p_colors text[],
-  p_sizes text[]
+  p_sizes text[],
+  p_overwrite_text boolean default false
 )
 returns table (
   imported_product_id uuid,
@@ -96,7 +102,7 @@ begin
     raise exception 'invalid_calculated_sale_price' using errcode = '22023';
   end if;
 
-  select coalesce(array_agg(values.value order by values.ordinality), array[]::text[])
+  select coalesce(array_agg(normalized.value order by normalized.ordinality), array[]::text[])
   into v_colors
   from (
     select distinct on (lower(btrim(input.value)))
@@ -106,9 +112,9 @@ begin
       with ordinality as input(value, ordinality)
     where btrim(input.value) <> ''
     order by lower(btrim(input.value)), input.ordinality
-  ) as values;
+  ) as normalized;
 
-  select coalesce(array_agg(values.value order by values.ordinality), array[]::text[])
+  select coalesce(array_agg(normalized.value order by normalized.ordinality), array[]::text[])
   into v_sizes
   from (
     select distinct on (lower(btrim(input.value)))
@@ -118,7 +124,7 @@ begin
       with ordinality as input(value, ordinality)
     where btrim(input.value) <> ''
     order by lower(btrim(input.value)), input.ordinality
-  ) as values;
+  ) as normalized;
 
   if cardinality(v_colors) > 0 and not exists (
     select 1 from public.product_attribute_definitions
@@ -170,8 +176,13 @@ begin
     end if;
 
     update public.products
-    set name = v_name_fr,
-        description = v_description_fr,
+    set name = case
+          when coalesce(p_overwrite_text, false) then v_name_fr else name
+        end,
+        description = case
+          when coalesce(p_overwrite_text, false) then v_description_fr
+          else description
+        end,
         price = v_sale_price,
         category = v_category,
         moq = p_moq,
@@ -254,8 +265,7 @@ begin
         )
         values (v_product_id, v_attribute_values, null, 0, true)
         on conflict (product_id, attribute_values) do update
-        set price_adjustment = 0,
-            active = true;
+        set active = true;
       end loop;
     end loop;
   end if;
@@ -266,6 +276,34 @@ begin
 
   return query select v_product_id, v_created, v_sale_price, v_published;
 end;
+$$;
+
+create or replace function public.product_import_filename_sort_key(p_filename text)
+returns text[]
+language sql
+immutable
+strict
+set search_path = ''
+as $$
+  select coalesce(
+    array_agg(
+      case
+        when token.parts[1] is not null then
+          '0'
+          || lpad(
+            length(token.parts[1])::text,
+            greatest(10, length(length(token.parts[1])::text)),
+            '0'
+          )
+          || ':' || token.parts[1]
+        else '1' || token.parts[2]
+      end
+      order by token.ordinality
+    ),
+    array[]::text[]
+  )
+  from regexp_matches(lower(p_filename), '([0-9]+)|([^0-9]+)', 'g')
+    with ordinality as token(parts, ordinality);
 $$;
 
 create or replace function public.register_imported_product_images(
@@ -318,8 +356,8 @@ begin
   for v_item in select value from jsonb_array_elements(p_images)
   loop
     v_filename := btrim(coalesce(v_item ->> 'filename', ''));
-    v_storage_path := btrim(coalesce(v_item ->> 'storage_path', ''));
     v_image_url := btrim(coalesce(v_item ->> 'image_url', ''));
+    v_storage_path := v_sku || '/' || v_filename;
 
     if v_filename = ''
       or v_filename in ('.', '..')
@@ -327,9 +365,7 @@ begin
       or position(chr(92) in v_filename) > 0
       or v_filename like '%..%'
       or lower(v_filename) !~ '\.(jpe?g|png|webp)$'
-      or v_storage_path <> v_sku || '/' || v_filename
       or v_image_url !~ '^https://'
-      or v_item ->> 'storage_path' is null
       or v_item ->> 'image_url' is null then
       raise exception 'invalid_product_import_image' using errcode = '22023';
     end if;
@@ -357,8 +393,9 @@ begin
   with numbered as (
     select product_images.id,
       row_number() over (
-        order by (product_images.source_filename is null),
-          lower(product_images.source_filename) nulls last,
+        order by case when product_images.source_filename is null then 1 else 0 end,
+          public.product_import_filename_sort_key(product_images.source_filename)
+            nulls last,
           product_images.display_order,
           product_images.id
       ) as position
@@ -373,8 +410,9 @@ begin
   with numbered as (
     select product_images.id,
       row_number() over (
-        order by (product_images.source_filename is null),
-          lower(product_images.source_filename) nulls last,
+        order by case when product_images.source_filename is null then 1 else 0 end,
+          public.product_import_filename_sort_key(product_images.source_filename)
+            nulls last,
           product_images.display_order,
           product_images.id
       ) - 1 as position
@@ -423,14 +461,86 @@ begin
 end;
 $$;
 
+create or replace function public.prevent_incomplete_import_product_publication()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  if new.active = true
+    and exists (
+      select 1 from public.product_costs
+      where product_costs.product_id = new.id
+    )
+    and (
+      select count(*)
+      from public.product_images
+      where product_images.product_id = new.id
+    ) < 3 then
+    raise exception 'imported_product_requires_three_photos'
+      using errcode = '23514';
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists products_require_three_photos_for_import on public.products;
+create trigger products_require_three_photos_for_import
+before insert or update of active on public.products
+for each row
+execute function public.prevent_incomplete_import_product_publication();
+
+create or replace function public.unpublish_incomplete_import_product_after_image_delete()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  if exists (
+    select 1 from public.product_costs
+    where product_costs.product_id = old.product_id
+  ) and (
+    select count(*)
+    from public.product_images
+    where product_images.product_id = old.product_id
+  ) < 3 then
+    update public.products
+    set active = false
+    where id = old.product_id and active = true;
+  end if;
+
+  return old;
+end;
+$$;
+
+drop trigger if exists product_images_unpublish_incomplete_import_product
+  on public.product_images;
+create trigger product_images_unpublish_incomplete_import_product
+after delete on public.product_images
+for each row
+execute function public.unpublish_incomplete_import_product_after_image_delete();
+
+comment on function public.register_imported_product_images(uuid, jsonb) is
+  'Accept filename and server-generated image_url only. Derive storage_path from the product SKU and filename; never accept a client-provided storage path.';
+
 revoke all on function public.import_product_from_source(
   text, text, text, numeric, numeric, numeric, numeric, integer,
-  text, text, text, text, text[], text[]
+  text, text, text, text, text[], text[], boolean
 ) from public, anon, authenticated;
 grant execute on function public.import_product_from_source(
   text, text, text, numeric, numeric, numeric, numeric, integer,
-  text, text, text, text, text[], text[]
+  text, text, text, text, text[], text[], boolean
 ) to service_role;
+
+revoke all on function public.product_import_filename_sort_key(text)
+  from public, anon, authenticated;
+revoke all on function public.prevent_incomplete_import_product_publication()
+  from public, anon, authenticated;
+revoke all on function public.unpublish_incomplete_import_product_after_image_delete()
+  from public, anon, authenticated;
 
 revoke all on function public.register_imported_product_images(uuid, jsonb)
   from public, anon, authenticated;
