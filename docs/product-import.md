@@ -13,11 +13,14 @@ La première feuille Excel ou la première ligne CSV doit contenir ces en-têtes
 sku,lien_fournisseur,nom_source,prix_achat_cny,frais_livraison_chine_cny,poids_kg,couleurs,tailles,marge_pourcent,moq,delivery_estimate,category
 ```
 
-Les noms d’en-tête ne sont pas sensibles à la casse. La colonne
-`frais_livraison_chine_cny` est facultative (si elle est absente ou vide, sa
-valeur est zéro); couleurs et tailles sont séparées par `|`. Le SKU est
-normalisé en majuscules. Une ligne invalide est exclue des requêtes d’import et
-son erreur est indiquée dans l’aperçu et le rapport CSV.
+Les noms d’en-tête ne sont pas sensibles à la casse. Les colonnes
+`lien_fournisseur` et `frais_livraison_chine_cny` sont facultatives (si elles
+sont absentes ou vides, aucun lien fournisseur n’est enregistré et les frais
+de livraison valent zéro); couleurs et tailles sont séparées par `|`. Pour un
+hyperlien Excel, l’import utilise sa cible même si la cellule affiche un autre
+texte. Les espaces de début et de fin et les caractères invisibles sont retirés
+du lien. Le SKU est normalisé en majuscules. Une ligne invalide est exclue des
+requêtes d’import et son erreur est indiquée dans l’aperçu et le rapport CSV.
 
 ## Photos
 

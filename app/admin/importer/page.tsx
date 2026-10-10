@@ -13,6 +13,8 @@ const imageTypes = {
   png: 'image/png',
   webp: 'image/webp',
 } as const
+const invisibleCharacters = /[\u0000-\u001f\u007f-\u009f\u00ad\u034f\u061c\u115f-\u1160\u17b4-\u17b5\u180b-\u180f\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufeff]/g
+const relationshipNamespace = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships'
 
 type ImportRow = {
   sku: string
@@ -64,7 +66,6 @@ type AccessState = 'checking' | 'signed-out' | 'not-admin' | 'ready' | 'error'
 
 const requiredHeaders = [
   'sku',
-  'lien_fournisseur',
   'nom_source',
   'prix_achat_cny',
   'poids_kg',
@@ -143,6 +144,82 @@ function cellText(value: unknown) {
   return String(value).trim()
 }
 
+function cleanSupplierUrl(value: string) {
+  return value.replace(invisibleCharacters, '').trim()
+}
+
+function parseXmlDocument(xml: string, path: string) {
+  const document = new DOMParser().parseFromString(xml, 'application/xml')
+  if (document.getElementsByTagName('parsererror').length > 0) {
+    throw new Error(`Le fichier Excel contient un XML invalide : ${path}.`)
+  }
+  return document
+}
+
+function findXmlElements(document: Document, name: string) {
+  return Array.from(document.getElementsByTagName('*')).filter((element) => element.localName === name)
+}
+
+function resolveArchivePath(basePath: string, target: string) {
+  const path = target.startsWith('/') ? target.slice(1) : `${basePath}/${target}`
+  const parts: string[] = []
+  for (const part of path.split('/')) {
+    if (!part || part === '.') continue
+    if (part === '..') parts.pop()
+    else parts.push(part)
+  }
+  return parts.join('/')
+}
+
+function readSupplierHyperlinks(archive: Record<string, Uint8Array>) {
+  const readXml = (path: string) => {
+    const file = archive[path]
+    if (!file) throw new Error(`Le fichier Excel ne contient pas ${path}.`)
+    return parseXmlDocument(new TextDecoder().decode(file), path)
+  }
+  const workbook = readXml('xl/workbook.xml')
+  const firstSheet = findXmlElements(workbook, 'sheet')[0]
+  const sheetRelationId = firstSheet?.getAttributeNS(relationshipNamespace, 'id')
+    || firstSheet?.getAttribute('r:id')
+  if (!sheetRelationId) return new Map<string, string>()
+
+  const workbookRelationships = readXml('xl/_rels/workbook.xml.rels')
+  const sheetRelationship = findXmlElements(workbookRelationships, 'Relationship')
+    .find((relationship) => relationship.getAttribute('Id') === sheetRelationId)
+  const sheetTarget = sheetRelationship?.getAttribute('Target')
+  if (!sheetTarget) return new Map<string, string>()
+
+  const sheetPath = resolveArchivePath('xl', sheetTarget)
+  const lastSlash = sheetPath.lastIndexOf('/')
+  const sheetDirectory = lastSlash === -1 ? '' : sheetPath.slice(0, lastSlash)
+  const sheetFilename = sheetPath.slice(lastSlash + 1)
+  const relationshipsPath = `${sheetDirectory ? `${sheetDirectory}/` : ''}_rels/${sheetFilename}.rels`
+  const sheet = readXml(sheetPath)
+  const hyperlinkRelationshipsFile = archive[relationshipsPath]
+  if (!hyperlinkRelationshipsFile) return new Map<string, string>()
+
+  const sheetRelationships = parseXmlDocument(new TextDecoder().decode(hyperlinkRelationshipsFile), relationshipsPath)
+  const externalTargets = new Map<string, string>()
+  for (const relationship of findXmlElements(sheetRelationships, 'Relationship')) {
+    const id = relationship.getAttribute('Id')
+    const target = relationship.getAttribute('Target')
+    if (id && target
+      && relationship.getAttribute('TargetMode') === 'External'
+      && relationship.getAttribute('Type')?.endsWith('/hyperlink')) {
+      externalTargets.set(id, target)
+    }
+  }
+  const hyperlinks = new Map<string, string>()
+  for (const hyperlink of findXmlElements(sheet, 'hyperlink')) {
+    const relationshipId = hyperlink.getAttributeNS(relationshipNamespace, 'id')
+      || hyperlink.getAttribute('r:id')
+    const target = relationshipId ? externalTargets.get(relationshipId) : undefined
+    const address = hyperlink.getAttribute('ref')?.split(':', 1)[0]?.toUpperCase()
+    if (address && target) hyperlinks.set(address, target)
+  }
+  return hyperlinks
+}
+
 function parseNumber(value: unknown) {
   if (typeof value === 'number') return Number.isFinite(value) ? value : Number.NaN
   const normalized = cellText(value).replace(/[\s\u00a0\u202f]/g, '').replace(',', '.')
@@ -150,7 +227,7 @@ function parseNumber(value: unknown) {
   return Number(normalized)
 }
 
-function parseSpreadsheetRows(rows: unknown[][]): ParsedRow[] {
+function parseSpreadsheetRows(rows: unknown[][], supplierHyperlinks = new Map<string, string>()): ParsedRow[] {
   if (rows.length < 2) throw new Error('Le fichier ne contient aucune ligne de produit.')
   const headers = rows[0].map(normalizeHeader)
   const indexes = new Map(headers.map((header, index) => [header, index]))
@@ -168,7 +245,10 @@ function parseSpreadsheetRows(rows: unknown[][]): ParsedRow[] {
     }
     const sku = cellText(get('sku')).toUpperCase()
     const sourceName = cellText(get('nom_source'))
-    const supplierUrl = cellText(get('lien_fournisseur'))
+    const supplierColumn = indexes.get('lien_fournisseur')
+    const supplierCell = get('lien_fournisseur')
+    const supplierAddress = supplierColumn === undefined ? '' : spreadsheetCellAddress(index + 2, supplierColumn)
+    const supplierUrl = cleanSupplierUrl(supplierHyperlinks.get(supplierAddress) ?? cellText(supplierCell))
     const purchasePriceCny = parseNumber(get('prix_achat_cny'))
     const shippingCell = cellText(get('frais_livraison_chine_cny'))
     const chinaShippingCny = shippingCell ? parseNumber(shippingCell) : 0
@@ -184,14 +264,13 @@ function parseSpreadsheetRows(rows: unknown[][]): ParsedRow[] {
     if (!/^[A-Z0-9][A-Z0-9._-]{0,63}$/.test(sku) || sku.includes('..')) {
       errors.push('Le SKU est obligatoire et ne doit contenir que des lettres, des chiffres, des points, tirets ou tirets bas.')
     }
-    if (!supplierUrl) {
-      errors.push('Le lien fournisseur est obligatoire.')
-    } else {
+    if (supplierUrl) {
       try {
         const url = new URL(supplierUrl)
         if (!['http:', 'https:'].includes(url.protocol)) errors.push('Le lien fournisseur doit commencer par http:// ou https://.')
       } catch {
-        errors.push('Le lien fournisseur n’est pas une adresse valide.')
+        const preview = supplierUrl.length > 80 ? `${supplierUrl.slice(0, 80)}…` : supplierUrl
+        errors.push(`Le lien fournisseur n’est pas une adresse valide (« ${preview} »).`)
       }
     }
     if (!sourceName) errors.push('Le nom source est obligatoire.')
@@ -228,6 +307,14 @@ function parseSpreadsheetRows(rows: unknown[][]): ParsedRow[] {
       },
     }]
   })
+}
+
+function spreadsheetCellAddress(row: number, column: number) {
+  let columnName = ''
+  for (let number = column + 1; number > 0; number = Math.floor((number - 1) / 26)) {
+    columnName = String.fromCharCode(65 + ((number - 1) % 26)) + columnName
+  }
+  return `${columnName}${row}`
 }
 
 function getFileExtension(filename: string) {
@@ -333,8 +420,16 @@ export default function ProductImportPage() {
       if (/\.csv$/i.test(file.name)) {
         data = parseCsv(await file.text())
       } else if (/\.xlsx$/i.test(file.name)) {
+        const { unzipSync } = await import('fflate')
+        const archive = unzipSync(new Uint8Array(await file.arrayBuffer()))
+        const supplierHyperlinks = readSupplierHyperlinks(archive)
         const { readSheet } = await import('read-excel-file/browser')
         data = await readSheet(file)
+        const parsedRows = parseSpreadsheetRows(data, supplierHyperlinks)
+        setRows(parsedRows)
+        setSpreadsheetReady(true)
+        if (parsedRows.length === 0) setFeedback({ kind: 'error', text: 'Le fichier ne contient aucune ligne de produit.' })
+        return
       } else {
         throw new Error('Choisissez un fichier Excel .xlsx ou un fichier .csv.')
       }
