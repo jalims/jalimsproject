@@ -6263,3 +6263,350 @@ button {
       line-height: 1.6;
     }
   }
+
+.product-import-page {
+  min-height: 100vh;
+  padding: 32px 16px 64px;
+  background: linear-gradient(180deg, #fff8f1 0, #fff 38rem);
+  color: #33271f;
+}
+
+.product-import-shell {
+  width: min(1160px, 100%);
+  margin: 0 auto;
+}
+
+.product-import-header,
+.product-import-section-heading,
+.product-import-session,
+.product-import-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.product-import-header {
+  margin-bottom: 24px;
+}
+
+.product-import-header h1 {
+  margin: 6px 0;
+  font-size: clamp(28px, 4vw, 42px);
+}
+
+.product-import-header p:last-child,
+.product-import-section-heading p {
+  margin: 0;
+  color: #77695f;
+}
+
+.product-import-eyebrow,
+.product-import-step {
+  color: #bd6828;
+  font-size: 12px;
+  font-weight: 750;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.product-import-session {
+  justify-content: flex-end;
+  color: #77695f;
+  font-size: 13px;
+}
+
+.product-import-session a,
+.product-import-card a {
+  color: #9e4e17;
+  font-weight: 700;
+}
+
+.product-import-card,
+.product-import-options,
+.product-import-preview,
+.product-import-report {
+  margin-top: 18px;
+  padding: 22px;
+  border: 1px solid #f0e1d4;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 10px 26px rgba(76, 45, 23, 0.045);
+}
+
+.product-import-card p[role="alert"] {
+  color: #a5372b;
+}
+
+.product-import-feedback,
+.product-import-notice,
+.product-import-warning,
+.product-import-hint,
+.product-import-row-error {
+  margin: 14px 0;
+  padding: 12px 15px;
+  border-radius: 8px;
+  line-height: 1.55;
+}
+
+.product-import-feedback.success {
+  background: #edf8ef;
+  color: #256b35;
+}
+
+.product-import-feedback.error,
+.product-import-row-error {
+  background: #fff0ed;
+  color: #943a2e;
+}
+
+.product-import-notice,
+.product-import-warning {
+  background: #fff5de;
+  color: #775414;
+}
+
+.product-import-hint {
+  background: #f5f1ed;
+  color: #77695f;
+}
+
+.product-import-drop-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.product-import-dropzone {
+  display: flex;
+  min-height: 220px;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 12px;
+  padding: 24px;
+  border: 1px dashed #d7a77e;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.85);
+  cursor: pointer;
+}
+
+.product-import-dropzone:hover {
+  border-color: #bd6828;
+  background: #fffaf6;
+}
+
+.product-import-dropzone strong {
+  font-size: 18px;
+}
+
+.product-import-dropzone > span:not(.product-import-step):not(.product-import-file-name) {
+  color: #77695f;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.product-import-dropzone input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  clip-path: inset(50%);
+}
+
+.product-import-file-name {
+  color: #9e4e17;
+  font-size: 13px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.product-import-options {
+  display: grid;
+  gap: 14px;
+}
+
+.product-import-checkbox {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+}
+
+.product-import-checkbox input {
+  width: 18px;
+  height: 18px;
+  margin-top: 2px;
+  accent-color: #bd6828;
+}
+
+.product-import-checkbox span {
+  display: grid;
+  gap: 4px;
+}
+
+.product-import-checkbox small {
+  color: #77695f;
+  line-height: 1.5;
+}
+
+.product-import-warning {
+  margin: 0 0 0 29px;
+  font-size: 13px;
+}
+
+.product-import-section-heading {
+  margin-bottom: 16px;
+}
+
+.product-import-section-heading h2 {
+  margin: 0 0 5px;
+  font-size: 20px;
+}
+
+.product-import-section-heading span {
+  color: #77695f;
+  font-size: 13px;
+}
+
+.product-import-table-scroll {
+  overflow-x: auto;
+}
+
+.product-import-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  text-align: left;
+}
+
+.product-import-table th,
+.product-import-table td {
+  min-width: 100px;
+  padding: 11px 10px;
+  border-bottom: 1px solid #f0e8e1;
+  vertical-align: top;
+}
+
+.product-import-table th {
+  color: #66574c;
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+.product-import-table td:last-child {
+  min-width: 250px;
+  line-height: 1.5;
+}
+
+.product-import-table tr.invalid td {
+  color: #943a2e;
+  background: #fff9f7;
+}
+
+.product-import-photo-group {
+  margin: 8px 0;
+  color: #66574c;
+  font-size: 13px;
+}
+
+.product-import-actions {
+  align-items: flex-start;
+  flex-direction: column;
+  margin-top: 20px;
+}
+
+.product-import-submit,
+.product-import-download {
+  min-height: 46px;
+  padding: 0 20px;
+  border: 0;
+  border-radius: 8px;
+  background: #bd6828;
+  color: #fff;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.product-import-submit:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.product-import-progress {
+  display: grid;
+  width: 100%;
+  gap: 8px;
+  color: #66574c;
+  font-size: 13px;
+}
+
+.product-import-progress progress {
+  width: 100%;
+  height: 10px;
+  accent-color: #bd6828;
+}
+
+.product-import-report-counts {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.product-import-report-counts span {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 12px;
+  border-radius: 8px;
+  background: #fff8f1;
+  color: #66574c;
+  font-size: 12px;
+}
+
+.product-import-report-counts strong {
+  color: #9e4e17;
+}
+
+.product-import-download {
+  min-height: 40px;
+  padding: 0 14px;
+  font-size: 13px;
+}
+
+@media (max-width: 720px) {
+  .product-import-page {
+    padding: 22px 12px 40px;
+  }
+
+  .product-import-header,
+  .product-import-section-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .product-import-session {
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .product-import-drop-grid,
+  .product-import-report-counts {
+    grid-template-columns: 1fr;
+  }
+
+  .product-import-card,
+  .product-import-options,
+  .product-import-preview,
+  .product-import-report {
+    padding: 16px;
+  }
+
+  .product-import-dropzone {
+    min-height: 190px;
+    padding: 18px;
+  }
+}
