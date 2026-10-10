@@ -242,11 +242,15 @@ export default function VariantCartPage() {
                     {Object.entries(line.variant.attribute_values).map(([key, value]) => {
                       const attribute = attributes.find((entry) => entry.attribute_key === key)
                       const label = attribute?.label ?? attributeLabels[key] ?? key
-                      return key === 'color' ? (
-                        <span className="variant-color-choice" key={key}>
-                          <i style={{ backgroundColor: attribute?.attribute_colors[value] ?? '#808080' }} />{value}
-                        </span>
-                      ) : <span key={key}>{label} : {value}</span>
+                      if (key === 'color') {
+                        const colorCode = attribute?.attribute_colors[value]?.trim()
+                        return (
+                          <span className="variant-color-choice" key={key}>
+                            {colorCode && <i style={{ backgroundColor: colorCode }} />}{value}
+                          </span>
+                        )
+                      }
+                      return <span key={key}>{label} : {value}</span>
                     })}
                   </div>
                   <div className="variant-cart-line-stock">

@@ -103,9 +103,10 @@ export default function ProductPurchaseControls({ attributes, basePrice, colorVa
                         <div className="variant-quantity-values">
                           {attributes.map((attribute) => {
                             const value = variant.attributeValues[attribute.key]
+                            const colorCode = attribute.key === 'color' ? colorValues[value]?.trim() : ''
                             return attribute.key === 'color' ? (
                               <span className="variant-color-choice" key={attribute.key}>
-                                <i style={{ backgroundColor: colorValues[value] ?? '#808080' }} />{value}
+                                {colorCode && <i style={{ backgroundColor: colorCode }} />}{value}
                               </span>
                             ) : <span key={attribute.key}>{attribute.label} : {value}</span>
                           })}
