@@ -42,9 +42,14 @@ Configurer côté serveur les variables `NEXT_PUBLIC_SUPABASE_URL`,
 service et la clé Anthropic ne sont jamais transmises au navigateur.
 
 Pour générer les titres et descriptions en français, configurer
-`ANTHROPIC_API_KEY`. La route utilise le modèle Claude Haiku 4.5
-(`claude-haiku-4-5-20251001`). Si la clé Anthropic est absente, aucun appel IA
-n’est tenté et l’interface propose le mode test.
+`ANTHROPIC_API_KEY`. La route utilise le modèle `claude-haiku-5-5` par défaut.
+Le modèle peut être remplacé côté serveur avec `ANTHROPIC_MODEL`. Si la clé
+Anthropic est absente, aucun appel IA n’est tenté et l’interface propose le
+mode test.
+
+La route d’import autorise jusqu’à 120 secondes d’exécution par requête. Le
+navigateur signale un délai dépassé sur la ligne concernée, puis poursuit les
+autres lignes du fichier.
 
 Le mode test génère `[À rédiger] ` suivi de `nom_source` pour le titre et la
 description. Il n’appelle pas Anthropic, mais **écrit dans la vraie base de

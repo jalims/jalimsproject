@@ -3,9 +3,11 @@ import { NextResponse } from 'next/server'
 import { hasJalimsAdminAccess } from '../../../../lib/admin-access'
 import { createSupabaseAdminClient } from '../../../../lib/paytech-admin'
 
+export const maxDuration = 120
+
 const allowedImageExtension = /\.(jpe?g|png|webp)$/i
 const allowedSku = /^[A-Z0-9][A-Z0-9._-]{0,63}$/
-const anthropicModel = 'claude-haiku-4-5-20251001'
+const anthropicModel = process.env.ANTHROPIC_MODEL?.trim() || 'claude-haiku-5-5'
 
 type ImportInput = {
   sku: string

@@ -414,20 +414,35 @@ export default function ProductImportPage() {
     const { data: sessionData, error: sessionError } = await supabase.auth.getSession()
     if (sessionError || !sessionData.session) throw new Error('Votre session administrateur a expiré. Reconnectez-vous puis réessayez.')
 
-    const response = await fetch('/api/admin/product-import', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${sessionData.session.access_token}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(payload),
-    })
+    let response: Response
+    try {
+      response = await fetch('/api/admin/product-import', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${sessionData.session.access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(125_000),
+      })
+    } catch (error) {
+      if (error instanceof Error && error.name === 'TimeoutError') {
+        throw new Error('Délai dépassé après 125 secondes. Le résultat de cette ligne n’a pas pu être confirmé; vérifiez son état avant toute relance. Les autres lignes continueront.')
+      }
+      throw error
+    }
     let result: ImportResponse
     try {
       result = await response.json() as ImportResponse
     } catch (error) {
       logClientError('Product import response parsing failed', error)
+      if (response.status === 504) {
+        throw new Error('Le serveur a dépassé le délai maximal de 120 secondes. Le résultat de cette ligne n’a pas pu être confirmé; vérifiez son état avant toute relance. Les autres lignes continueront.')
+      }
       throw new Error('Le serveur a retourné une réponse illisible.')
+    }
+    if (response.status === 504) {
+      throw new Error('Le serveur a dépassé le délai maximal de 120 secondes. Le résultat de cette ligne n’a pas pu être confirmé; vérifiez son état avant toute relance. Les autres lignes continueront.')
     }
     if (!response.ok) throw new Error(result.error ?? 'Le serveur a refusé cette opération.')
     return result
