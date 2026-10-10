@@ -56,6 +56,7 @@ type ImportResponse = {
   salePriceFcfa?: number
   published?: boolean
   photoCount?: number
+  message?: string
   error?: string
 }
 
@@ -655,9 +656,11 @@ export default function ProductImportPage() {
           filenames: [...new Set(uploadedNames)],
           testMode,
         })
-        const photoReason = result.published
-          ? uploadErrors.join(' ')
-          : `À compléter : ${result.photoCount ?? 0} photo(s) enregistrée(s), au moins trois sont nécessaires pour publier.${uploadErrors.length ? ` ${uploadErrors.join(' ')}` : ''}`
+        const photoReason = [
+          result.published ? '' : `À compléter : ${result.photoCount ?? 0} photo(s) enregistrée(s), au moins trois sont nécessaires pour publier.`,
+          result.message,
+          ...uploadErrors,
+        ].filter(Boolean).join(' ')
         const previousIndex = importedRows.get(sku)
         if (previousIndex !== undefined) {
           nextReport[previousIndex] = {

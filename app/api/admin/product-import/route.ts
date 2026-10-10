@@ -112,31 +112,45 @@ async function generateFrenchText(sourceName: string, category: string): Promise
   const apiKey = process.env.ANTHROPIC_API_KEY
   if (!apiKey) throw new Error('anthropic_key_missing')
 
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      'anthropic-version': '2023-06-01',
-      'x-api-key': apiKey,
-    },
-    body: JSON.stringify({
-      model: anthropicModel,
-      max_tokens: 900,
-      messages: [{
-        role: 'user',
-        content: `Rédige en français pour la boutique sénégalaise Jalims un titre court et une description produit honnête à partir de ces informations. N’invente aucune caractéristique absente. Réponds uniquement avec un objet JSON de la forme {"name":"...","description":"..."}. Nom source : ${sourceName}\nCatégorie : ${category}`,
-      }],
-    }),
-  })
-
-  if (!response.ok) {
-    console.error('[Product import] Anthropic request failed', response.status)
-    throw new Error(`anthropic_http_${response.status}`)
-  }
-
-  const result = await response.json() as {
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 60_000)
+  let result: {
     content?: { type?: string; text?: string }[]
   }
+  try {
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'anthropic-version': '2023-06-01',
+        'x-api-key': apiKey,
+      },
+      body: JSON.stringify({
+        model: anthropicModel,
+        max_tokens: 900,
+        messages: [{
+          role: 'user',
+          content: `Rédige en français pour la boutique sénégalaise Jalims un titre court et une description produit honnête à partir de ces informations. N’invente aucune caractéristique absente. Réponds uniquement avec un objet JSON de la forme {"name":"...","description":"..."}. Nom source : ${sourceName}\nCatégorie : ${category}`,
+        }],
+      }),
+      signal: controller.signal,
+    })
+
+    if (!response.ok) {
+      console.error('[Product import] Anthropic request failed', response.status)
+      throw new Error(`anthropic_http_${response.status}`)
+    }
+
+    result = await response.json() as {
+      content?: { type?: string; text?: string }[]
+    }
+  } catch (error) {
+    if (controller.signal.aborted) throw new Error('anthropic_timeout')
+    throw error
+  } finally {
+    clearTimeout(timeout)
+  }
+
   const text = result.content?.find((item) => item.type === 'text')?.text?.trim()
   if (!text) throw new Error('anthropic_empty_response')
 
@@ -271,7 +285,7 @@ async function registerImages(body: Record<string, unknown>) {
   const { data: productCost, error: lookupError } = await serviceClient
     .from('product_costs')
     .select('product_id, sku')
-    .ilike('sku', sku)
+    .eq('sku', sku)
     .maybeSingle()
 
   if (lookupError) {
@@ -286,7 +300,33 @@ async function registerImages(body: Record<string, unknown>) {
     return jsonError('Le service de stockage des photos n’est pas configuré.', 500)
   }
 
-  const images = [...new Set(filenames as string[])].map((filename) => ({
+  const requestedFilenames = [...new Set(filenames as string[])]
+  const existingFilenames = new Set<string>()
+  const pageSize = 1000
+  for (let offset = 0; ; offset += pageSize) {
+    const { data: storedFiles, error: storageError } = await serviceClient.storage
+      .from('products')
+      .list(productCost.sku, { limit: pageSize, offset })
+
+    if (storageError) {
+      console.error('[Product import] Product photo listing failed', storageError.message)
+      return jsonError('Impossible de vérifier les photos dans le stockage. Réessayez avant leur enregistrement.', 502)
+    }
+
+    for (const storedFile of storedFiles) {
+      if (storedFile.id !== null && requestedFilenames.includes(storedFile.name)) {
+        existingFilenames.add(storedFile.name)
+      }
+    }
+    if (storedFiles.length < pageSize) break
+  }
+
+  const missingFilenames = requestedFilenames.filter((filename) => !existingFilenames.has(filename))
+  if (existingFilenames.size === 0) {
+    return jsonError(`Aucune des photos demandées n’existe dans le bucket « products » pour ${productCost.sku}. Fichiers manquants : ${missingFilenames.join(', ')}.`, 400)
+  }
+
+  const images = requestedFilenames.filter((filename) => existingFilenames.has(filename)).map((filename) => ({
     filename,
     image_url: `${supabaseUrl.replace(/\/+$/, '')}/storage/v1/object/public/products/${encodeURIComponent(productCost.sku)}/${encodeURIComponent(filename)}`,
   }))
@@ -306,7 +346,15 @@ async function registerImages(body: Record<string, unknown>) {
     return jsonError('La base n’a pas confirmé l’enregistrement des photos.', 500)
   }
 
-  return NextResponse.json({ photoCount: result.photo_count, published: result.published })
+  const message = missingFilenames.length
+    ? `Photos enregistrées pour ${productCost.sku}. Fichiers manquants et non enregistrés : ${missingFilenames.join(', ')}.`
+    : undefined
+  return NextResponse.json({
+    photoCount: result.photo_count,
+    published: result.published,
+    missingFilenames,
+    message,
+  })
 }
 
 export async function GET(request: Request) {
@@ -342,6 +390,9 @@ export async function POST(request: Request) {
     }
     if (message.startsWith('anthropic_http_')) {
       return jsonError('Le service de rédaction IA est momentanément indisponible. Réessayez ou activez le mode test.', 502)
+    }
+    if (message === 'anthropic_timeout') {
+      return jsonError('Le délai maximal de 60 secondes pour la rédaction IA est dépassé. Réessayez cette ligne; les autres produits peuvent continuer.', 504)
     }
     if (message.startsWith('anthropic_')) {
       return jsonError('Le service IA n’a pas produit un texte français exploitable. Réessayez ou activez le mode test.', 502)
