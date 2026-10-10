@@ -137,7 +137,34 @@ async function generateFrenchText(sourceName: string, category: string): Promise
     })
 
     if (!response.ok) {
-      console.error('[Product import] Anthropic request failed', response.status)
+      const responseText = await response.text()
+      let responseBody: unknown
+      try {
+        responseBody = JSON.parse(responseText)
+      } catch {
+        responseBody = undefined
+      }
+      const errorBody = typeof responseBody === 'object' && responseBody !== null
+        ? Reflect.get(responseBody, 'error')
+        : undefined
+      const errorType = typeof errorBody === 'object' && errorBody !== null
+        ? Reflect.get(errorBody, 'type')
+        : undefined
+      const errorMessage = typeof errorBody === 'object' && errorBody !== null
+        ? Reflect.get(errorBody, 'message')
+        : undefined
+      const type = typeof errorType === 'string' ? errorType : 'unknown'
+      const message = typeof errorMessage === 'string' ? errorMessage : 'Unknown Anthropic error'
+
+      console.error('[Product import] Anthropic request failed', { type, message })
+
+      if (response.status === 401) throw new Error('anthropic_invalid_key')
+      if (response.status === 404) throw new Error('anthropic_model_not_found')
+      if (response.status === 429) throw new Error('anthropic_rate_limited')
+      if (response.status >= 500 || response.status === 529) throw new Error('anthropic_overloaded')
+      if (/credit|billing|insufficient[_\s-]*quota|insufficient\s+funds/i.test(`${type} ${message}`)) {
+        throw new Error('anthropic_insufficient_credit')
+      }
       throw new Error(`anthropic_http_${response.status}`)
     }
 
@@ -387,6 +414,21 @@ export async function POST(request: Request) {
     console.error('[Product import] Request failed', error)
     if (message === 'anthropic_key_missing') {
       return jsonError('La clé ANTHROPIC_API_KEY n’est pas configurée. Activez le mode test pour importer sans IA.', 503)
+    }
+    if (message === 'anthropic_invalid_key') {
+      return jsonError('La clé API Anthropic est invalide. Vérifiez la configuration ANTHROPIC_API_KEY.', 502)
+    }
+    if (message === 'anthropic_insufficient_credit') {
+      return jsonError('Le compte Anthropic ne dispose pas de crédits suffisants. Ajoutez des crédits ou vérifiez la facturation.', 503)
+    }
+    if (message === 'anthropic_model_not_found') {
+      return jsonError('Le modèle Anthropic configuré est introuvable. Vérifiez la valeur de ANTHROPIC_MODEL.', 502)
+    }
+    if (message === 'anthropic_rate_limited') {
+      return jsonError('Le service Anthropic reçoit trop de demandes. Patientez quelques instants puis réessayez.', 429)
+    }
+    if (message === 'anthropic_overloaded') {
+      return jsonError('Le service Anthropic est surchargé. Réessayez dans quelques instants.', 503)
     }
     if (message.startsWith('anthropic_http_')) {
       return jsonError('Le service de rédaction IA est momentanément indisponible. Réessayez ou activez le mode test.', 502)
