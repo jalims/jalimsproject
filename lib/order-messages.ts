@@ -37,6 +37,25 @@ export const ORDER_MESSAGE_VARIABLES: Readonly<Record<OrderMessageTemplateKey, r
   ],
 }
 
+export const ORDER_MESSAGE_SAMPLE_VARIABLES: Readonly<Record<string, string>> = {
+  prenom: 'Aminata',
+  montant: '25 000',
+  numero_commande: 'JAL-TEST-0001',
+  liste_produits: 'Sac en toile\n- Couleur : Bleu — 2 unités',
+  delai_estime: '5 à 12 jours',
+  lien_commande: 'https://jalims.com/orders',
+  whatsapp_jalims: '+221 77 000 00 00',
+  date_estimee: '15 novembre 2026',
+  point_retrait: 'Dakar, Plateau',
+  horaires: 'Du lundi au samedi, de 9 h à 18 h',
+  code_retrait: 'JAL-TEST-0001',
+  delai_signalement: '48 heures',
+  motif: 'un incident pendant le transport',
+  montant_rembourse: '25 000',
+  moyen_remboursement: 'Wave',
+  delai_remboursement: '5 à 7 jours ouvrés',
+}
+
 export type OrderMessageTemplate = {
   template_key: OrderMessageTemplateKey
   subject: string
@@ -113,19 +132,17 @@ function escapeHtml(value: string) {
 }
 
 function omitEmptyWhatsAppClauses(body: string) {
-  const withoutStandaloneQuestion = body.replace(
-    /Une question\s*\?\s*(?=WhatsApp\s*\{whatsapp_jalims\})/gi,
-    '',
-  )
-  const segments = withoutStandaloneQuestion.split(/(?<=[.!?])(?=\s|$)/)
-  return segments.map((segment) => {
-    if (!segment.includes('{whatsapp_jalims}') || !/\bWhatsApp\b/i.test(segment)) return segment
+  const sentences = body.match(/[^.!?]*[.!?]+(?:\s+|$)|[^.!?]+$/g) ?? [body]
+  return sentences.map((sentence) => {
+    if (!sentence.includes('{whatsapp_jalims}') || !/\bWhatsApp\b/i.test(sentence)) return sentence
 
-    const semicolonIndex = segment.lastIndexOf(';')
+    const semicolonIndex = sentence.lastIndexOf(';')
     if (semicolonIndex < 0) return ''
 
-    const ending = segment.match(/[.!?]+(?=\s*$)/)?.[0] ?? ''
-    return `${segment.slice(0, semicolonIndex).trimEnd()}${ending}`
+    const prefix = sentence.slice(0, semicolonIndex).trimEnd().replace(/[;,:]+$/, '')
+    const ending = sentence.match(/[.!?]+(?=\s*$)/)?.[0] ?? '.'
+    const trailingWhitespace = sentence.match(/\s*$/)?.[0] ?? ''
+    return `${prefix}${ending}${trailingWhitespace}`
   }).join('').replace(/[ \t]{2,}/g, ' ').replace(/[ \t]+([.!?])/g, '$1')
 }
 
