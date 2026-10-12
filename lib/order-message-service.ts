@@ -4,6 +4,7 @@ import {
   formatOrderProductList,
   isAllowedOrderMessageSender,
   isValidOrderMessageReplyTo,
+  normalizeSenegalPhone,
   renderOrderMessage,
   type OrderMessageTemplateKey,
   type OrderMessageVariables,
@@ -17,6 +18,7 @@ type OrderMessageData = {
   orderId: string
   templateKey: OrderMessageTemplateKey
   to: string
+  customerPhone: string
   from: string
   replyTo: string
   subject: string
@@ -97,7 +99,7 @@ export async function prepareOrderMessage(
     supabase.from('order_message_templates').select('template_key, subject, body, active').eq('template_key', templateKey).maybeSingle(),
     supabase.from('order_message_settings').select('pickup_address, pickup_hours, whatsapp_jalims, from_email, reply_to, reporting_delay_hours, refund_delay, delai_estime_par_defaut').eq('id', 1).maybeSingle(),
     supabase.from('products').select('name, delivery_estimate').eq('id', order.product_id).maybeSingle(),
-    supabase.from('profiles').select('full_name').eq('id', order.user_id).maybeSingle(),
+    supabase.from('profiles').select('full_name, phone').eq('id', order.user_id).maybeSingle(),
     supabase.from('order_variant_lines').select('attribute_values, quantity').eq('order_id', order.id),
     supabase.auth.admin.getUserById(order.user_id),
   ])
@@ -184,6 +186,7 @@ export async function prepareOrderMessage(
     orderId: order.id,
     templateKey,
     to: email,
+    customerPhone: typeof profile?.phone === 'string' ? profile.phone : '',
     from: settings.from_email,
     replyTo: settings.reply_to.trim(),
     ...rendered,
@@ -196,15 +199,17 @@ async function reserveMessageLog(
   orderId: string,
   templateKey: OrderMessageTemplateKey,
   source: MessageSource,
+  channel: 'email' | 'whatsapp' = 'email',
+  status: 'en_cours' | 'prepare' = 'en_cours',
 ) {
   const { data, error } = await supabase
     .from('order_messages')
     .insert({
       order_id: orderId,
       template_key: templateKey,
-      channel: 'email',
+      channel,
       source,
-      status: 'en_cours',
+      status,
     })
     .select('id')
     .single()
@@ -216,6 +221,37 @@ async function reserveMessageLog(
   if (!data) throw new OrderMessageError('Le journal n’a pas confirmé la réservation du message.', 500)
 
   return data.id
+}
+
+export async function prepareOrderWhatsApp(
+  orderId: string,
+  templateKey: OrderMessageTemplateKey,
+  extraVariables: unknown = {},
+) {
+  const prepared = await prepareOrderMessage(orderId, templateKey, extraVariables)
+  const phone = normalizeSenegalPhone(prepared.customerPhone)
+  if (!phone) {
+    throw new OrderMessageError('Le numéro du client est manquant ou invalide. Corrigez son profil avant de préparer WhatsApp.', 400)
+  }
+
+  const supabase = createSupabaseAdminClient()
+  const messageId = await reserveMessageLog(
+    supabase,
+    orderId,
+    templateKey,
+    'manual',
+    'whatsapp',
+    'prepare',
+  )
+  if (!messageId) {
+    throw new OrderMessageError('Ce message WhatsApp a déjà été préparé.', 409)
+  }
+
+  return {
+    messageId,
+    url: `https://wa.me/${phone.slice(1)}?text=${encodeURIComponent(prepared.text)}`,
+    warnings: prepared.warnings,
+  }
 }
 
 async function markMessageFailed(supabase: SupabaseClient, messageId: string, error: unknown) {
