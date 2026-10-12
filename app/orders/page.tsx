@@ -33,8 +33,20 @@ const statusLabels: Record<string, string> = {
   'chez_transitaire': 'Chez le transitaire',
   en_transit: 'En transit vers le Sénégal',
   arrivé: 'Arrivé au Sénégal',
+  prête_a_retirer: 'Prête à retirer',
   récupéré: 'Récupéré',
   cancelled: 'Annulé',
+}
+
+const trackingSteps = ['Payée', 'Commandée', 'En transit', 'Prête à retirer', 'Retirée']
+
+function getTrackingStep(status: string) {
+  if (status === 'payé') return 0
+  if (status === 'commandé_fournisseur') return 1
+  if (['chez_transitaire', 'en_transit', 'arrivé'].includes(status)) return 2
+  if (status === 'prête_a_retirer') return 3
+  if (status === 'récupéré') return 4
+  return -1
 }
 
 const attributeLabels: Record<string, string> = {
@@ -71,6 +83,7 @@ function OrdersContent() {
       const { data, error } = await supabase
         .from('orders')
         .select('id, product_id, pickup_point_id, jalims_code, quantity, total_price, variant_id, variant_values, variant_stock_committed, status, created_at')
+        .eq('user_id', userData.user.id)
         .order('created_at', { ascending: false })
 
       if (!active) return
@@ -136,7 +149,7 @@ function OrdersContent() {
         {newOrderCode && (
           <div className="order-created-banner" role="status">
             <strong>Commande enregistrée</strong>
-            <span>Votre référence Jalims : <b>{newOrderCode}</b>. Elle est en attente de paiement.</span>
+            <span>Votre commande apparaît dans la liste ci-dessous. Vous pouvez reprendre le paiement depuis cette page si nécessaire.</span>
           </div>
         )}
 
@@ -177,9 +190,28 @@ function OrdersContent() {
             {orders.map((order) => (
               <article className="order-card" key={order.id}>
                 <div className="order-card-heading">
-                  <div><span>Référence Jalims</span><strong>{order.jalims_code}</strong></div>
+                  <div>
+                    <span>{order.status === 'prête_a_retirer' ? 'Code de retrait' : 'Commande Jalims'}</span>
+                    <strong>{order.status === 'prête_a_retirer' ? order.jalims_code : new Date(order.created_at).toLocaleDateString('fr-FR')}</strong>
+                  </div>
                   <span className={`order-status status-${order.status.replaceAll('_', '-')}`}>{statusLabels[order.status] ?? order.status}</span>
                 </div>
+                {order.status === 'cancelled' ? (
+                  <div className="order-cancelled-note">Cette commande a été annulée. Pour toute question, contactez l’équipe Jalims.</div>
+                ) : order.status !== 'pending_payment' ? (
+                  <ol className="order-tracking" aria-label="Suivi de la commande">
+                    {trackingSteps.map((step, index) => {
+                      const currentStep = getTrackingStep(order.status)
+                      const completed = currentStep >= index
+                      return (
+                        <li className={completed ? 'is-complete' : ''} aria-current={currentStep === index ? 'step' : undefined} key={step}>
+                          <span className="order-tracking-marker" aria-hidden="true">{completed ? '✓' : index + 1}</span>
+                          <span>{step}</span>
+                        </li>
+                      )
+                    })}
+                  </ol>
+                ) : null}
                 <div className="order-card-product">
                   <div className="order-product-thumb">
                     {order.products?.image_url && <Image src={order.products.image_url} alt="" fill sizes="64px" unoptimized />}
@@ -199,7 +231,15 @@ function OrdersContent() {
                 </div>
                 <div className="order-card-footer">
                   <span>Passée le {new Date(order.created_at).toLocaleDateString('fr-FR')}</span>
-                  <span>{order.status === 'pending_payment' ? 'Paiement sécurisé via Orange Money, Wave ou Free Money.' : 'Le statut sera actualisé au fil de l’acheminement.'}</span>
+                  <span>
+                    {order.status === 'pending_payment'
+                      ? 'Paiement sécurisé via Orange Money, Wave ou Free Money.'
+                      : order.status === 'cancelled'
+                        ? 'Le suivi de cette commande est terminé.'
+                        : order.status === 'prête_a_retirer'
+                          ? 'Présentez le code de retrait et une pièce d’identité au point de retrait.'
+                          : 'Le statut sera actualisé au fil de l’acheminement.'}
+                  </span>
                 </div>
                 {order.status === 'pending_payment' && (
                   <PayOrderButton orderId={order.id} />

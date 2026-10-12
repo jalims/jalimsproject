@@ -4705,6 +4705,66 @@ button {
   color: #a43e27;
 }
 
+.order-tracking {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+  padding: 14px 15px;
+  border-bottom: 1px solid #f3ece5;
+  list-style: none;
+}
+
+.order-tracking li {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 7px;
+  color: #96887d;
+  font-size: 10px;
+  line-height: 1.35;
+}
+
+.order-tracking li.is-complete {
+  color: #356f45;
+  font-weight: 650;
+}
+
+.order-tracking-marker {
+  display: grid;
+  flex: 0 0 23px;
+  width: 23px;
+  height: 23px;
+  place-items: center;
+  border: 1px solid #ded5cc;
+  border-radius: 50%;
+  background: #fff;
+  color: #877a70;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.order-tracking li.is-complete .order-tracking-marker {
+  border-color: #d4e7d5;
+  background: #edf7ee;
+  color: #367344;
+}
+
+.order-tracking li[aria-current="step"] .order-tracking-marker {
+  border-color: #e99a5e;
+  background: #fff1e4;
+  color: #a34f14;
+}
+
+.order-cancelled-note {
+  padding: 12px 15px;
+  border-bottom: 1px solid #f3ece5;
+  background: #fff8f5;
+  color: #a43e27;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
 .order-card-product {
   display: flex;
   align-items: center;
@@ -5444,6 +5504,15 @@ button {
 
   .order-card-footer {
     flex-direction: column;
+  }
+
+  .order-tracking {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 9px;
+  }
+
+  .order-tracking li {
+    font-size: 11px;
   }
 }
 
