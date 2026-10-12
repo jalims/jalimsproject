@@ -61,7 +61,7 @@ function validateExtraVariables(
     en_transit: ['date_estimee'],
     prete_a_retirer: [],
     retard: ['motif', 'date_estimee'],
-    remboursement: ['motif', 'montant_rembourse', 'moyen_remboursement'],
+    remboursement: ['motif', 'montant_rembourse', 'moyen_remboursement', 'delai_remboursement'],
   }
   const row = value as Record<string, unknown>
   const allowed = new Set(permittedVariables[templateKey])
@@ -150,11 +150,10 @@ export async function prepareOrderMessage(
   ) {
     throw new OrderMessageError('Le délai estimé du produit et le délai par défaut ne sont pas renseignés.', 503)
   }
-  if (templateKey === 'remboursement' && !settings.refund_delay.trim()) {
-    throw new OrderMessageError('Renseignez le délai de remboursement dans les réglages des messages.', 400)
-  }
-
   const extra = validateExtraVariables(templateKey, extraVariables)
+  if (templateKey === 'remboursement' && !settings.refund_delay.trim() && !extra.delai_remboursement) {
+    throw new OrderMessageError('Renseignez un délai de remboursement dans le message ou dans les réglages.', 400)
+  }
   const variantLines = (lines ?? []) as OrderMessageVariantLine[]
   const siteUrl = process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/+$/, '')
   if (!siteUrl && templateKey === 'commande_confirmee') {
@@ -174,7 +173,7 @@ export async function prepareOrderMessage(
     horaires: settings.pickup_hours.trim(),
     code_retrait: order.jalims_code,
     delai_signalement: `${settings.reporting_delay_hours} heures`,
-    delai_remboursement: settings.refund_delay.trim(),
+    delai_remboursement: extra.delai_remboursement || settings.refund_delay.trim(),
   }
   const rendered = renderOrderMessage(template, variables)
   const warnings = [
