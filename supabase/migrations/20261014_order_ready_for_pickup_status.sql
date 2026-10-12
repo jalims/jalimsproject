@@ -7,7 +7,7 @@ begin
     from pg_constraint
     where conrelid = 'public.orders'::regclass
       and contype = 'c'
-      and pg_get_constraintdef(oid) ilike '%status%'
+      and pg_get_constraintdef(oid) ilike '%pending_payment%'
   loop
     execute format('alter table public.orders drop constraint %I', existing_constraint.conname);
   end loop;
@@ -27,6 +27,9 @@ begin
   ) not valid;
 end;
 $$;
+
+-- Après vérification des statuts existants, exécuter plus tard :
+-- alter table public.orders validate constraint orders_status_messages_check;
 
 create or replace function public.confirm_paytech_product_order(p_order_id uuid)
 returns boolean

@@ -6,6 +6,7 @@ create table if not exists public.order_messages (
   source text not null check (source in ('automatic', 'manual')),
   status text not null check (status in ('en_cours', 'envoye', 'echec', 'prepare')),
   error text,
+  provider_message_id text,
   sent_at timestamptz,
   created_at timestamptz not null default now()
 );
