@@ -1,5 +1,7 @@
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto'
+import { after } from 'next/server'
 import { createSupabaseAdminClient } from '../../../../lib/paytech-admin'
+import { sendAutomaticOrderConfirmation } from '../../../../lib/order-message-service'
 
 type PayTechNotification = {
   type_event?: string
@@ -201,6 +203,28 @@ export async function POST(request: Request) {
     }
 
     console.info('[PayTech IPN] Order marked paid', { orderId: order.id })
+    try {
+      after(async () => {
+        try {
+          const result = await sendAutomaticOrderConfirmation(order.id)
+          if (result.alreadyAttempted) {
+            console.info('[PayTech IPN] Automatic confirmation email already attempted', {
+              orderId: order.id,
+            })
+          }
+        } catch (error) {
+          console.error('[PayTech IPN] Automatic confirmation email failed', {
+            orderId: order.id,
+            error: error instanceof Error ? error.message : 'Erreur inconnue.',
+          })
+        }
+      })
+    } catch (error) {
+      console.error('[PayTech IPN] Automatic confirmation email could not be scheduled', {
+        orderId: order.id,
+        error: error instanceof Error ? error.message : 'Erreur inconnue.',
+      })
+    }
     return new Response('IPN OK', { status: 200 })
   }
 
