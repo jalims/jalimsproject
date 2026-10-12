@@ -95,7 +95,7 @@ export async function prepareOrderMessage(
 
   const [{ data: template, error: templateError }, { data: settings, error: settingsError }, { data: product, error: productError }, { data: profile, error: profileError }, { data: lines, error: linesError }, { data: userResult, error: userError }] = await Promise.all([
     supabase.from('order_message_templates').select('template_key, subject, body, active').eq('template_key', templateKey).maybeSingle(),
-    supabase.from('order_message_settings').select('pickup_address, pickup_hours, whatsapp_jalims, from_email, reply_to, reporting_delay_hours, refund_delay').eq('id', 1).maybeSingle(),
+    supabase.from('order_message_settings').select('pickup_address, pickup_hours, whatsapp_jalims, from_email, reply_to, reporting_delay_hours, refund_delay, delai_estime_par_defaut').eq('id', 1).maybeSingle(),
     supabase.from('products').select('name, delivery_estimate').eq('id', order.product_id).maybeSingle(),
     supabase.from('profiles').select('full_name').eq('id', order.user_id).maybeSingle(),
     supabase.from('order_variant_lines').select('attribute_values, quantity').eq('order_id', order.id),
@@ -136,7 +136,17 @@ export async function prepareOrderMessage(
     throw new OrderMessageError('Le code de retrait ne peut être envoyé que lorsque la commande est prête à retirer.', 409)
   }
   if (templateKey === 'commande_confirmee' && !product.delivery_estimate?.trim()) {
-    throw new OrderMessageError('Le délai estimé du produit n’est pas renseigné.', 400)
+    console.warn('[Order messages] Product has no delivery estimate; using the configured default', {
+      orderId: order.id,
+      productId: order.product_id,
+    })
+  }
+  if (
+    templateKey === 'commande_confirmee'
+    && !product.delivery_estimate?.trim()
+    && !settings.delai_estime_par_defaut.trim()
+  ) {
+    throw new OrderMessageError('Le délai estimé du produit et le délai par défaut ne sont pas renseignés.', 503)
   }
   if (templateKey === 'remboursement' && !settings.refund_delay.trim()) {
     throw new OrderMessageError('Renseignez le délai de remboursement dans les réglages des messages.', 400)
@@ -155,7 +165,7 @@ export async function prepareOrderMessage(
     montant: formatFcfa(Number(order.total_price)),
     numero_commande: order.jalims_code,
     liste_produits: formatOrderProductList(product.name, order.quantity, variantLines),
-    delai_estime: product.delivery_estimate?.trim() ?? '',
+    delai_estime: product.delivery_estimate?.trim() || settings.delai_estime_par_defaut.trim(),
     lien_commande: siteUrl ? `${siteUrl}/orders` : '',
     whatsapp_jalims: settings.whatsapp_jalims.trim(),
     point_retrait: settings.pickup_address.trim(),

@@ -112,6 +112,23 @@ function escapeHtml(value: string) {
     .replaceAll("'", '&#39;')
 }
 
+function omitEmptyWhatsAppClauses(body: string) {
+  const withoutStandaloneQuestion = body.replace(
+    /Une question\s*\?\s*(?=WhatsApp\s*\{whatsapp_jalims\})/gi,
+    '',
+  )
+  const segments = withoutStandaloneQuestion.split(/(?<=[.!?])(?=\s|$)/)
+  return segments.map((segment) => {
+    if (!segment.includes('{whatsapp_jalims}') || !/\bWhatsApp\b/i.test(segment)) return segment
+
+    const semicolonIndex = segment.lastIndexOf(';')
+    if (semicolonIndex < 0) return ''
+
+    const ending = segment.match(/[.!?]+(?=\s*$)/)?.[0] ?? ''
+    return `${segment.slice(0, semicolonIndex).trimEnd()}${ending}`
+  }).join('').replace(/[ \t]{2,}/g, ' ').replace(/[ \t]+([.!?])/g, '$1')
+}
+
 export function renderOrderMessage(
   template: OrderMessageTemplate,
   variables: OrderMessageVariables,
@@ -120,7 +137,10 @@ export function renderOrderMessage(
   if (/[\r\n]/.test(subject)) {
     throw new Error('L’objet du modèle ne peut pas contenir de retour à la ligne.')
   }
-  const text = renderPart(template.body, template.template_key, variables)
+  const body = variables.whatsapp_jalims?.trim()
+    ? template.body
+    : omitEmptyWhatsAppClauses(template.body)
+  const text = renderPart(body, template.template_key, variables)
   const html = `<div>${escapeHtml(text).replace(/\r\n|\r|\n/g, '<br>')}</div>`
 
   return { subject, text, html }
