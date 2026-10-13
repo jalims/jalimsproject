@@ -5,6 +5,8 @@ import Link from 'next/link'
 import { useEffect, useState } from 'react'
 import { supabase } from '../../lib/supabase'
 import { logClientError } from '../../lib/user-facing-errors'
+import ConnectionError from '../ui/connection-error'
+import { ProductGridSkeleton } from '../ui/loading-skeletons'
 
 type FavoriteProduct = {
   id: string
@@ -20,39 +22,55 @@ export default function FavoritesPage() {
   const [signedIn, setSignedIn] = useState(false)
   const [products, setProducts] = useState<FavoriteProduct[]>([])
   const [errorMessage, setErrorMessage] = useState('')
+  const [retryCount, setRetryCount] = useState(0)
 
   useEffect(() => {
     let active = true
     async function loadFavorites() {
-      const { data: userData, error: authError } = await supabase.auth.getUser()
-      if (!active) return
-      if (authError || !userData.user) {
-        setLoading(false)
-        return
-      }
-      setSignedIn(true)
+      setLoading(true)
+      setErrorMessage('')
+      try {
+        const { data: userData, error: authError } = await supabase.auth.getUser()
+        if (!active) return
+        if (authError) {
+          logClientError('Favorites authentication check failed', authError)
+          setErrorMessage('La connexion est lente ou coupée.')
+          setLoading(false)
+          return
+        }
+        if (!userData.user) {
+          setSignedIn(false)
+          setLoading(false)
+          return
+        }
+        setSignedIn(true)
 
-      const { data, error } = await supabase
-        .from('favorites')
-        .select('products(id, name, price, image_url, category, moq)')
-      if (!active) return
-      if (error) {
+        const { data, error } = await supabase
+          .from('favorites')
+          .select('products(id, name, price, image_url, category, moq)')
+        if (!active) return
+        if (error) {
+          logClientError('Favorites load failed', error)
+          setErrorMessage('La connexion est lente ou coupée.')
+        } else {
+          const favoriteProducts = (data ?? [])
+            .flatMap((favorite) => favorite.products)
+            .filter((product): product is FavoriteProduct => Boolean(product))
+          setProducts(favoriteProducts)
+        }
+        setLoading(false)
+      } catch (error) {
+        if (!active) return
         logClientError('Favorites load failed', error)
-        setErrorMessage('Impossible de charger vos favoris pour le moment.')
+        setErrorMessage('La connexion est lente ou coupée.')
+        setLoading(false)
       }
-      else {
-        const favoriteProducts = (data ?? [])
-          .flatMap((favorite) => favorite.products)
-          .filter((product): product is FavoriteProduct => Boolean(product))
-        setProducts(favoriteProducts)
-      }
-      setLoading(false)
     }
     void loadFavorites()
     return () => {
       active = false
     }
-  }, [])
+  }, [retryCount])
 
   return (
     <main className="orders-page">
@@ -63,7 +81,9 @@ export default function FavoritesPage() {
           <p>Retrouvez ici les produits gardés pour plus tard.</p>
         </header>
         {loading ? (
-          <div className="orders-state" role="status">Chargement de vos favoris...</div>
+          <ProductGridSkeleton count={6} mode="favorites" />
+        ) : errorMessage ? (
+          <ConnectionError onRetry={() => setRetryCount((count) => count + 1)} />
         ) : !signedIn ? (
           <section className="orders-state orders-empty">
             <span className="destination-icon" aria-hidden="true">♡</span>
@@ -71,8 +91,6 @@ export default function FavoritesPage() {
             <p>Vos produits enregistrés sont associés à votre compte.</p>
             <Link className="destination-action" href="/login?next=%2Ffavorites">Se connecter</Link>
           </section>
-        ) : errorMessage ? (
-          <div className="orders-state orders-error" role="alert">Impossible de charger vos favoris : {errorMessage}</div>
         ) : products.length === 0 ? (
           <section className="orders-state orders-empty">
             <span className="destination-icon" aria-hidden="true">♡</span>

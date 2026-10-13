@@ -7,6 +7,8 @@ import { useEffect, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { supabase } from '../../lib/supabase'
 import { logClientError } from '../../lib/user-facing-errors'
+import ConnectionError from '../ui/connection-error'
+import { OrdersListSkeleton } from '../ui/loading-skeletons'
 import PayOrderButton from './pay-order-button'
 
 type Order = {
@@ -66,76 +68,92 @@ function OrdersContent() {
   const [signedIn, setSignedIn] = useState(false)
   const [orders, setOrders] = useState<Order[]>([])
   const [errorMessage, setErrorMessage] = useState('')
+  const [retryCount, setRetryCount] = useState(0)
 
   useEffect(() => {
     let active = true
 
     async function loadOrders() {
-      const { data: userData, error: authError } = await supabase.auth.getUser()
-      if (!active) return
-      if (authError || !userData.user) {
-        setSignedIn(false)
-        setLoading(false)
-        return
-      }
+      setLoading(true)
+      setErrorMessage('')
+      try {
+        const { data: userData, error: authError } = await supabase.auth.getUser()
+        if (!active) return
+        if (authError) {
+          logClientError('Order history authentication check failed', authError)
+          setErrorMessage('La connexion est lente ou coupée.')
+          setLoading(false)
+          return
+        }
+        if (!userData.user) {
+          setSignedIn(false)
+          setLoading(false)
+          return
+        }
 
-      setSignedIn(true)
-      const { data, error } = await supabase
-        .from('orders')
-        .select('id, product_id, pickup_point_id, jalims_code, quantity, total_price, variant_id, variant_values, variant_stock_committed, status, created_at')
-        .eq('user_id', userData.user.id)
-        .order('created_at', { ascending: false })
-
-      if (!active) return
-      if (error) {
-        logClientError('Order history load failed', error)
-        setErrorMessage('Impossible de charger vos commandes pour le moment.')
-      } else {
-        const orderRows = data ?? []
-        const orderIds = orderRows.map((order) => order.id)
-        const productIds = [...new Set(orderRows.map((order) => order.product_id))]
-        const pickupPointIds = [...new Set(orderRows.map((order) => order.pickup_point_id).filter((id): id is string => Boolean(id)))]
-        const [{ data: products, error: productsError }, { data: pickupPoints, error: pickupError }, { data: variantLines, error: variantLinesError }] = await Promise.all([
-          productIds.length
-            ? supabase.from('products').select('id, name, image_url').in('id', productIds)
-            : Promise.resolve({ data: [], error: null }),
-          pickupPointIds.length
-            ? supabase.from('pickup_points').select('id, name, address, city').in('id', pickupPointIds)
-            : Promise.resolve({ data: [], error: null }),
-          orderIds.length
-            ? supabase.from('order_variant_lines').select('id, order_id, attribute_values, quantity, unit_price, line_total').in('order_id', orderIds)
-            : Promise.resolve({ data: [], error: null }),
-        ])
+        setSignedIn(true)
+        const { data, error } = await supabase
+          .from('orders')
+          .select('id, product_id, pickup_point_id, jalims_code, quantity, total_price, variant_id, variant_values, variant_stock_committed, status, created_at')
+          .eq('user_id', userData.user.id)
+          .order('created_at', { ascending: false })
 
         if (!active) return
-        if (productsError || pickupError || variantLinesError) {
-          logClientError('Order details load failed', productsError ?? pickupError ?? variantLinesError)
-          setErrorMessage('Les détails de vos commandes sont momentanément indisponibles.')
+        if (error) {
+          logClientError('Order history load failed', error)
+          setErrorMessage('La connexion est lente ou coupée.')
         } else {
-          const productById = new Map((products ?? []).map((product) => [product.id, product]))
-          const pickupPointById = new Map((pickupPoints ?? []).map((point) => [point.id, point]))
-          const linesByOrderId = new Map<string, Order['variant_lines']>()
-          for (const line of variantLines ?? []) {
-            const lines = linesByOrderId.get(line.order_id) ?? []
-            lines.push(line as Order['variant_lines'][number])
-            linesByOrderId.set(line.order_id, lines)
+          const orderRows = data ?? []
+          const orderIds = orderRows.map((order) => order.id)
+          const productIds = [...new Set(orderRows.map((order) => order.product_id))]
+          const pickupPointIds = [...new Set(orderRows.map((order) => order.pickup_point_id).filter((id): id is string => Boolean(id)))]
+          const [{ data: products, error: productsError }, { data: pickupPoints, error: pickupError }, { data: variantLines, error: variantLinesError }] = await Promise.all([
+            productIds.length
+              ? supabase.from('products').select('id, name, image_url').in('id', productIds)
+              : Promise.resolve({ data: [], error: null }),
+            pickupPointIds.length
+              ? supabase.from('pickup_points').select('id, name, address, city').in('id', pickupPointIds)
+              : Promise.resolve({ data: [], error: null }),
+            orderIds.length
+              ? supabase.from('order_variant_lines').select('id, order_id, attribute_values, quantity, unit_price, line_total').in('order_id', orderIds)
+              : Promise.resolve({ data: [], error: null }),
+          ])
+
+          if (!active) return
+          if (productsError || pickupError || variantLinesError) {
+            logClientError('Order details load failed', productsError ?? pickupError ?? variantLinesError)
+            setErrorMessage('La connexion est lente ou coupée.')
+          } else {
+            const productById = new Map((products ?? []).map((product) => [product.id, product]))
+            const pickupPointById = new Map((pickupPoints ?? []).map((point) => [point.id, point]))
+            const linesByOrderId = new Map<string, Order['variant_lines']>()
+            for (const line of variantLines ?? []) {
+              const lines = linesByOrderId.get(line.order_id) ?? []
+              lines.push(line as Order['variant_lines'][number])
+              linesByOrderId.set(line.order_id, lines)
+            }
+            setOrders(orderRows.map((order) => ({
+              ...order,
+              variant_lines: linesByOrderId.get(order.id) ?? [],
+              products: productById.get(order.product_id) ?? null,
+              pickup_points: order.pickup_point_id ? pickupPointById.get(order.pickup_point_id) ?? null : null,
+            })) as Order[])
           }
-          setOrders(orderRows.map((order) => ({
-            ...order,
-            variant_lines: linesByOrderId.get(order.id) ?? [],
-            products: productById.get(order.product_id) ?? null,
-            pickup_points: order.pickup_point_id ? pickupPointById.get(order.pickup_point_id) ?? null : null,
-          })) as Order[])
         }
+        setLoading(false)
+      } catch (error) {
+        if (!active) return
+        logClientError('Order history load failed', error)
+        setErrorMessage('La connexion est lente ou coupée.')
+        setLoading(false)
       }
-      setLoading(false)
     }
 
     void loadOrders()
     return () => {
       active = false
     }
-  }, [])
+  }, [retryCount])
 
   return (
     <main className="orders-page">
@@ -168,7 +186,9 @@ function OrdersContent() {
         )}
 
         {loading ? (
-          <div className="orders-state" role="status">Chargement de vos commandes...</div>
+          <OrdersListSkeleton />
+        ) : errorMessage ? (
+          <ConnectionError onRetry={() => setRetryCount((count) => count + 1)} />
         ) : !signedIn ? (
           <section className="orders-state orders-empty">
             <span className="destination-icon" aria-hidden="true">↗</span>
@@ -176,8 +196,6 @@ function OrdersContent() {
             <p>Votre historique et le suivi de vos commandes sont réservés à votre compte.</p>
             <Link className="destination-action" href="/login?next=%2Forders">Se connecter</Link>
           </section>
-        ) : errorMessage ? (
-          <div className="orders-state orders-error" role="alert">Impossible de charger vos commandes : {errorMessage}</div>
         ) : orders.length === 0 ? (
           <section className="orders-state orders-empty">
             <span className="destination-icon" aria-hidden="true">⌁</span>
@@ -254,5 +272,20 @@ function OrdersContent() {
 }
 
 export default function OrdersPage() {
-  return <Suspense fallback={<main className="orders-page"><div className="orders-state">Chargement de vos commandes...</div></main>}><OrdersContent /></Suspense>
+  return (
+    <Suspense fallback={
+      <main className="orders-page">
+        <div className="orders-shell">
+          <header className="orders-heading">
+            <p className="eyebrow">VOTRE ESPACE JALIMS</p>
+            <h1>Mes commandes</h1>
+            <p>Suivez chaque étape, de la commande au retrait.</p>
+          </header>
+          <OrdersListSkeleton />
+        </div>
+      </main>
+    }>
+      <OrdersContent />
+    </Suspense>
+  )
 }

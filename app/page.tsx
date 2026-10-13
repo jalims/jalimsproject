@@ -9,6 +9,8 @@ import { supabase } from '../lib/supabase'
 import { logClientError } from '../lib/user-facing-errors'
 import FavoriteButton from './ui/favorite-button'
 import QuantityInput from './ui/quantity-input'
+import ConnectionError from './ui/connection-error'
+import { HomeSkeleton, ProductGridSkeleton } from './ui/loading-skeletons'
 import { defaultHomepageContent, type HomepageContent } from '../lib/homepage-content'
 
 type Product = {
@@ -80,6 +82,7 @@ function HomeContent() {
   const [homepageContent, setHomepageContent] = useState<HomepageContent>(defaultHomepageContent)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
+  const [retryCount, setRetryCount] = useState(0)
   const [search, setSearch] = useState(urlSearch)
   const [activeCategory, setActiveCategory] = useState('')
   const [productFilter, setProductFilter] = useState<'all' | 'featured' | 'available'>('all')
@@ -98,32 +101,39 @@ function HomeContent() {
       setLoading(true)
       setLoadError('')
 
-      const [{ data, error }, { data: contentData }] = await Promise.all([
-        supabase
-          .from('products')
-          .select('id, name, price, image_url, category, moq, stock_status, active, featured')
-          .eq('active', true),
-        supabase.from('homepage_content').select('*').eq('id', 1).maybeSingle(),
-      ])
+      try {
+        const [{ data, error }, { data: contentData }] = await Promise.all([
+          supabase
+            .from('products')
+            .select('id, name, price, image_url, category, moq, stock_status, active, featured')
+            .eq('active', true),
+          supabase.from('homepage_content').select('*').eq('id', 1).maybeSingle(),
+        ])
 
-      if (cancelled) return
+        if (cancelled) return
 
-      if (contentData) setHomepageContent({ ...defaultHomepageContent, ...contentData })
+        if (contentData) setHomepageContent({ ...defaultHomepageContent, ...contentData })
 
-      if (error) {
+        if (error) {
+          logClientError('Product catalog load failed', error)
+          setLoadError('La connexion est lente ou coupée.')
+        } else {
+          setProducts((data ?? []) as Product[])
+        }
+        setLoading(false)
+      } catch (error) {
+        if (cancelled) return
         logClientError('Product catalog load failed', error)
-        setLoadError('Le catalogue est momentanément indisponible. Veuillez réessayer.')
-      } else {
-        setProducts((data ?? []) as Product[])
+        setLoadError('La connexion est lente ou coupée.')
+        setLoading(false)
       }
-      setLoading(false)
     }
 
     void loadProducts()
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [retryCount])
 
   useEffect(() => {
     function syncSearchFromHistory() {
@@ -407,12 +417,9 @@ function HomeContent() {
           </div>
 
           {loading ? (
-            <div className="catalog-state" role="status">Chargement...</div>
+            <ProductGridSkeleton count={8} />
           ) : loadError ? (
-            <div className="catalog-state" role="alert">
-              <span>Les produits n’ont pas pu être chargés : {loadError}</span>
-              <button type="button" onClick={() => window.location.reload()}>Réessayer</button>
-            </div>
+            <ConnectionError onRetry={() => setRetryCount((count) => count + 1)} />
           ) : visibleProducts.length === 0 ? (
             <div className="catalog-state empty-state">
               <span className="empty-mark" aria-hidden="true">⌕</span>
@@ -510,7 +517,7 @@ function HomeContent() {
 
 export default function Home() {
   return (
-    <Suspense fallback={<main className="shop-page market-home"><div className="catalog-state" role="status">Chargement du catalogue...</div></main>}>
+    <Suspense fallback={<HomeSkeleton />}>
       <HomeContent />
     </Suspense>
   )

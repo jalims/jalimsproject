@@ -13,24 +13,32 @@ type ProductPageProps = {
 export default async function ProductPage({ params, searchParams }: ProductPageProps) {
   const { id } = await params
   const { quantity: quantityParam } = await searchParams
-  const { data: product } = await supabase
+  const { data: product, error: productError } = await supabase
     .from('products')
     .select('id, name, description, price, delivery_estimate, image_url, category, moq, stock_status, active')
     .eq('id', id)
     .eq('active', true)
     .maybeSingle()
 
+  if (productError) {
+    console.error('Échec du chargement de la fiche produit.', productError)
+    throw new Error('La connexion est lente ou coupée.')
+  }
   if (!product) notFound()
   const deliveryEstimate = product.delivery_estimate?.trim()
 
-  const { data: productAttributes } = await supabase
+  const { data: productAttributes, error: attributesError } = await supabase
     .from('product_attributes')
     .select('attribute_key, attribute_values, attribute_colors, sort_order')
     .eq('product_id', id)
     .order('sort_order')
+  if (attributesError) {
+    console.error('Échec du chargement des attributs du produit.', attributesError)
+    throw new Error('La connexion est lente ou coupée.')
+  }
 
   const attributeKeys = (productAttributes ?? []).map((attribute) => attribute.attribute_key)
-  const [{ data: definitions }, { data: variants }] = await Promise.all([
+  const [{ data: definitions, error: definitionsError }, { data: variants, error: variantsError }] = await Promise.all([
     attributeKeys.length
       ? supabase.from('product_attribute_definitions').select('attribute_key, label').in('attribute_key', attributeKeys)
       : Promise.resolve({ data: [], error: null }),
@@ -38,6 +46,10 @@ export default async function ProductPage({ params, searchParams }: ProductPageP
       ? supabase.from('product_variants').select('id, attribute_values, stock, price_adjustment').eq('product_id', id).eq('active', true)
       : Promise.resolve({ data: [], error: null }),
   ])
+  if (definitionsError || variantsError) {
+    console.error('Échec du chargement des variantes du produit.', definitionsError ?? variantsError)
+    throw new Error('La connexion est lente ou coupée.')
+  }
   const labelByKey = new Map((definitions ?? []).map((definition) => [definition.attribute_key, definition.label]))
   const variantAttributes = (productAttributes ?? []).map((attribute) => ({
     key: attribute.attribute_key,
@@ -49,11 +61,15 @@ export default async function ProductPage({ params, searchParams }: ProductPageP
     ? !(variants ?? []).some((variant) => variant.stock === null || variant.stock > 0)
     : product.stock_status === 'out_of_stock'
 
-  const { data: galleryImages } = await supabase
+  const { data: galleryImages, error: galleryError } = await supabase
     .from('product_images')
     .select('id, image_url, display_order')
     .eq('product_id', id)
     .order('display_order')
+  if (galleryError) {
+    console.error('Échec du chargement des images du produit.', galleryError)
+    throw new Error('La connexion est lente ou coupée.')
+  }
 
   const images = galleryImages?.length
     ? galleryImages

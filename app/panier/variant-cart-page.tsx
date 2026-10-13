@@ -6,6 +6,8 @@ import { useEffect, useState } from 'react'
 import { supabase } from '../../lib/supabase'
 import { logClientError } from '../../lib/user-facing-errors'
 import { clearVariantCart, readVariantCart, saveVariantCart, type VariantCart } from '../../lib/variant-cart'
+import ConnectionError from '../ui/connection-error'
+import { VariantCartSkeleton } from '../ui/loading-skeletons'
 
 type Product = {
   id: string
@@ -51,56 +53,71 @@ export default function VariantCartPage() {
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [errorMessage, setErrorMessage] = useState('')
+  const [loadFailed, setLoadFailed] = useState(false)
+  const [retryCount, setRetryCount] = useState(0)
   const [createdOrderCode, setCreatedOrderCode] = useState('')
 
   useEffect(() => {
     let active = true
 
     async function loadCart() {
-      const savedCart = readVariantCart()
-      if (!savedCart || savedCart.lines.length === 0) {
+      setLoading(true)
+      setLoadFailed(false)
+      setErrorMessage('')
+      try {
+        const savedCart = readVariantCart()
+        if (!savedCart || savedCart.lines.length === 0) {
+          setCart(null)
+          setLoading(false)
+          return
+        }
+
+        const [{ data: loadedProduct, error: productError }, { data: loadedVariants, error: variantsError }, { data: loadedAttributes, error: attributesError }, { data: loadedPickupPoints, error: pickupPointsError }] = await Promise.all([
+          supabase.from('products').select('id, name, price, image_url, moq, active').eq('id', savedCart.productId).eq('active', true).maybeSingle(),
+          supabase.from('product_variants').select('id, product_id, attribute_values, stock, price_adjustment').in('id', savedCart.lines.map((line) => line.variantId)).eq('active', true),
+          supabase.from('product_attributes').select('attribute_key, attribute_colors').eq('product_id', savedCart.productId).order('sort_order'),
+          supabase.from('pickup_points').select('id, name, city').eq('active', true).order('city'),
+        ])
+
+        if (!active) return
+        if (productError || variantsError || attributesError || pickupPointsError || !loadedProduct) {
+          const error = productError ?? variantsError ?? attributesError ?? pickupPointsError
+          if (error) logClientError('Variant cart load failed', error)
+          setErrorMessage('La connexion est lente ou coupée.')
+          setLoadFailed(true)
+          setLoading(false)
+          return
+        }
+
+        const variantRows = (loadedVariants ?? []) as Variant[]
+        const validVariantIds = new Set(variantRows.filter((variant) => variant.product_id === savedCart.productId).map((variant) => variant.id))
+        const validLines = savedCart.lines.filter((line) => validVariantIds.has(line.variantId))
+        const cleanCart = { ...savedCart, lines: validLines }
+        if (validLines.length !== savedCart.lines.length) saveVariantCart(cleanCart)
+
+        setCart(cleanCart)
+        setProduct(loadedProduct as Product)
+        setVariants(variantRows.filter((variant) => variant.product_id === savedCart.productId))
+        setAttributes((loadedAttributes ?? []).map((attribute) => ({
+          ...attribute,
+          attribute_colors: (attribute.attribute_colors ?? {}) as Record<string, string>,
+        })) as Attribute[])
+        setPickupPoints(loadedPickupPoints ?? [])
         setLoading(false)
-        return
-      }
-
-      const [{ data: loadedProduct, error: productError }, { data: loadedVariants, error: variantsError }, { data: loadedAttributes, error: attributesError }, { data: loadedPickupPoints }] = await Promise.all([
-        supabase.from('products').select('id, name, price, image_url, moq, active').eq('id', savedCart.productId).eq('active', true).maybeSingle(),
-        supabase.from('product_variants').select('id, product_id, attribute_values, stock, price_adjustment').in('id', savedCart.lines.map((line) => line.variantId)).eq('active', true),
-        supabase.from('product_attributes').select('attribute_key, attribute_colors').eq('product_id', savedCart.productId).order('sort_order'),
-        supabase.from('pickup_points').select('id, name, city').eq('active', true).order('city'),
-      ])
-
-      if (!active) return
-      if (productError || variantsError || attributesError || !loadedProduct) {
-        const error = productError ?? variantsError ?? attributesError
-        if (error) logClientError('Variant cart load failed', error)
-        setErrorMessage('Impossible de charger ce panier. Vérifiez que le produit est toujours disponible.')
+      } catch (error) {
+        if (!active) return
+        logClientError('Variant cart load failed', error)
+        setErrorMessage('La connexion est lente ou coupée.')
+        setLoadFailed(true)
         setLoading(false)
-        return
       }
-
-      const variantRows = (loadedVariants ?? []) as Variant[]
-      const validVariantIds = new Set(variantRows.filter((variant) => variant.product_id === savedCart.productId).map((variant) => variant.id))
-      const validLines = savedCart.lines.filter((line) => validVariantIds.has(line.variantId))
-      const cleanCart = { ...savedCart, lines: validLines }
-      if (validLines.length !== savedCart.lines.length) saveVariantCart(cleanCart)
-
-      setCart(cleanCart)
-      setProduct(loadedProduct as Product)
-      setVariants(variantRows.filter((variant) => variant.product_id === savedCart.productId))
-      setAttributes((loadedAttributes ?? []).map((attribute) => ({
-        ...attribute,
-        attribute_colors: (attribute.attribute_colors ?? {}) as Record<string, string>,
-      })) as Attribute[])
-      setPickupPoints(loadedPickupPoints ?? [])
-      setLoading(false)
     }
 
     void loadCart()
     return () => {
       active = false
     }
-  }, [])
+  }, [retryCount])
 
   const variantById = new Map(variants.map((variant) => [variant.id, variant]))
   const cartLines = (cart?.lines ?? []).flatMap((line) => {
@@ -209,7 +226,7 @@ export default function VariantCartPage() {
     }
   }
 
-  if (loading) return <main className="orders-page"><div className="orders-state" role="status">Chargement du panier...</div></main>
+  if (loading) return <VariantCartSkeleton />
 
   return (
     <main className="orders-page">
@@ -220,9 +237,11 @@ export default function VariantCartPage() {
           <p>Plusieurs combinaisons, regroupées dans une seule commande.</p>
         </header>
 
-        {errorMessage && <p className="admin-feedback error" role="alert">{createdOrderCode ? `Commande ${createdOrderCode} enregistrée, paiement à reprendre : ` : ''}{errorMessage}</p>}
+        {errorMessage && !loadFailed && <p className="admin-feedback error" role="alert">{createdOrderCode ? `Commande ${createdOrderCode} enregistrée, paiement à reprendre : ` : ''}{errorMessage}</p>}
 
-        {!cart || !product || cartLines.length === 0 ? (
+        {loadFailed ? (
+          <ConnectionError onRetry={() => setRetryCount((count) => count + 1)} />
+        ) : !cart || !product || cartLines.length === 0 ? (
           <section className="orders-state orders-empty">
             <h2>Votre panier est vide</h2>
             <p>Choisissez les variantes et quantités souhaitées sur une fiche produit.</p>
