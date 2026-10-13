@@ -1696,7 +1696,7 @@ button {
   place-items: center;
   border: 0;
   border-radius: 4px;
-  background: var(--orange);
+  background: #fe6e00;
   transition: background 150ms ease;
 }
 
@@ -2315,8 +2315,17 @@ button {
 
 .market-catalog {
   scroll-margin-top: 190px;
+  scroll-margin-bottom: calc(86px + env(safe-area-inset-bottom));
   padding-top: 31px;
   border-top: 0;
+}
+
+.search-progress {
+  display: block;
+  min-height: 18px;
+  margin: -7px 0 10px;
+  color: #82776d;
+  font-size: 11px;
 }
 
 .market-catalog .market-section-heading {
@@ -2342,6 +2351,24 @@ button {
 .market-catalog .product-grid {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 17px;
+}
+
+.market-catalog .empty-state a {
+  display: inline-flex;
+  min-height: 40px;
+  align-items: center;
+  margin-top: 5px;
+  padding: 0 13px;
+  border: 1px solid #f3c29f;
+  border-radius: 5px;
+  color: #a34f14;
+  font-size: 11px;
+  font-weight: 680;
+  text-decoration: none;
+}
+
+.market-catalog .empty-state a:hover {
+  background: #fff5ed;
 }
 
 .market-catalog .product-card {
@@ -3059,6 +3086,7 @@ button {
 
   .market-catalog {
     scroll-margin-top: 170px;
+    scroll-margin-bottom: calc(90px + env(safe-area-inset-bottom));
     padding-top: 24px;
   }
 

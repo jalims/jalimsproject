@@ -1,8 +1,9 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { Suspense, useDeferredValue, useEffect, useRef, useState, type FormEvent } from 'react'
 import Image from 'next/image'
 import Link from 'next/link'
+import { useSearchParams } from 'next/navigation'
 import { MapPin, MessageCircle, Route, Search, ShieldCheck } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { logClientError } from '../lib/user-facing-errors'
@@ -43,6 +44,13 @@ function getCategoryLabel(category: string) {
   return categoryNames[category.trim().toLocaleLowerCase()] ?? category
 }
 
+function normalizeSearchText(value: string) {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLocaleLowerCase()
+}
+
 function ProductImage({ product }: { product: Product }) {
   const [failed, setFailed] = useState(false)
 
@@ -65,17 +73,23 @@ function ProductImage({ product }: { product: Product }) {
   )
 }
 
-export default function Home() {
+function HomeContent() {
+  const searchParams = useSearchParams()
+  const urlSearch = searchParams.get('q') ?? ''
   const [products, setProducts] = useState<Product[]>([])
   const [homepageContent, setHomepageContent] = useState<HomepageContent>(defaultHomepageContent)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
-  const [search, setSearch] = useState('')
+  const [search, setSearch] = useState(urlSearch)
   const [activeCategory, setActiveCategory] = useState('')
   const [productFilter, setProductFilter] = useState<'all' | 'featured' | 'available'>('all')
   const [quantities, setQuantities] = useState<Record<string, string>>({})
   const [headerHidden, setHeaderHidden] = useState(false)
   const previousScrollY = useRef(0)
+  const searchInputRef = useRef<HTMLInputElement>(null)
+  const resultsRef = useRef<HTMLElement>(null)
+  const searchHistoryEntryRef = useRef(false)
+  const deferredSearch = useDeferredValue(search)
 
   useEffect(() => {
     let cancelled = false
@@ -112,6 +126,16 @@ export default function Home() {
   }, [])
 
   useEffect(() => {
+    function syncSearchFromHistory() {
+      searchHistoryEntryRef.current = false
+      setSearch(new URLSearchParams(window.location.search).get('q') ?? '')
+    }
+
+    window.addEventListener('popstate', syncSearchFromHistory)
+    return () => window.removeEventListener('popstate', syncSearchFromHistory)
+  }, [])
+
+  useEffect(() => {
     function handleScroll() {
       const currentScrollY = window.scrollY
       const scrollDifference = currentScrollY - previousScrollY.current
@@ -142,8 +166,10 @@ export default function Home() {
     }, new Map<string, CategoryOption>()).values(),
   )
 
+  const normalizedSearch = normalizeSearchText(deferredSearch.trim())
   const visibleProducts = products.filter((product) => {
-    const matchesSearch = product.name.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase())
+    const searchableText = normalizeSearchText(`${product.name} ${product.category ?? ''}`)
+    const matchesSearch = searchableText.includes(normalizedSearch)
     const matchesCategory = !activeCategory || product.category?.toLocaleLowerCase() === activeCategory.toLocaleLowerCase()
     const matchesFeatured = productFilter !== 'featured' || product.featured
     const matchesAvailability = productFilter !== 'available' || !['out_of_stock', 'rupture', 'unavailable', 'indisponible'].includes(product.stock_status.toLocaleLowerCase())
@@ -152,6 +178,37 @@ export default function Home() {
 
   const markedProducts = products.filter((product) => product.featured)
   const featuredProducts = (markedProducts.length > 0 ? markedProducts : products).slice(0, 3)
+
+  function submitSearch(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    searchInputRef.current?.blur()
+
+    window.setTimeout(() => {
+      resultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }, 250)
+  }
+
+  function changeSearch(value: string) {
+    setSearch(value)
+    const nextParams = new URLSearchParams(searchParams.toString())
+    if (value.trim()) nextParams.set('q', value.trim())
+    else nextParams.delete('q')
+    const query = nextParams.toString()
+    const nextUrl = query ? `/?${query}` : '/'
+    const currentUrl = `${window.location.pathname}${window.location.search}`
+    if (nextUrl !== currentUrl) {
+      if (searchHistoryEntryRef.current) {
+        window.history.replaceState(null, '', nextUrl)
+      } else {
+        window.history.pushState(null, '', nextUrl)
+        searchHistoryEntryRef.current = true
+      }
+    }
+  }
+
+  function clearSearch() {
+    changeSearch('')
+  }
 
   function changeQuantity(productKey: string, delta: number) {
   const minimumQuantity = products.find((product) => String(product.id) === productKey)?.moq ?? 1
@@ -178,22 +235,27 @@ export default function Home() {
           <Link className="brand market-brand" href="/" aria-label="Jalims, accueil">
             Jalims<span>market</span>
           </Link>
-          <label className="search-field market-search">
+          <form className="search-field market-search" role="search" onSubmit={submitSearch}>
             <Search className="search-lucide" aria-hidden="true" size={19} strokeWidth={2} />
-            <span className="sr-only">Rechercher un produit</span>
             <input
+              ref={searchInputRef}
               type="search"
+              enterKeyHint="search"
+              inputMode="search"
+              autoComplete="off"
+              autoCorrect="off"
+              aria-label="Rechercher un produit"
               placeholder="Chercher un produit, une catégorie..."
               value={search}
-              onChange={(event) => setSearch(event.target.value)}
+              onChange={(event) => changeSearch(event.target.value)}
             />
             {search && (
-              <button className="clear-search" type="button" onClick={() => setSearch('')} aria-label="Effacer la recherche">×</button>
+              <button className="clear-search" type="button" onClick={clearSearch} aria-label="Effacer la recherche">×</button>
             )}
-            <button className="market-search-submit" type="button" aria-label="Rechercher">
+            <button className="market-search-submit" type="submit" aria-label="Rechercher">
               <Search aria-hidden="true" size={18} strokeWidth={2.3} />
             </button>
-          </label>
+          </form>
         </div>
         <nav className="market-nav" aria-label="Catégories du catalogue">
           <div className="market-nav-inner">
@@ -315,14 +377,25 @@ export default function Home() {
           )}
         </section>
 
-        <section className="catalog market-catalog" id="products" aria-label="Catalogue des produits">
+        <section className="catalog market-catalog" id="products" aria-label="Catalogue des produits" ref={resultsRef}>
           <div className="market-section-heading catalog-heading">
             <div>
               <p className="eyebrow">LA SÉLECTION JALIMS</p>
-              <h2>{search || activeCategory ? 'Vos résultats' : 'Les trouvailles du moment'}</h2>
+              <h2>
+                {deferredSearch.trim() && !loading && !loadError
+                  ? `Résultats pour « ${deferredSearch.trim()} » (${visibleProducts.length} produit${visibleProducts.length === 1 ? '' : 's'})`
+                  : search || activeCategory
+                    ? 'Vos résultats'
+                    : 'Les trouvailles du moment'}
+              </h2>
             </div>
-            {!loading && !loadError && <span className="catalog-result-count">{visibleProducts.length} article{visibleProducts.length !== 1 ? 's' : ''}</span>}
+            {!loading && !loadError && (
+              <span className="catalog-result-count" aria-live="polite" aria-atomic="true">
+                {visibleProducts.length} produit{visibleProducts.length !== 1 ? 's' : ''}
+              </span>
+            )}
           </div>
+          {search !== deferredSearch && <span className="search-progress" role="status">Mise à jour des résultats...</span>}
 
           <div className="catalog-filter-bar" role="group" aria-label="Filtrer les produits">
             <button className={productFilter === 'all' ? 'active' : ''} type="button" aria-pressed={productFilter === 'all'} onClick={() => setProductFilter('all')}>Tous</button>
@@ -343,8 +416,15 @@ export default function Home() {
           ) : visibleProducts.length === 0 ? (
             <div className="catalog-state empty-state">
               <span className="empty-mark" aria-hidden="true">⌕</span>
-              <strong>Aucun produit trouvé</strong>
-              <span>Essayez un autre mot ou choisissez une autre catégorie.</span>
+              <strong>{deferredSearch.trim() ? `Aucun produit trouvé pour « ${deferredSearch.trim()} »` : 'Aucun produit trouvé'}</strong>
+              {deferredSearch.trim() ? (
+                <>
+                  <span>Vérifiez l’orthographe ou essayez un mot plus court.</span>
+                  <a href="#categories-title">Voir les catégories</a>
+                </>
+              ) : (
+                <span>Essayez un autre mot ou choisissez une autre catégorie.</span>
+              )}
             </div>
           ) : (
             <div className="product-grid">
@@ -425,5 +505,13 @@ export default function Home() {
         </footer>
       </div>
     </main>
+  )
+}
+
+export default function Home() {
+  return (
+    <Suspense fallback={<main className="shop-page market-home"><div className="catalog-state" role="status">Chargement du catalogue...</div></main>}>
+      <HomeContent />
+    </Suspense>
   )
 }
