@@ -32,13 +32,13 @@ export default function FavoritesPage() {
       try {
         const { data: userData, error: authError } = await supabase.auth.getUser()
         if (!active) return
-        if (authError) {
+        if (authError && authError.name !== 'AuthSessionMissingError') {
           logClientError('Favorites authentication check failed', authError)
           setErrorMessage('La connexion est lente ou coupée.')
           setLoading(false)
           return
         }
-        if (!userData.user) {
+        if (authError?.name === 'AuthSessionMissingError' || !userData.user) {
           setSignedIn(false)
           setLoading(false)
           return
@@ -87,8 +87,7 @@ export default function FavoritesPage() {
         ) : !signedIn ? (
           <section className="orders-state orders-empty">
             <span className="destination-icon" aria-hidden="true">♡</span>
-            <h2>Connectez-vous pour retrouver vos favoris</h2>
-            <p>Vos produits enregistrés sont associés à votre compte.</p>
+            <h2>Connectez-vous pour retrouver votre liste de favoris</h2>
             <Link className="destination-action" href="/login?next=%2Ffavorites">Se connecter</Link>
           </section>
         ) : products.length === 0 ? (

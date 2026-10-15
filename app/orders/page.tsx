@@ -79,13 +79,13 @@ function OrdersContent() {
       try {
         const { data: userData, error: authError } = await supabase.auth.getUser()
         if (!active) return
-        if (authError) {
+        if (authError && authError.name !== 'AuthSessionMissingError') {
           logClientError('Order history authentication check failed', authError)
           setErrorMessage('La connexion est lente ou coupée.')
           setLoading(false)
           return
         }
-        if (!userData.user) {
+        if (authError?.name === 'AuthSessionMissingError' || !userData.user) {
           setSignedIn(false)
           setLoading(false)
           return
@@ -192,8 +192,7 @@ function OrdersContent() {
         ) : !signedIn ? (
           <section className="orders-state orders-empty">
             <span className="destination-icon" aria-hidden="true">↗</span>
-            <h2>Connectez-vous pour continuer</h2>
-            <p>Votre historique et le suivi de vos commandes sont réservés à votre compte.</p>
+            <h2>Connectez-vous pour suivre vos commandes</h2>
             <Link className="destination-action" href="/login?next=%2Forders">Se connecter</Link>
           </section>
         ) : orders.length === 0 ? (
