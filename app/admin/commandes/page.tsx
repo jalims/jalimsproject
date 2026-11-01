@@ -456,6 +456,8 @@ export default function AdminOrdersPage() {
         <nav className="admin-shortcuts" aria-label="Outils d’administration">
           <Link className="admin-nav-item" href="/admin">Produits</Link>
           <Link className="admin-nav-item current" href="/admin/commandes">Commandes</Link>
+          <Link className="admin-nav-item" href="/admin/clients">Clients</Link>
+          <Link className="admin-nav-item" href="/admin/statistiques">Statistiques</Link>
           <Link className="admin-nav-item" href="/admin/messages">Messages</Link>
           <Link className="admin-nav-item" href="/admin/retraits">Points de retrait</Link>
         </nav>
