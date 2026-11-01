@@ -190,6 +190,7 @@ export default function AdminMessagesPage() {
           <Link className="admin-nav-item current" href="/admin/messages">Messages</Link>
           <Link className="admin-nav-item" href="/admin/retraits">Points de retrait</Link>
           <Link className="admin-nav-item" href="/admin/accueil">Textes accueil</Link>
+          <Link className="admin-nav-item" href="/admin/conditions">Conditions</Link>
         </nav>
 
         {feedback && <p className={`admin-feedback ${feedback.kind}`} role={feedback.kind === 'error' ? 'alert' : 'status'}>{feedback.text}</p>}

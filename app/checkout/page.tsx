@@ -2,6 +2,7 @@ import Image from 'next/image'
 import Link from 'next/link'
 import { notFound, redirect } from 'next/navigation'
 import { supabase } from '../../lib/supabase'
+import { getLatestPublishedLegalPage } from '../../lib/legal-pages'
 import PlaceOrderForm from './place-order-form'
 
 type CheckoutPageProps = {
@@ -87,6 +88,7 @@ export default async function CheckoutPage({ searchParams }: CheckoutPageProps) 
   const variantUnavailable = selectedVariant !== null
     && selectedVariant.stock !== null
     && selectedVariant.stock < quantity
+  const publishedTerms = await getLatestPublishedLegalPage()
 
   const attributeLabels = new Map((configuredAttributes ?? []).map((attribute) => [attribute.attribute_key, attribute.attribute_key]))
   if ((configuredAttributes ?? []).length > 0) {
@@ -151,6 +153,7 @@ export default async function CheckoutPage({ searchParams }: CheckoutPageProps) 
               pickupPoints={pickupPoints ?? []}
               variantValues={variantValues}
               variantUnavailable={variantUnavailable}
+              hasPublishedTerms={Boolean(publishedTerms)}
             />
             <Link className="checkout-edit-link" href={`/products/${encodeURIComponent(String(product.id))}`}>
               Modifier ma sélection

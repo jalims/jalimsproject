@@ -515,6 +515,7 @@ function HomeContent() {
           <div className="market-footer-bottom">
             <span>© {new Date().getFullYear()} Jalims</span>
             <span>Fait pour les commerçants du Sénégal</span>
+            <Link className="legal-footer-link" href="/conditions">Conditions générales</Link>
           </div>
         </footer>
       </div>

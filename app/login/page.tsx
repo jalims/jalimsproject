@@ -1,5 +1,6 @@
 'use client'
 
+import Link from 'next/link'
 import { useState } from 'react'
 import { supabase } from '../../lib/supabase'
 import { useRouter } from 'next/navigation'
@@ -201,6 +202,12 @@ export default function Login() {
           >
             {loading ? 'Chargement...' : forgotPassword ? 'Envoyer le lien' : isSignUp ? "S'inscrire" : 'Se connecter'}
           </button>
+
+          {isSignUp && !forgotPassword && (
+            <p className="legal-login-note">
+              Les <Link className="legal-login-link" href="/conditions">conditions générales</Link> de Jalims sont consultables à tout moment.
+            </p>
+          )}
 
           {!isSignUp && !forgotPassword && (
             <button className="login-text-button" type="button" onClick={() => { setError(''); setSuccess(''); setForgotPassword(true) }}>

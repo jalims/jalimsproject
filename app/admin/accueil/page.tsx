@@ -126,6 +126,7 @@ export default function AdminHomepageSettingsPage() {
           <Link className="admin-nav-item" href="/admin/messages"><span className="admin-nav-icon" aria-hidden="true">✉</span> Messages</Link>
           <Link className="admin-nav-item" href="/admin/retraits"><span className="admin-nav-icon" aria-hidden="true">⌖</span> Points de retrait</Link>
           <Link className="admin-nav-item current" href="/admin/accueil"><span className="admin-nav-icon" aria-hidden="true">T</span> Textes accueil</Link>
+          <Link className="admin-nav-item" href="/admin/conditions"><span className="admin-nav-icon" aria-hidden="true">§</span> Conditions</Link>
         </nav>
 
         <div className="homepage-settings-layout">
