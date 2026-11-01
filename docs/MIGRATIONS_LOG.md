@@ -26,3 +26,6 @@ migration : sauvegarde CSV des tables touchées, puis test à blanc (begin; ... 
 - orders_status_messages_check est encore NOT VALID. Lancer :
   alter table public.orders validate constraint orders_status_messages_check;
   puis noter la date ici.
+  ##  dernier migration
+  16/10/2026	20261016_admin_stats.sql	Statistiques administrateur
+01/11/2026	20261101_analytics_events.sql	Système de suivi analytique : recherches, vues de produits et ajouts au panier

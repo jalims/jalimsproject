@@ -8692,7 +8692,7 @@ button {
   justify-content: space-between;
   gap: 12px;
   color: #fff;
-  background: #873614;
+  background: var(--market-green);
   font-size: 12px;
   font-weight: 650;
 }
@@ -8981,10 +8981,14 @@ button {
   gap: 7px;
   border-radius: 7px;
   color: #fff;
-  background: #a84b1e;
+  background: var(--market-green);
   font-size: 13px;
   font-weight: 750;
   text-decoration: none;
+}
+
+.home-redesign-featured-row .order-button:hover {
+  background: var(--market-green-dark);
 }
 
 .home-redesign-featured-row .product-moq-note {
@@ -9004,15 +9008,15 @@ button {
 
 .home-redesign-process {
   width: min(100% - 32px, 1180px);
-  margin: 44px auto 0;
-  padding: 30px;
+  margin: 28px auto 0;
+  padding: 18px 22px;
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(220px, 31%);
   align-items: center;
-  gap: 28px;
-  border: 1px solid #f0e3d3;
+  gap: 20px;
+  border: 1px solid var(--line);
   border-radius: 20px;
-  background: #fff8ee;
+  background: var(--background);
 }
 
 .home-redesign-process-no-image {
@@ -9024,14 +9028,14 @@ button {
 }
 
 .home-redesign-eyebrow {
-  margin-bottom: 8px;
-  color: #a24a1d;
+  margin-bottom: 4px;
+  color: var(--orange-dark);
   font-size: 10px;
 }
 
 .home-redesign-process h2 {
-  margin: 0 0 22px;
-  color: #2c251f;
+  margin: 0 0 12px;
+  color: var(--foreground);
   font-size: clamp(23px, 3vw, 32px);
   letter-spacing: -.04em;
 }
@@ -9058,7 +9062,7 @@ button {
   position: absolute;
   top: 24px;
   right: -5px;
-  color: #b98c6d;
+  color: var(--muted);
   content: "→";
   font-size: 20px;
 }
@@ -9066,35 +9070,41 @@ button {
 .home-redesign-step-icon {
   width: 48px;
   height: 48px;
+  flex: 0 0 48px;
   margin-bottom: 8px;
   display: grid;
   place-items: center;
-  border: 1px solid #ead8c7;
+  border: 1px solid var(--line);
   border-radius: 50%;
-  color: #95502a;
+  color: var(--orange);
   background: #fff;
 }
 
 .home-redesign-step-featured .home-redesign-step-icon {
-  width: 58px;
-  height: 58px;
-  margin-top: -5px;
-  border-color: #b75622;
-  color: #fff;
-  background: #ad4b1d;
-  box-shadow: 0 6px 16px rgba(112, 52, 23, .2);
+  width: 48px;
+  height: 48px;
+  flex-basis: 48px;
+  border-color: var(--line);
+  color: var(--orange);
+  background: #fff;
+  box-shadow: none;
 }
 
 .home-redesign-step-number {
+  min-height: 16px;
   margin-bottom: 3px;
-  color: #976b50;
+  color: var(--muted);
   font-size: 10px;
   font-weight: 800;
   letter-spacing: .08em;
 }
 
 .home-redesign-step strong {
-  color: #342a22;
+  min-height: 2.6em;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  color: var(--foreground);
   font-size: 12px;
   line-height: 1.3;
 }
@@ -9598,34 +9608,54 @@ button {
 
   .home-redesign-process {
     margin-top: 28px;
-    padding: 20px 14px;
+    padding: 12px 10px;
     grid-template-columns: minmax(0, 1fr);
-    gap: 18px;
+    gap: 10px;
   }
 
   .home-redesign-process h2 {
-    margin-bottom: 18px;
+    margin-bottom: 8px;
+    font-size: clamp(18px, 5vw, 22px);
   }
 
   .home-redesign-steps {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 19px 8px;
-  }
-
-  .home-redesign-step:nth-child(odd):not(:last-child)::after {
-    right: -7px;
-  }
-
-  .home-redesign-step:nth-child(even)::after {
-    display: none;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 0;
   }
 
   .home-redesign-step {
-    padding: 0 5px;
+    padding: 0 2px;
+  }
+
+  .home-redesign-step:not(:last-child)::after {
+    top: clamp(15px, 4.5vw, 22px);
+    right: -6px;
+    font-size: clamp(12px, 3.8vw, 18px);
+  }
+
+  .home-redesign-step-icon,
+  .home-redesign-step-featured .home-redesign-step-icon {
+    width: clamp(34px, 10vw, 48px);
+    height: clamp(34px, 10vw, 48px);
+    flex-basis: clamp(34px, 10vw, 48px);
+    margin: 0 0 3px;
+  }
+
+  .home-redesign-step-icon svg {
+    width: clamp(16px, 4.5vw, 21px);
+    height: clamp(16px, 4.5vw, 21px);
+  }
+
+  .home-redesign-step-number {
+    min-height: 13px;
+    margin-bottom: 2px;
+    font-size: clamp(7px, 2.2vw, 9px);
   }
 
   .home-redesign-step strong {
-    font-size: 13px;
+    min-height: 2.6em;
+    font-size: clamp(8px, 2.5vw, 11px);
+    line-height: 1.25;
   }
 
   .home-redesign-process-image {
@@ -9682,5 +9712,77 @@ button {
     width: calc(100% - 24px);
     height: 300px;
     margin-top: 28px;
+  }
+}
+
+.market-content > .home-redesign-hero {
+  aspect-ratio: 2.8 / 1;
+  min-height: 0;
+  max-height: 430px;
+}
+
+.market-content > .home-redesign-hero::after {
+  background: linear-gradient(90deg, rgba(89, 34, 13, .98) 0%, rgba(128, 48, 17, .94) 41%, rgba(140, 52, 18, .78) 55%, rgba(140, 52, 18, .24) 77%, rgba(104, 39, 15, .04) 100%);
+}
+
+.market-content > .home-redesign-hero .home-redesign-hero-picture {
+  inset: 0 0 0 auto;
+  width: 49%;
+}
+
+.market-content > .home-redesign-hero .home-redesign-hero-copy {
+  width: 59%;
+  padding: 32px 0 32px 5%;
+}
+
+@media (max-width: 760px) {
+  .market-content > .home-redesign-hero {
+    aspect-ratio: 1.9 / 1;
+    min-height: 0;
+    max-height: none;
+    align-items: center;
+  }
+
+  .market-content > .home-redesign-hero::after {
+    background: linear-gradient(90deg, rgba(89, 34, 13, .98) 0%, rgba(112, 42, 15, .94) 42%, rgba(125, 47, 17, .78) 56%, rgba(125, 47, 17, .24) 78%, rgba(104, 39, 15, .04) 100%);
+  }
+
+  .market-content > .home-redesign-hero .home-redesign-hero-picture {
+    width: 47%;
+  }
+
+  .market-content > .home-redesign-hero .home-redesign-hero-picture img {
+    object-position: 58% center;
+  }
+
+  .market-content > .home-redesign-hero .home-redesign-hero-copy {
+    width: 59%;
+    padding: 8px 0 8px 4%;
+  }
+
+  .market-content > .home-redesign-hero .home-redesign-kicker {
+    margin-bottom: 7px;
+    padding: 5px 7px;
+    font-size: clamp(7px, 1.9vw, 9px);
+    letter-spacing: .08em;
+  }
+
+  .market-content > .home-redesign-hero h1 {
+    font-size: clamp(16px, 4.2vw, 18px);
+    line-height: 1.02;
+  }
+
+  .market-content > .home-redesign-hero .home-redesign-hero-subtitle {
+    margin: 7px 0 9px;
+    font-size: clamp(9px, 2.4vw, 10px);
+    line-height: 1.3;
+  }
+
+  .market-content > .home-redesign-hero .home-redesign-hero-button {
+    min-height: 32px;
+    padding: 0 9px;
+    gap: 6px;
+    border-radius: 7px;
+    font-size: clamp(9px, 2.5vw, 11px);
   }
 }
