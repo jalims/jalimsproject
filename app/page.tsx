@@ -12,6 +12,7 @@ import QuantityInput from './ui/quantity-input'
 import ConnectionError from './ui/connection-error'
 import { HomeSkeleton, ProductGridSkeleton } from './ui/loading-skeletons'
 import { defaultHomepageContent, type HomepageContent } from '../lib/homepage-content'
+import { trackProductEvent, trackSearch } from '../lib/analytics'
 
 type Product = {
   id: string | number
@@ -185,6 +186,12 @@ function HomeContent() {
     const matchesAvailability = productFilter !== 'available' || !['out_of_stock', 'rupture', 'unavailable', 'indisponible'].includes(product.stock_status.toLocaleLowerCase())
     return matchesSearch && matchesCategory && matchesFeatured && matchesAvailability
   })
+
+  useEffect(() => {
+    if (loading || loadError || search !== deferredSearch) return
+    const timeout = window.setTimeout(() => trackSearch(deferredSearch, visibleProducts.length), 700)
+    return () => window.clearTimeout(timeout)
+  }, [deferredSearch, loadError, loading, search, visibleProducts.length])
 
   const markedProducts = products.filter((product) => product.featured)
   const featuredProducts = (markedProducts.length > 0 ? markedProducts : products).slice(0, 3)
@@ -467,7 +474,7 @@ function HomeContent() {
   />
   <button type="button" aria-label="Augmenter la quantité" onClick={() => changeQuantity(productKey, 1)}>+</button>
 </div>
-                        <Link className="order-button" href={checkoutUrl}>
+                        <Link className="order-button" href={checkoutUrl} onClick={() => trackProductEvent('add_to_cart', productKey)}>
                           Commander <span aria-hidden="true">→</span>
                         </Link>
                       </div>

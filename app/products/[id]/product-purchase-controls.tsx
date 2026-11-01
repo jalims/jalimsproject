@@ -2,9 +2,10 @@
 
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import QuantityInput from '../../ui/quantity-input'
 import { readVariantCart, saveVariantCart } from '../../../lib/variant-cart'
+import { trackProductEvent } from '../../../lib/analytics'
 
 type VariantAttribute = {
   key: string
@@ -39,6 +40,10 @@ export default function ProductPurchaseControls({ attributes, basePrice, colorVa
   const orderQuantity = Number.isFinite(parsedQuantity) ? Math.max(minimumQuantity, parsedQuantity) : minimumQuantity
   const checkoutParams = new URLSearchParams({ product: productId, quantity: String(orderQuantity) })
   const checkoutUrl = `/checkout?${checkoutParams.toString()}`
+
+  useEffect(() => {
+    trackProductEvent('view', productId)
+  }, [productId])
 
   function addVariantLinesToCart() {
     setCartMessage('')
@@ -77,6 +82,7 @@ export default function ProductPurchaseControls({ attributes, basePrice, colorVa
       productId,
       lines: [...lines].map(([variantId, lineQuantity]) => ({ variantId, quantity: lineQuantity })),
     })
+    trackProductEvent('add_to_cart', productId)
 
     if (skippedLines > 0) {
       setCartMessage(`${addedQuantity} unité(s) ajoutée(s). ${skippedLines} combinaison(s) ignorée(s), stock insuffisant.`)
@@ -149,7 +155,7 @@ export default function ProductPurchaseControls({ attributes, basePrice, colorVa
           {unavailable ? (
             <button className="order-button detail-order-button" type="button" disabled>Indisponible</button>
           ) : (
-            <Link className="order-button detail-order-button" href={checkoutUrl}>
+            <Link className="order-button detail-order-button" href={checkoutUrl} onClick={() => trackProductEvent('add_to_cart', productId)}>
               Continuer vers la commande <span aria-hidden="true">→</span>
             </Link>
           )}

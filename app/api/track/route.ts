@@ -1,0 +1,173 @@
+import { createSupabaseAdminClient } from '../../../lib/paytech-admin'
+import { NextResponse, type NextRequest } from 'next/server'
+
+const visitorCookieName = 'jalims_visitor'
+const visitorCookieMaxAge = 60 * 60 * 24 * 30 * 13
+const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+const maximumBodyBytes = 1024
+
+type SearchEvent = { type: 'search'; term: string; result_count: number }
+type ProductEvent = { type: 'view' | 'add_to_cart' | 'favorite'; product_id: string }
+
+function errorResponse(message: string, status: number) {
+  return NextResponse.json({ error: message }, { status })
+}
+
+function normalizeSearchTerm(term: string) {
+  return term
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .toLocaleLowerCase('fr-FR')
+}
+
+function hasExactKeys(payload: Record<string, unknown>, keys: string[]) {
+  return Object.keys(payload).length === keys.length && keys.every((key) => Object.hasOwn(payload, key))
+}
+
+function setVisitorCookie(response: NextResponse, visitorId: string, secure: boolean) {
+  response.cookies.set(visitorCookieName, visitorId, {
+    maxAge: visitorCookieMaxAge,
+    path: '/',
+    sameSite: 'lax',
+    secure,
+  })
+}
+
+async function readLimitedBody(request: NextRequest) {
+  const reader = request.body?.getReader()
+  if (!reader) return ''
+
+  const chunks: Uint8Array[] = []
+  let totalBytes = 0
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    totalBytes += value.byteLength
+    if (totalBytes > maximumBodyBytes) {
+      await reader.cancel()
+      return null
+    }
+    chunks.push(value)
+  }
+
+  const body = new Uint8Array(totalBytes)
+  let offset = 0
+  for (const chunk of chunks) {
+    body.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  return new TextDecoder().decode(body)
+}
+
+export async function POST(request: NextRequest) {
+  const contentType = request.headers.get('content-type') ?? ''
+  if (!/^application\/json(?:\s*;|$)/i.test(contentType)) {
+    return errorResponse('Le format de la demande est invalide.', 415)
+  }
+
+  const declaredLength = Number(request.headers.get('content-length') ?? '0')
+  if (declaredLength > maximumBodyBytes) {
+    return errorResponse('La demande dépasse la taille autorisée.', 413)
+  }
+
+  let rawBody: string | null
+  try {
+    rawBody = await readLimitedBody(request)
+  } catch {
+    return errorResponse('La demande est illisible.', 400)
+  }
+  if (rawBody === null) {
+    return errorResponse('La demande dépasse la taille autorisée.', 413)
+  }
+
+  let body: unknown
+  try {
+    body = JSON.parse(rawBody)
+  } catch {
+    return errorResponse('Le format JSON de la demande est invalide.', 400)
+  }
+  if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+    return errorResponse('La demande est invalide.', 400)
+  }
+
+  const payload = body as Record<string, unknown>
+  let event: SearchEvent | ProductEvent
+  if (payload.type === 'search') {
+    if (!hasExactKeys(payload, ['type', 'term', 'result_count'])
+      || typeof payload.term !== 'string'
+      || Array.from(payload.term).length < 1
+      || Array.from(payload.term).length > 80
+      || payload.term !== payload.term.trim()
+      || payload.term.includes('@')
+      || /\d{7,}/.test(payload.term)
+      || typeof payload.result_count !== 'number'
+      || !Number.isInteger(payload.result_count)
+      || payload.result_count < 0
+      || payload.result_count > 1000000
+    ) {
+      return errorResponse('Les données de recherche sont invalides.', 400)
+    }
+
+    const normalizedTerm = normalizeSearchTerm(payload.term)
+    if (!normalizedTerm || Array.from(normalizedTerm).length > 80) {
+      return errorResponse('Le terme de recherche est invalide.', 400)
+    }
+    event = { type: 'search', term: normalizedTerm, result_count: payload.result_count }
+  } else if (payload.type === 'view' || payload.type === 'add_to_cart' || payload.type === 'favorite') {
+    if (!hasExactKeys(payload, ['type', 'product_id'])
+      || typeof payload.product_id !== 'string'
+      || !uuidPattern.test(payload.product_id)
+    ) {
+      return errorResponse('Les données du produit sont invalides.', 400)
+    }
+    event = { type: payload.type, product_id: payload.product_id }
+  } else {
+    return errorResponse('Ce type d’événement n’est pas autorisé.', 400)
+  }
+
+  const secure = new URL(request.url).protocol === 'https:'
+  const cookieVisitorId = request.cookies.get(visitorCookieName)?.value
+  const visitorId = cookieVisitorId && uuidPattern.test(cookieVisitorId)
+    ? cookieVisitorId
+    : crypto.randomUUID()
+
+  try {
+    const supabase = createSupabaseAdminClient()
+    const { data, error } = await supabase.rpc('record_analytics_event', {
+      p_event_type: event.type,
+      p_visitor_id: visitorId,
+      p_product_id: event.type === 'search' ? null : event.product_id,
+      p_search_term: event.type === 'search' ? event.term : null,
+      p_result_count: event.type === 'search' ? event.result_count : null,
+    })
+    if (error) {
+      console.error('[Analytics] Event recording failed')
+      return errorResponse('Le suivi est momentanément indisponible.', 503)
+    }
+    if (data === 'invalid_product') {
+      return errorResponse('Le produit demandé n’existe pas.', 404)
+    }
+    if (data === 'rate_limited') {
+      const limitedResponse = errorResponse('Trop d’événements ont été envoyés. Réessayez plus tard.', 429)
+      if (!cookieVisitorId || !uuidPattern.test(cookieVisitorId)) {
+        setVisitorCookie(limitedResponse, visitorId, secure)
+      }
+      return limitedResponse
+    }
+    if (data !== 'recorded') {
+      console.error('[Analytics] Event recording returned an unexpected result')
+      return errorResponse('Le suivi est momentanément indisponible.', 503)
+    }
+
+    const response = new NextResponse(null, { status: 204 })
+    if (!cookieVisitorId || !uuidPattern.test(cookieVisitorId)) {
+      setVisitorCookie(response, visitorId, secure)
+    }
+    return response
+  } catch {
+    console.error('[Analytics] Event endpoint failed')
+    return errorResponse('Le suivi est momentanément indisponible.', 503)
+  }
+}

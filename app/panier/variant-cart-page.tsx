@@ -8,6 +8,7 @@ import { logClientError } from '../../lib/user-facing-errors'
 import { clearVariantCart, readVariantCart, saveVariantCart, type VariantCart } from '../../lib/variant-cart'
 import ConnectionError from '../ui/connection-error'
 import { VariantCartSkeleton } from '../ui/loading-skeletons'
+import { trackProductEvent } from '../../lib/analytics'
 
 type Product = {
   id: string
@@ -155,6 +156,9 @@ export default function VariantCartPage() {
     if (variant?.stock !== null && variant?.stock !== undefined && quantity > variant.stock) {
       setErrorMessage(`Stock insuffisant pour cette combinaison : ${variant.stock} disponible(s).`)
       return
+    }
+    if (quantity > (cart.lines.find((line) => line.variantId === variantId)?.quantity ?? 0)) {
+      trackProductEvent('add_to_cart', cart.productId)
     }
     updateCart({
       ...cart,

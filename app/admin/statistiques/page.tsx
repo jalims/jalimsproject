@@ -27,6 +27,25 @@ type StatsPayload = {
   statuses: StatusRow[]
   pickupDelay: PickupDelay
 }
+type SearchMetric = { term: string; searches: number; visitors: number }
+type ProductMetric = { product_id: string; name: string; views: number; visitors: number }
+type UnderperformingProduct = ProductMetric & { orders: number }
+type ProductFunnel = {
+  product_id: string
+  name: string
+  views: number
+  view_visitors: number
+  add_to_cart: number
+  cart_visitors: number
+  orders: number
+}
+type AnalyticsPayload = {
+  topSearches: SearchMetric[]
+  zeroResultSearches: SearchMetric[]
+  topProducts: ProductMetric[]
+  productFunnel: ProductFunnel[]
+  underperformingProducts: UnderperformingProduct[]
+}
 
 const periodLabels: Record<string, string> = {
   '7': '7 derniers jours',
@@ -55,7 +74,7 @@ function formatDate(value: string) {
   return new Date(`${value}T00:00:00`).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })
 }
 
-async function readResponse(response: Response) {
+async function readResponse<T>(response: Response): Promise<T> {
   const body: unknown = await response.json()
   if (typeof body !== 'object' || body === null || Array.isArray(body)) {
     throw new Error('La réponse du serveur est invalide.')
@@ -64,7 +83,7 @@ async function readResponse(response: Response) {
   if (!response.ok) {
     throw new Error(typeof result.error === 'string' ? result.error : 'Les statistiques n’ont pas pu être chargées.')
   }
-  return result as unknown as StatsPayload
+  return result as T
 }
 
 function SalesChart({ sales }: { sales: SalesDay[] }) {
@@ -123,11 +142,32 @@ function Skeletons() {
   )
 }
 
+function AnalyticsSearchTable({ title, rows, empty }: { title: string; rows: SearchMetric[]; empty: string }) {
+  return (
+    <section className="admin-analytics-subpanel">
+      <h3>{title}</h3>
+      {rows.length === 0 ? <p className="admin-stats-empty">{empty}</p> : (
+        <div className="admin-stats-table-wrap">
+          <table className="admin-stats-table">
+            <thead><tr><th>Terme</th><th>Recherches</th><th>Visiteurs</th></tr></thead>
+            <tbody>{rows.map((row) => (
+              <tr key={row.term}><th scope="row">{row.term}</th><td>{row.searches.toLocaleString('fr-FR')}</td><td>{row.visitors.toLocaleString('fr-FR')}</td></tr>
+            ))}</tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  )
+}
+
 export default function AdminStatisticsPage() {
   const [period, setPeriod] = useState('30')
   const [stats, setStats] = useState<StatsPayload | null>(null)
+  const [analytics, setAnalytics] = useState<AnalyticsPayload | null>(null)
   const [loading, setLoading] = useState(true)
+  const [analyticsLoading, setAnalyticsLoading] = useState(true)
   const [errorMessage, setErrorMessage] = useState('')
+  const [analyticsError, setAnalyticsError] = useState('')
 
   useEffect(() => {
     const controller = new AbortController()
@@ -147,7 +187,7 @@ export default function AdminStatisticsPage() {
           headers: { Authorization: `Bearer ${data.session.access_token}` },
           signal: controller.signal,
         })
-        const result = await readResponse(response)
+        const result = await readResponse<StatsPayload>(response)
         setStats(result)
       } catch (error) {
         if (controller.signal.aborted) return
@@ -159,6 +199,39 @@ export default function AdminStatisticsPage() {
     }
 
     void loadStats()
+    return () => controller.abort()
+  }, [period])
+
+  useEffect(() => {
+    const controller = new AbortController()
+    async function loadAnalytics() {
+      setAnalyticsLoading(true)
+      setAnalyticsError('')
+      const { data, error } = await supabase.auth.getSession()
+      if (error || !data.session?.access_token) {
+        setAnalytics(null)
+        setAnalyticsError('Connectez-vous avec le compte administrateur pour consulter les statistiques.')
+        setAnalyticsLoading(false)
+        return
+      }
+
+      try {
+        const response = await fetch(`/api/admin/analytics?period=${period}`, {
+          headers: { Authorization: `Bearer ${data.session.access_token}` },
+          signal: controller.signal,
+          cache: 'no-store',
+        })
+        setAnalytics(await readResponse<AnalyticsPayload>(response))
+      } catch (error) {
+        if (controller.signal.aborted) return
+        setAnalytics(null)
+        setAnalyticsError(error instanceof Error ? error.message : 'Les statistiques de fréquentation n’ont pas pu être chargées.')
+      } finally {
+        if (!controller.signal.aborted) setAnalyticsLoading(false)
+      }
+    }
+
+    void loadAnalytics()
     return () => controller.abort()
   }, [period])
 
@@ -280,6 +353,79 @@ export default function AdminStatisticsPage() {
                 )}
               </section>
             </div>
+
+            <section className="admin-stats-panel admin-analytics-panel">
+              <div className="admin-stats-heading">
+                <div><p className="eyebrow">FRÉQUENTATION ANONYME</p><h2>Recherches des visiteurs</h2></div>
+                <span>Identifiants anonymes · aucune adresse IP</span>
+              </div>
+              {analyticsLoading ? <div className="admin-analytics-skeleton" aria-label="Chargement des statistiques de fréquentation" /> : analyticsError ? (
+                <p className="admin-analytics-error" role="alert">{analyticsError}</p>
+              ) : analytics ? (
+                <div className="admin-analytics-grid">
+                  <AnalyticsSearchTable title="Recherches fréquentes" rows={analytics.topSearches} empty="Aucune recherche enregistrée sur cette période." />
+                  <AnalyticsSearchTable title="Sans résultat" rows={analytics.zeroResultSearches} empty="Aucune recherche sans résultat sur cette période." />
+                </div>
+              ) : null}
+            </section>
+
+            <div className="admin-analytics-grid">
+              <section className="admin-stats-panel admin-analytics-panel">
+                <div className="admin-stats-heading"><div><p className="eyebrow">PRODUITS</p><h2>Consultations</h2></div></div>
+                {analyticsLoading ? <div className="admin-analytics-skeleton" aria-label="Chargement des consultations" /> : analyticsError ? (
+                  <p className="admin-analytics-error" role="alert">{analyticsError}</p>
+                ) : analytics && analytics.topProducts.length > 0 ? (
+                  <div className="admin-stats-table-wrap">
+                    <table className="admin-stats-table">
+                      <thead><tr><th>Produit</th><th>Visites</th><th>Visiteurs</th></tr></thead>
+                      <tbody>{analytics.topProducts.map((row) => (
+                        <tr key={row.product_id}><th scope="row">{row.name}</th><td>{row.views.toLocaleString('fr-FR')}</td><td>{row.visitors.toLocaleString('fr-FR')}</td></tr>
+                      ))}</tbody>
+                    </table>
+                  </div>
+                ) : <p className="admin-stats-empty">Aucune consultation enregistrée sur cette période.</p>}
+              </section>
+              <section className="admin-stats-panel admin-analytics-panel">
+                <div className="admin-stats-heading">
+                  <div><p className="eyebrow">PARCOURS AGRÉGÉ</p><h2>Consultations → panier → commandes payées</h2></div>
+                </div>
+                <p className="admin-analytics-note">Volumes regroupés par produit, sans relier les événements à une personne.</p>
+                {analyticsLoading ? <div className="admin-analytics-skeleton" aria-label="Chargement du parcours produit" /> : analyticsError ? (
+                  <p className="admin-analytics-error" role="alert">{analyticsError}</p>
+                ) : analytics && analytics.productFunnel.length > 0 ? (
+                  <div className="admin-stats-table-wrap">
+                    <table className="admin-stats-table">
+                      <thead><tr><th>Produit</th><th>Consultations</th><th>Visiteurs</th><th>Ajouts panier</th><th>Commandes payées</th></tr></thead>
+                      <tbody>{analytics.productFunnel.map((row) => (
+                        <tr key={row.product_id}>
+                          <th scope="row">{row.name}</th>
+                          <td>{row.views.toLocaleString('fr-FR')}</td>
+                          <td>{row.view_visitors.toLocaleString('fr-FR')}</td>
+                          <td>{row.add_to_cart.toLocaleString('fr-FR')} · {row.cart_visitors.toLocaleString('fr-FR')} visiteurs</td>
+                          <td>{row.orders.toLocaleString('fr-FR')}</td>
+                        </tr>
+                      ))}</tbody>
+                    </table>
+                  </div>
+                ) : <p className="admin-stats-empty">Aucun parcours disponible sur cette période.</p>}
+              </section>
+            </div>
+
+            <section className="admin-stats-panel admin-analytics-panel">
+              <div className="admin-stats-heading"><div><p className="eyebrow">À EXAMINER</p><h2>Produits très consultés et peu vendus</h2></div></div>
+              {analyticsLoading ? <div className="admin-analytics-skeleton" aria-label="Chargement des produits à examiner" /> : analyticsError ? (
+                <p className="admin-analytics-error" role="alert">{analyticsError}</p>
+              ) : analytics && analytics.underperformingProducts.length > 0 ? (
+                <div className="admin-stats-table-wrap">
+                  <table className="admin-stats-table">
+                    <thead><tr><th>Produit</th><th>Visites</th><th>Visiteurs</th><th>Commandes payées</th></tr></thead>
+                    <tbody>{analytics.underperformingProducts.map((row) => (
+                      <tr key={row.product_id}><th scope="row">{row.name}</th><td>{row.views.toLocaleString('fr-FR')}</td><td>{row.visitors.toLocaleString('fr-FR')}</td><td>{row.orders.toLocaleString('fr-FR')}</td></tr>
+                    ))}</tbody>
+                  </table>
+                </div>
+              ) : <p className="admin-stats-empty">Aucun produit ne correspond à ces critères sur cette période.</p>}
+            </section>
           </>
         ) : null}
       </div>

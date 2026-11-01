@@ -8258,3 +8258,57 @@ button {
     font-size: 0.8rem;
   }
 }
+
+.admin-analytics-panel {
+  margin-top: 16px;
+}
+
+.admin-analytics-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.admin-analytics-subpanel {
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+}
+
+.admin-analytics-subpanel h3 {
+  margin: 0 0 10px;
+  font-size: 0.96rem;
+}
+
+.admin-analytics-note {
+  margin: 8px 0 14px;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.admin-analytics-error {
+  margin: 14px 0 0;
+  border-radius: 10px;
+  background: #fff0ed;
+  color: #9d3021;
+  padding: 12px;
+  font-size: 0.88rem;
+}
+
+.admin-analytics-skeleton {
+  min-height: 135px;
+  margin-top: 14px;
+  border-radius: 12px;
+  background: linear-gradient(100deg, #f3eee9 25%, #faf7f4 45%, #f3eee9 65%);
+  background-size: 220% 100%;
+  animation: admin-stats-shimmer 1.4s ease-in-out infinite;
+}
+
+@media (max-width: 1000px) {
+  .admin-analytics-grid {
+    grid-template-columns: 1fr;
+  }
+}

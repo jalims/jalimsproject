@@ -5,6 +5,7 @@ import { usePathname, useRouter } from 'next/navigation'
 import { Heart } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { logClientError } from '../../lib/user-facing-errors'
+import { trackProductEvent } from '../../lib/analytics'
 
 export default function FavoriteButton({ productId, productName }: { productId: string; productName: string }) {
   const pathname = usePathname()
@@ -48,7 +49,10 @@ export default function FavoriteButton({ productId, productName }: { productId: 
     if (result.error) {
       logClientError('Favorite update failed', result.error)
       setErrorMessage('Ce favori n’a pas pu être enregistré. Veuillez réessayer.')
-    } else setFavorite(!favorite)
+    } else {
+      if (!favorite) trackProductEvent('favorite', productId)
+      setFavorite(!favorite)
+    }
   }
 
   return (
