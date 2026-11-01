@@ -4,14 +4,27 @@ import { Suspense, useDeferredValue, useEffect, useRef, useState, type FormEvent
 import Image from 'next/image'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
-import { MapPin, MessageCircle, Route, Search, ShieldCheck } from 'lucide-react'
+import { MessageCircle, Search } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { logClientError } from '../lib/user-facing-errors'
 import FavoriteButton from './ui/favorite-button'
 import QuantityInput from './ui/quantity-input'
 import ConnectionError from './ui/connection-error'
 import { HomeSkeleton, ProductGridSkeleton } from './ui/loading-skeletons'
-import { defaultHomepageContent, type HomepageContent } from '../lib/homepage-content'
+import {
+  defaultHomepageContent,
+  defaultHomepageDesignContent,
+  getHomepageDesignContent,
+  type HomepageContent,
+  type HomepageDesignContent,
+} from '../lib/homepage-content'
+import {
+  HomepageBenefits,
+  HomepageFeaturedHeading,
+  HomepageHero,
+  HomepageProcess,
+  HomepageTopBand,
+} from './ui/homepage-redesign-sections'
 import { trackSearch } from '../lib/analytics'
 
 type Product = {
@@ -76,11 +89,63 @@ function ProductImage({ product }: { product: Product }) {
   )
 }
 
+function HomepageProductCard({
+  product,
+  quantity,
+  onQuantityChange,
+  onQuantityStep,
+}: {
+  product: Product
+  quantity: string
+  onQuantityChange: (value: string) => void
+  onQuantityStep: (delta: number) => void
+}) {
+  const productKey = String(product.id)
+  const minimumQuantity = product.moq ?? 1
+  const parsedQuantity = Number.parseInt(quantity, 10)
+  const orderQuantity = Number.isFinite(parsedQuantity) ? Math.max(minimumQuantity, parsedQuantity) : minimumQuantity
+  const checkoutUrl = `/products/${encodeURIComponent(productKey)}?quantity=${orderQuantity}`
+
+  return (
+    <article className="product-card" key={productKey}>
+      <Link className="product-image-link" href={`/products/${encodeURIComponent(productKey)}`} aria-label={`Voir ${product.name}`}>
+        <ProductImage product={product} />
+        {product.category && <span className="product-category-tag">{getCategoryLabel(product.category)}</span>}
+      </Link>
+      <FavoriteButton productId={productKey} productName={product.name} />
+      <div className="product-details">
+        <h3 title={product.name}>
+          {product.featured && <span className="featured-product-mark" aria-label="Produit vedette">★</span>}
+          <Link href={`/products/${encodeURIComponent(productKey)}`}>{product.name}</Link>
+        </h3>
+        <p className="product-price">{Number(product.price).toLocaleString('fr-FR')} <span>FCFA</span></p>
+        <div className="product-actions">
+          <div className="quantity-control" aria-label={`Quantité de ${product.name}`}>
+            <button type="button" aria-label="Diminuer la quantité" onClick={() => onQuantityStep(-1)}>−</button>
+            <QuantityInput
+              ariaLabel={`Quantité de ${product.name}`}
+              minimum={minimumQuantity}
+              value={quantity}
+              onChange={onQuantityChange}
+            />
+            <button type="button" aria-label="Augmenter la quantité" onClick={() => onQuantityStep(1)}>+</button>
+          </div>
+          <Link className="order-button" href={checkoutUrl}>
+            Commander <span aria-hidden="true">→</span>
+          </Link>
+        </div>
+        {minimumQuantity > 1 && <small className="product-moq-note">Minimum : {minimumQuantity} unités</small>}
+      </div>
+    </article>
+  )
+}
+
 function HomeContent() {
   const searchParams = useSearchParams()
   const urlSearch = searchParams.get('q') ?? ''
   const [products, setProducts] = useState<Product[]>([])
   const [homepageContent, setHomepageContent] = useState<HomepageContent>(defaultHomepageContent)
+  const [designContent, setDesignContent] = useState<HomepageDesignContent>(defaultHomepageDesignContent)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
   const [retryCount, setRetryCount] = useState(0)
@@ -113,7 +178,10 @@ function HomeContent() {
 
         if (cancelled) return
 
-        if (contentData) setHomepageContent({ ...defaultHomepageContent, ...contentData })
+        if (contentData) {
+          setHomepageContent({ ...defaultHomepageContent, ...contentData })
+          setDesignContent(getHomepageDesignContent(contentData.design_content))
+        }
 
         if (error) {
           logClientError('Product catalog load failed', error)
@@ -194,7 +262,6 @@ function HomeContent() {
   }, [deferredSearch, loadError, loading, search, visibleProducts.length])
 
   const markedProducts = products.filter((product) => product.featured)
-  const featuredProducts = (markedProducts.length > 0 ? markedProducts : products).slice(0, 3)
 
   function submitSearch(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -239,15 +306,12 @@ function HomeContent() {
   })
 }
 
+  if (loading) return <HomeSkeleton />
+
   return (
     <main className="shop-page market-home">
       <header className={`shop-header market-header${headerHidden ? ' market-header-hidden' : ''}`}>
-        <div className="market-utility">
-          <div className="market-utility-inner">
-            <span><i aria-hidden="true" /> {homepageContent.utility_primary}</span>
-            <span>{homepageContent.utility_secondary}</span>
-          </div>
-        </div>
+        <HomepageTopBand design={designContent} />
         <div className="header-inner market-header-inner">
           <Link className="brand market-brand" href="/" aria-label="Jalims, accueil">
             Jalims<span>market</span>
@@ -301,61 +365,32 @@ function HomeContent() {
       </header>
 
       <div className="market-content">
-        <section className="market-hero" aria-label="Bienvenue sur Jalims">
-          <div className="market-hero-copy">
-            <p className="market-kicker"><span /> {homepageContent.hero_kicker}</p>
-            <h1>{homepageContent.hero_title.split(/\r?\n/).map((line, index) => <span key={`${line}-${index}`}>{line}</span>)}</h1>
-            <p>{homepageContent.hero_description}</p>
-            <a className="market-hero-cta" href="#products">{homepageContent.hero_cta} <span aria-hidden="true">→</span></a>
-            <div className="market-local-note"><span className="senegal-mark" role="img" aria-label="Drapeau du Sénégal"><i /><i /><i /></span> {homepageContent.hero_local_note}</div>
-          </div>
-          <div className="market-hero-art" aria-label="Produits à découvrir">
-            {featuredProducts.length > 0 ? (
-              <div className="market-showcase">
-                {featuredProducts.map((product, index) => (
-                  <Link
-                    className={`showcase-product showcase-product-${index + 1}`}
-                    href={`/products/${encodeURIComponent(String(product.id))}`}
-                    key={product.id}
-                  >
-                    <div className="showcase-image">
-                      {product.image_url ? (
-                        <Image src={product.image_url} alt={product.name} fill sizes="(max-width: 720px) 30vw, 18vw" unoptimized />
-                      ) : (
-                        <span className="image-placeholder" aria-hidden="true">J</span>
-                      )}
-                    </div>
-                    <span className="showcase-caption">{product.name}</span>
-                  </Link>
-                ))}
-                <span className="showcase-stamp">SÉLECTION<br />JALIMS</span>
-              </div>
-            ) : (
-              <div className="hero-empty-art">
-                <span className="hero-empty-mark">J</span>
-                <span>Les découvertes<br />commencent ici</span>
-              </div>
-            )}
-          </div>
-          <span className="hero-index" aria-hidden="true">01 <i /> 03</span>
+        <HomepageHero design={designContent} />
+        <HomepageBenefits design={designContent} />
+
+        <section className="home-redesign-featured" aria-label={designContent.featuredTitle}>
+          <HomepageFeaturedHeading design={designContent} />
+          {markedProducts.length > 0 ? (
+            <div className="home-redesign-featured-row">
+              {markedProducts.map((product) => {
+                const productKey = String(product.id)
+                return (
+                  <HomepageProductCard
+                    key={productKey}
+                    product={product}
+                    quantity={quantities[productKey] ?? String(product.moq ?? 1)}
+                    onQuantityChange={(value) => setQuantities((current) => ({ ...current, [productKey]: value }))}
+                    onQuantityStep={(delta) => changeQuantity(productKey, delta)}
+                  />
+                )
+              })}
+            </div>
+          ) : (
+            <p className="home-redesign-featured-empty">{designContent.featuredEmptyText}</p>
+          )}
         </section>
 
-        <section className="market-benefits" aria-label="Les services Jalims">
-          <div className="benefit-item">
-            <span className="benefit-symbol benefit-route" aria-hidden="true"><Route size={18} strokeWidth={2} /></span>
-            <span><strong>{homepageContent.benefit_one_title}</strong><small>{homepageContent.benefit_one_description}</small></span>
-          </div>
-          <span className="benefit-divider" />
-          <div className="benefit-item">
-            <span className="benefit-symbol benefit-shield" aria-hidden="true"><ShieldCheck size={18} strokeWidth={2} /></span>
-            <span><strong>{homepageContent.benefit_two_title}</strong><small>{homepageContent.benefit_two_description}</small></span>
-          </div>
-          <span className="benefit-divider" />
-          <div className="benefit-item">
-            <span className="benefit-symbol benefit-pin" aria-hidden="true"><MapPin size={18} strokeWidth={2} /></span>
-            <span><strong>{homepageContent.benefit_three_title}</strong><small>{homepageContent.benefit_three_description}</small></span>
-          </div>
-        </section>
+        <HomepageProcess design={designContent} />
 
         <section className="market-categories" aria-labelledby="categories-title">
           <div className="market-section-heading">
@@ -444,43 +479,14 @@ function HomeContent() {
             <div className="product-grid">
               {visibleProducts.map((product) => {
                 const productKey = String(product.id)
-                const minimumQuantity = product.moq ?? 1
-                const quantity = quantities[productKey] ?? String(minimumQuantity)
-                const parsedQuantity = Number.parseInt(quantity, 10)
-                const orderQuantity = Number.isFinite(parsedQuantity) ? Math.max(minimumQuantity, parsedQuantity) : minimumQuantity
-                const checkoutUrl = `/products/${encodeURIComponent(productKey)}?quantity=${orderQuantity}`
-
                 return (
-                  <article className="product-card" key={productKey}>
-                    <Link className="product-image-link" href={`/products/${encodeURIComponent(productKey)}`} aria-label={`Voir ${product.name}`}>
-                      <ProductImage product={product} />
-                      {product.category && <span className="product-category-tag">{getCategoryLabel(product.category)}</span>}
-                    </Link>
-                    <FavoriteButton productId={productKey} productName={product.name} />
-                    <div className="product-details">
-                      <h3 title={product.name}>
-                        {product.featured && <span className="featured-product-mark" aria-label="Produit vedette">★</span>}
-                        <Link href={`/products/${encodeURIComponent(productKey)}`}>{product.name}</Link>
-                      </h3>
-                      <p className="product-price">{Number(product.price).toLocaleString('fr-FR')} <span>FCFA</span></p>
-                      <div className="product-actions">
-                        <div className="quantity-control" aria-label={`Quantité de ${product.name}`}>
-  <button type="button" aria-label="Diminuer la quantité" onClick={() => changeQuantity(productKey, -1)}>−</button>
-  <QuantityInput
-    ariaLabel={`Quantité de ${product.name}`}
-    minimum={minimumQuantity}
-    value={quantity}
-    onChange={(value) => setQuantities((current) => ({ ...current, [productKey]: value }))}
-  />
-  <button type="button" aria-label="Augmenter la quantité" onClick={() => changeQuantity(productKey, 1)}>+</button>
-</div>
-                        <Link className="order-button" href={checkoutUrl}>
-                          Commander <span aria-hidden="true">→</span>
-                        </Link>
-                      </div>
-                      {minimumQuantity > 1 && <small className="product-moq-note">Minimum : {minimumQuantity} unités</small>}
-                    </div>
-                  </article>
+                  <HomepageProductCard
+                    key={productKey}
+                    product={product}
+                    quantity={quantities[productKey] ?? String(product.moq ?? 1)}
+                    onQuantityChange={(value) => setQuantities((current) => ({ ...current, [productKey]: value }))}
+                    onQuantityStep={(delta) => changeQuantity(productKey, delta)}
+                  />
                 )
               })}
             </div>

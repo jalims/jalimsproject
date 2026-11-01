@@ -59,7 +59,7 @@ export function HomeSkeleton() {
     <SkeletonRegion>
       <main className="shop-page market-home skeleton-home">
         <header className="shop-header market-header">
-          <div className="market-utility"><div className="market-utility-inner"><SkeletonShape className="skeleton-home-utility" /><SkeletonShape className="skeleton-home-utility" /></div></div>
+          <SkeletonShape className="home-redesign-skeleton-band" />
           <div className="header-inner market-header-inner">
             <SkeletonShape className="skeleton-home-brand" />
             <SkeletonShape className="skeleton-home-search" />
@@ -67,23 +67,17 @@ export function HomeSkeleton() {
           <nav className="market-nav" aria-hidden="true"><div className="market-nav-inner"><SkeletonShape className="skeleton-home-nav" /><SkeletonShape className="skeleton-home-nav" /><SkeletonShape className="skeleton-home-nav" /></div></nav>
         </header>
         <div className="market-content">
-          <section className="market-hero skeleton-home-hero" aria-hidden="true">
-            <div className="market-hero-copy">
-              <SkeletonShape className="skeleton-home-kicker" />
-              <SkeletonShape className="skeleton-home-title" />
-              <SkeletonShape className="skeleton-home-description" />
-              <SkeletonShape className="skeleton-home-description skeleton-home-description-short" />
-              <SkeletonShape className="skeleton-home-cta" />
-            </div>
-            <div className="market-hero-art"><SkeletonShape className="skeleton-home-art" /></div>
-          </section>
-          <section className="market-benefits skeleton-home-benefits" aria-hidden="true">
+          <SkeletonShape className="home-redesign-skeleton-hero" />
+          <section className="home-redesign-skeleton-benefits" aria-hidden="true">
             <SkeletonShape /><SkeletonShape /><SkeletonShape />
           </section>
-          <section className="market-categories skeleton-home-categories" aria-hidden="true">
+          <section className="home-redesign-featured" aria-hidden="true">
             <SkeletonShape className="skeleton-home-section-title" />
-            <div className="skeleton-home-category-grid">{Array.from({ length: 5 }, (_, index) => <SkeletonShape key={index} />)}</div>
+            <div className="home-redesign-featured-row">
+              {Array.from({ length: 3 }, (_, index) => <SkeletonShape className="home-redesign-skeleton-featured-card" key={index} />)}
+            </div>
           </section>
+          <SkeletonShape className="home-redesign-skeleton-process" />
           <section className="catalog market-catalog skeleton-home-catalog" aria-label="Chargement des produits">
             <div className="market-section-heading catalog-heading"><div><SkeletonShape className="skeleton-home-eyebrow" /><SkeletonShape className="skeleton-home-results-title" /></div><SkeletonShape className="skeleton-home-count" /></div>
             <div className="skeleton-home-filters"><SkeletonShape /><SkeletonShape /><SkeletonShape /></div>
