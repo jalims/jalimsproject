@@ -356,8 +356,8 @@ export default function AdminStatisticsPage() {
 
             <section className="admin-stats-panel admin-analytics-panel">
               <div className="admin-stats-heading">
-                <div><p className="eyebrow">FRÉQUENTATION ANONYME</p><h2>Recherches des visiteurs</h2></div>
-                <span>Identifiants anonymes · aucune adresse IP</span>
+                <div><p className="eyebrow">FRÉQUENTATION PSEUDONYME</p><h2>Recherches des visiteurs</h2></div>
+                <span>Aucune adresse IP enregistrée ; les recherches sont filtrées mais peuvent contenir des informations personnelles.</span>
               </div>
               {analyticsLoading ? <div className="admin-analytics-skeleton" aria-label="Chargement des statistiques de fréquentation" /> : analyticsError ? (
                 <p className="admin-analytics-error" role="alert">{analyticsError}</p>

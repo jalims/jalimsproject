@@ -3,7 +3,7 @@ import { NextResponse, type NextRequest } from 'next/server'
 
 const visitorCookieName = 'jalims_visitor'
 const visitorCookieMaxAge = 60 * 60 * 24 * 30 * 13
-const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 const maximumBodyBytes = 1024
 
 type SearchEvent = { type: 'search'; term: string; result_count: number }
@@ -22,17 +22,75 @@ function normalizeSearchTerm(term: string) {
     .toLocaleLowerCase('fr-FR')
 }
 
+function containsLikelyPersonalSearchTerm(term: string) {
+  if (term.includes('@')) return true
+
+  const phoneCandidates = term.match(/(?:^|[^\p{L}\p{N}])\+?\d(?:[\d\s()./-]*\d)(?=$|[^\p{L}\p{N}])/gu) ?? []
+  return phoneCandidates.some((candidate) => (candidate.match(/\d/g) ?? []).length >= 7)
+}
+
 function hasExactKeys(payload: Record<string, unknown>, keys: string[]) {
   return Object.keys(payload).length === keys.length && keys.every((key) => Object.hasOwn(payload, key))
 }
 
-function setVisitorCookie(response: NextResponse, visitorId: string, secure: boolean) {
-  response.cookies.set(visitorCookieName, visitorId, {
+function setVisitorCookie(response: NextResponse, signedVisitorId: string, secure: boolean) {
+  response.cookies.set(visitorCookieName, signedVisitorId, {
     maxAge: visitorCookieMaxAge,
+    httpOnly: true,
     path: '/',
     sameSite: 'lax',
     secure,
   })
+}
+
+async function getVisitorSigningKey() {
+  const secret = process.env.ANALYTICS_VISITOR_SECRET
+  if (!secret || new TextEncoder().encode(secret).byteLength < 32) {
+    throw new Error('ANALYTICS_VISITOR_SECRET must contain at least 32 bytes')
+  }
+
+  return crypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign', 'verify'],
+  )
+}
+
+function toBase64Url(bytes: Uint8Array) {
+  let binary = ''
+  for (const byte of bytes) binary += String.fromCharCode(byte)
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '')
+}
+
+function fromBase64Url(value: string) {
+  const base64 = value.replace(/-/g, '+').replace(/_/g, '/')
+  const padded = base64.padEnd(Math.ceil(base64.length / 4) * 4, '=')
+  return Uint8Array.from(atob(padded), (character) => character.charCodeAt(0))
+}
+
+async function signVisitorId(visitorId: string, key: CryptoKey) {
+  const signature = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(visitorId))
+  return `${visitorId}.${toBase64Url(new Uint8Array(signature))}`
+}
+
+async function verifyVisitorCookie(value: string | undefined, key: CryptoKey) {
+  if (!value) return null
+  const [visitorId, signature, ...extraParts] = value.split('.')
+  if (!uuidPattern.test(visitorId ?? '') || !signature || extraParts.length > 0) return null
+
+  try {
+    const valid = await crypto.subtle.verify(
+      'HMAC',
+      key,
+      fromBase64Url(signature),
+      new TextEncoder().encode(visitorId),
+    )
+    return valid ? visitorId : null
+  } catch {
+    return null
+  }
 }
 
 async function readLimitedBody(request: NextRequest) {
@@ -100,8 +158,7 @@ export async function POST(request: NextRequest) {
       || Array.from(payload.term).length < 1
       || Array.from(payload.term).length > 80
       || payload.term !== payload.term.trim()
-      || payload.term.includes('@')
-      || /\d{7,}/.test(payload.term)
+      || containsLikelyPersonalSearchTerm(payload.term)
       || typeof payload.result_count !== 'number'
       || !Number.isInteger(payload.result_count)
       || payload.result_count < 0
@@ -129,11 +186,12 @@ export async function POST(request: NextRequest) {
 
   const secure = new URL(request.url).protocol === 'https:'
   const cookieVisitorId = request.cookies.get(visitorCookieName)?.value
-  const visitorId = cookieVisitorId && uuidPattern.test(cookieVisitorId)
-    ? cookieVisitorId
-    : crypto.randomUUID()
 
   try {
+    const signingKey = await getVisitorSigningKey()
+    const verifiedVisitorId = await verifyVisitorCookie(cookieVisitorId, signingKey)
+    const visitorId = verifiedVisitorId ?? crypto.randomUUID()
+    const signedVisitorId = verifiedVisitorId ? null : await signVisitorId(visitorId, signingKey)
     const supabase = createSupabaseAdminClient()
     const { data, error } = await supabase.rpc('record_analytics_event', {
       p_event_type: event.type,
@@ -151,8 +209,8 @@ export async function POST(request: NextRequest) {
     }
     if (data === 'rate_limited') {
       const limitedResponse = errorResponse('Trop d’événements ont été envoyés. Réessayez plus tard.', 429)
-      if (!cookieVisitorId || !uuidPattern.test(cookieVisitorId)) {
-        setVisitorCookie(limitedResponse, visitorId, secure)
+      if (signedVisitorId) {
+        setVisitorCookie(limitedResponse, signedVisitorId, secure)
       }
       return limitedResponse
     }
@@ -162,8 +220,8 @@ export async function POST(request: NextRequest) {
     }
 
     const response = new NextResponse(null, { status: 204 })
-    if (!cookieVisitorId || !uuidPattern.test(cookieVisitorId)) {
-      setVisitorCookie(response, visitorId, secure)
+    if (signedVisitorId) {
+      setVisitorCookie(response, signedVisitorId, secure)
     }
     return response
   } catch {

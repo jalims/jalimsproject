@@ -1,24 +1,4 @@
-const visitorCookieName = 'jalims_visitor'
-const visitorCookieMaxAge = 60 * 60 * 24 * 30 * 13
-
 type ProductEventType = 'view' | 'add_to_cart' | 'favorite'
-
-function getVisitorId() {
-  const existing = document.cookie
-    .split(';')
-    .map((cookie) => cookie.trim())
-    .find((cookie) => cookie.startsWith(`${visitorCookieName}=`))
-    ?.slice(visitorCookieName.length + 1)
-
-  if (existing && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(existing)) {
-    return existing
-  }
-
-  const visitorId = crypto.randomUUID()
-  const secure = window.location.protocol === 'https:' ? '; Secure' : ''
-  document.cookie = `${visitorCookieName}=${visitorId}; Path=/; Max-Age=${visitorCookieMaxAge}; SameSite=Lax${secure}`
-  return visitorId
-}
 
 function normalizeSearchTerm(term: string) {
   const normalized = term
@@ -31,7 +11,10 @@ function normalizeSearchTerm(term: string) {
 }
 
 function isSensitiveSearchTerm(term: string) {
-  return term.includes('@') || /\d{7,}/.test(term)
+  if (term.includes('@')) return true
+
+  const phoneCandidates = term.match(/(?:^|[^\p{L}\p{N}])\+?\d(?:[\d\s()./-]*\d)(?=$|[^\p{L}\p{N}])/gu) ?? []
+  return phoneCandidates.some((candidate) => (candidate.match(/\d/g) ?? []).length >= 7)
 }
 
 function sendEvent(payload: Record<string, string | number>) {
@@ -59,7 +42,6 @@ export function trackSearch(term: string, resultCount: number) {
   if (!searchTerm || isSensitiveSearchTerm(searchTerm)) return
 
   try {
-    getVisitorId()
     sendEvent({ type: 'search', term: searchTerm, result_count: resultCount })
   } catch {
     console.warn('[Analytics] Search event could not be sent')
@@ -71,7 +53,6 @@ export function trackProductEvent(type: ProductEventType, productId: string) {
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(productId)) return
 
   try {
-    getVisitorId()
     sendEvent({ type, product_id: productId })
   } catch {
     console.warn('[Analytics] Product event could not be sent')

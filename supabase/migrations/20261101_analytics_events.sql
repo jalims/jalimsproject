@@ -67,7 +67,17 @@ begin
       or p_result_count < 0
       or char_length(p_search_term) > 80
       or p_search_term like '%@%'
-      or p_search_term ~ '[0-9]{7}'
+      or exists (
+        select 1
+        from pg_catalog.regexp_matches(
+          p_search_term,
+          '(^|[^[:alnum:]])([+]?[0-9][0-9[:space:]()./-]*[0-9])',
+          'g'
+        ) as phone_matches(phone_parts)
+        where pg_catalog.char_length(
+          pg_catalog.regexp_replace(phone_parts[2], '[^0-9]', '', 'g')
+        ) >= 7
+      )
     then
       raise exception 'invalid search event' using errcode = '22023';
     end if;
@@ -368,3 +378,23 @@ grant execute on function public.admin_analytics_top_products(text) to service_r
 grant execute on function public.admin_analytics_product_funnel(text) to service_role;
 grant execute on function public.admin_analytics_underperforming_products(text) to service_role;
 grant execute on function public.purge_analytics_events() to service_role;
+
+do $$
+declare
+  existing_job_id bigint;
+begin
+  for existing_job_id in
+    select jobid
+    from cron.job
+    where jobname = 'jalims-purge-analytics-events'
+  loop
+    perform cron.unschedule(existing_job_id);
+  end loop;
+
+  perform cron.schedule(
+    'jalims-purge-analytics-events',
+    '0 3 * * *',
+    'select public.purge_analytics_events();'
+  );
+end;
+$$;
