@@ -31,6 +31,7 @@ const footerFields: { key: keyof HomepageContent; label: string; hint: string; m
 ]
 
 const maximumImageSize = 2 * 1024 * 1024
+const imageResizeWarningSize = 400 * 1024
 type ImageField = 'heroDesktopImagePath' | 'heroMobileImagePath' | 'processImagePath'
 type ImageSlot = 'hero-desktop' | 'hero-mobile' | 'process'
 
@@ -55,9 +56,8 @@ async function getAccessToken() {
 }
 
 async function compressImage(file: File) {
-  if (file.size <= maximumImageSize) return file
   if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
-    throw new Error('Choisissez une image JPG, PNG ou WebP de 2 Mo maximum.')
+    throw new Error('Choisissez une image JPG, PNG ou WebP.')
   }
 
   let bitmap: ImageBitmap
@@ -72,7 +72,7 @@ async function compressImage(file: File) {
     const context = canvas.getContext('2d')
     if (!context) throw new Error('La compression d’image n’est pas disponible sur cet appareil.')
 
-    let scale = Math.min(1, 2000 / Math.max(bitmap.width, bitmap.height))
+    let scale = Math.min(1, 1600 / bitmap.width)
     for (let attempt = 0; attempt < 12; attempt += 1) {
       canvas.width = Math.max(1, Math.round(bitmap.width * scale))
       canvas.height = Math.max(1, Math.round(bitmap.height * scale))
@@ -455,10 +455,12 @@ function ImageUpload({
   onRemove: () => void
 }) {
   const inputId = `homepage-image-${slot}`
+  const [pendingResize, setPendingResize] = useState<File | null>(null)
+
   return (
     <div className="home-redesign-upload">
       <span>{label}</span>
-      <small>JPG, PNG ou WebP · 2 Mo maximum. Les grandes images sont compressées dans le navigateur.</small>
+      <small>JPG, PNG ou WebP · 2 Mo maximum. Au-delà de 400 Ko, une option de redimensionnement s’affiche.</small>
       <div className="home-redesign-upload-actions">
         <label className="home-redesign-upload-button" htmlFor={inputId}>
           <ImagePlus aria-hidden="true" size={17} /> {uploading ? 'Compression et envoi...' : path ? 'Remplacer l’image' : 'Choisir une image'}
@@ -469,7 +471,13 @@ function ImageUpload({
           accept="image/jpeg,image/png,image/webp"
           disabled={uploading}
           onChange={(event) => {
-            onUpload(event.target.files?.[0])
+            const file = event.target.files?.[0]
+            if (file && file.size > imageResizeWarningSize) {
+              setPendingResize(file)
+            } else {
+              setPendingResize(null)
+              onUpload(file)
+            }
             event.currentTarget.value = ''
           }}
         />
@@ -479,6 +487,27 @@ function ImageUpload({
           </button>
         )}
       </div>
+      {pendingResize && (
+        <div className="home-redesign-editor-help" role="alert">
+          <p>Cette image est lourde, elle ralentira le site sur mobile.</p>
+          <div className="home-redesign-upload-actions">
+            <button
+              type="button"
+              className="home-redesign-upload-button"
+              onClick={() => {
+                const file = pendingResize
+                setPendingResize(null)
+                onUpload(file)
+              }}
+            >
+              Redimensionner à 1600 px maximum en WebP et envoyer
+            </button>
+            <button type="button" className="home-redesign-remove-image" onClick={() => setPendingResize(null)}>
+              Annuler
+            </button>
+          </div>
+        </div>
+      )}
       {path && <span className="home-redesign-upload-filename">Image sélectionnée pour l’enregistrement</span>}
     </div>
   )
