@@ -7877,6 +7877,13 @@ button {
   font-size: 0.86rem;
 }
 
+.admin-stats-delay .admin-stats-delay-unavailable {
+  margin: 18px 0 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+  line-height: 1.6;
+}
+
 .admin-stats-error,
 .admin-clients-empty {
   padding: 46px 22px;

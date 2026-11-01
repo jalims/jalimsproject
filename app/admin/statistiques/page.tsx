@@ -18,7 +18,7 @@ type SalesDay = { date: string; revenue: number; orders: number }
 type TopProduct = { product_id: string; name: string; units: number; revenue: number; estimated_margin: number | null }
 type CategoryRow = { category: string; units: number; revenue: number; orders: number }
 type StatusRow = { status: string; orders: number }
-type PickupDelay = { average_hours: number | null; orders: number }
+type PickupDelay = { available: boolean; average_hours: number | null; orders: number }
 type StatsPayload = {
   overview: Overview
   salesByDay: SalesDay[]
@@ -270,10 +270,14 @@ export default function AdminStatisticsPage() {
               <section className="admin-stats-panel admin-stats-delay">
                 <p className="eyebrow">RETRAIT</p>
                 <h2>Délai paiement → retrait</h2>
-                {stats.pickupDelay.average_hours === null
+                {!stats.pickupDelay.available ? (
+                  <p className="admin-stats-delay-unavailable">Non disponible : les dates historiques de paiement et de retrait ne sont pas enregistrées.</p>
+                ) : stats.pickupDelay.average_hours === null
                   ? <strong>—</strong>
                   : <strong>{stats.pickupDelay.average_hours.toLocaleString('fr-FR')} h</strong>}
-                <p>{stats.pickupDelay.orders.toLocaleString('fr-FR')} commande{stats.pickupDelay.orders === 1 ? '' : 's'} récupérée{stats.pickupDelay.orders === 1 ? '' : 's'} mesurée{stats.pickupDelay.orders === 1 ? '' : 's'}.</p>
+                {stats.pickupDelay.available && (
+                  <p>{stats.pickupDelay.orders.toLocaleString('fr-FR')} commande{stats.pickupDelay.orders === 1 ? '' : 's'} récupérée{stats.pickupDelay.orders === 1 ? '' : 's'} mesurée{stats.pickupDelay.orders === 1 ? '' : 's'}.</p>
+                )}
               </section>
             </div>
           </>

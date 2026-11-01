@@ -163,23 +163,12 @@ begin
     ) as ranked_products;
   else
     execute $query$
+      -- Marge estimée = SUM(orders.total_price) - SUM(orders.quantity * product_costs.cost_basis_fcfa).
+      -- cost_basis_fcfa est le coût unitaire rendu calculé à l’import; la marge est null si un coût manque.
       with costs as (
-        select pg_catalog.to_jsonb(pc) ->> 'product_id' as product_id,
-          case
-            when pg_catalog.bool_and(cost.value ~ '^[0-9]+([.][0-9]+)?$')
-              then pg_catalog.max(case when cost.value ~ '^[0-9]+([.][0-9]+)?$' then cost.value::numeric else null end)
-            else null
-          end as unit_cost
+        select pc.product_id,
+          pc.cost_basis_fcfa as unit_cost
         from public.product_costs as pc
-        cross join lateral (
-          select coalesce(
-            pg_catalog.to_jsonb(pc) ->> 'unit_cost',
-            pg_catalog.to_jsonb(pc) ->> 'cost',
-            pg_catalog.to_jsonb(pc) ->> 'cost_price',
-            pg_catalog.to_jsonb(pc) ->> 'purchase_price'
-          ) as value
-        ) as cost
-        group by pg_catalog.to_jsonb(pc) ->> 'product_id'
       ),
       product_sales as (
         select p.id as product_id,
@@ -193,7 +182,7 @@ begin
           end as estimated_margin
         from public.orders as o
         join public.products as p on p.id = o.product_id
-        left join costs on costs.product_id = p.id::text
+        left join costs on costs.product_id = p.id
         where o.status in ('payé', 'commandé_fournisseur', 'chez_transitaire', 'en_transit', 'arrivé', 'prête_a_retirer', 'récupéré')
           and ($1 is null or o.created_at >= $1)
         group by p.id, p.name
@@ -284,41 +273,14 @@ language plpgsql
 security definer
 set search_path = ''
 as $$
-declare
-  period_start timestamptz := public.admin_stats_period_start(p_period);
-  result jsonb;
 begin
-  select pg_catalog.jsonb_build_object(
-    'average_hours', pg_catalog.round(pg_catalog.avg(
-      extract(epoch from (
-        coalesce(
-          nullif(pg_catalog.to_jsonb(o) ->> 'picked_up_at', '')::timestamptz,
-          nullif(pg_catalog.to_jsonb(o) ->> 'recovered_at', '')::timestamptz,
-          nullif(pg_catalog.to_jsonb(o) ->> 'updated_at', '')::timestamptz
-        ) - coalesce(
-          nullif(pg_catalog.to_jsonb(o) ->> 'paid_at', '')::timestamptz,
-          nullif(pg_catalog.to_jsonb(o) ->> 'payment_confirmed_at', '')::timestamptz,
-          nullif(pg_catalog.to_jsonb(o) ->> 'payment_completed_at', '')::timestamptz
-        )
-      )) / 3600
-    ), 2),
-    'orders', pg_catalog.count(*)
-  ) into result
-  from public.orders as o
-  where o.status = 'récupéré'
-    and (period_start is null or o.created_at >= period_start)
-    and coalesce(
-      nullif(pg_catalog.to_jsonb(o) ->> 'picked_up_at', '')::timestamptz,
-      nullif(pg_catalog.to_jsonb(o) ->> 'recovered_at', '')::timestamptz,
-      nullif(pg_catalog.to_jsonb(o) ->> 'updated_at', '')::timestamptz
-    ) is not null
-    and coalesce(
-      nullif(pg_catalog.to_jsonb(o) ->> 'paid_at', '')::timestamptz,
-      nullif(pg_catalog.to_jsonb(o) ->> 'payment_confirmed_at', '')::timestamptz,
-      nullif(pg_catalog.to_jsonb(o) ->> 'payment_completed_at', '')::timestamptz
-    ) is not null;
+  perform public.admin_stats_period_start(p_period);
 
-  return result;
+  return pg_catalog.jsonb_build_object(
+    'available', false,
+    'average_hours', null,
+    'orders', 0
+  );
 end;
 $$;
 
