@@ -78,11 +78,11 @@ export default function ProductPurchaseControls({ attributes, basePrice, colorVa
       return
     }
 
-    saveVariantCart({
+    const saved = saveVariantCart({
       productId,
       lines: [...lines].map(([variantId, lineQuantity]) => ({ variantId, quantity: lineQuantity })),
     })
-    trackProductEvent('add_to_cart', productId)
+    if (saved) trackProductEvent('add_to_cart', productId)
 
     if (skippedLines > 0) {
       setCartMessage(`${addedQuantity} unité(s) ajoutée(s). ${skippedLines} combinaison(s) ignorée(s), stock insuffisant.`)
@@ -155,7 +155,7 @@ export default function ProductPurchaseControls({ attributes, basePrice, colorVa
           {unavailable ? (
             <button className="order-button detail-order-button" type="button" disabled>Indisponible</button>
           ) : (
-            <Link className="order-button detail-order-button" href={checkoutUrl} onClick={() => trackProductEvent('add_to_cart', productId)}>
+            <Link className="order-button detail-order-button" href={checkoutUrl}>
               Continuer vers la commande <span aria-hidden="true">→</span>
             </Link>
           )}

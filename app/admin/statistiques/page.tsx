@@ -357,7 +357,7 @@ export default function AdminStatisticsPage() {
             <section className="admin-stats-panel admin-analytics-panel">
               <div className="admin-stats-heading">
                 <div><p className="eyebrow">FRÉQUENTATION PSEUDONYME</p><h2>Recherches des visiteurs</h2></div>
-                <span>Aucune adresse IP enregistrée ; les recherches sont filtrées mais peuvent contenir des informations personnelles.</span>
+                <span>Événements envoyés par le navigateur : ces indicateurs de tendance peuvent être incomplets, approximatifs ou manipulés. Aucune adresse IP n’est enregistrée ; les recherches sont filtrées mais peuvent encore contenir des informations personnelles.</span>
               </div>
               {analyticsLoading ? <div className="admin-analytics-skeleton" aria-label="Chargement des statistiques de fréquentation" /> : analyticsError ? (
                 <p className="admin-analytics-error" role="alert">{analyticsError}</p>
@@ -389,7 +389,7 @@ export default function AdminStatisticsPage() {
                 <div className="admin-stats-heading">
                   <div><p className="eyebrow">PARCOURS AGRÉGÉ</p><h2>Consultations → panier → commandes payées</h2></div>
                 </div>
-                <p className="admin-analytics-note">Volumes regroupés par produit, sans relier les événements à une personne.</p>
+                <p className="admin-analytics-note">Volumes regroupés par produit : ils ne permettent pas une attribution individuelle fiable. Les ajouts au panier sont des événements déclarés par le navigateur, indicatifs et potentiellement manipulables ; ils ne correspondent pas à des commandes confirmées. Seules les commandes payées sont comptées comme telles.</p>
                 {analyticsLoading ? <div className="admin-analytics-skeleton" aria-label="Chargement du parcours produit" /> : analyticsError ? (
                   <p className="admin-analytics-error" role="alert">{analyticsError}</p>
                 ) : analytics && analytics.productFunnel.length > 0 ? (

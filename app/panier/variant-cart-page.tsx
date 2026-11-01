@@ -131,10 +131,11 @@ export default function VariantCartPage() {
   const hasInvalidStock = availableCartLines.length !== cartLines.length
   const belowMinimum = Boolean(product && totalQuantity < product.moq)
 
-  function updateCart(nextCart: VariantCart) {
+  function updateCart(nextCart: VariantCart): boolean {
     setCart(nextCart)
-    saveVariantCart(nextCart)
+    const saved = saveVariantCart(nextCart)
     setErrorMessage('')
+    return saved
   }
 
   function removeLine(variantId: string) {
@@ -157,13 +158,12 @@ export default function VariantCartPage() {
       setErrorMessage(`Stock insuffisant pour cette combinaison : ${variant.stock} disponible(s).`)
       return
     }
-    if (quantity > (cart.lines.find((line) => line.variantId === variantId)?.quantity ?? 0)) {
-      trackProductEvent('add_to_cart', cart.productId)
-    }
-    updateCart({
+    const addedToCart = quantity > (cart.lines.find((line) => line.variantId === variantId)?.quantity ?? 0)
+    const saved = updateCart({
       ...cart,
       lines: cart.lines.map((line) => line.variantId === variantId ? { ...line, quantity } : line),
     })
+    if (saved && addedToCart) trackProductEvent('add_to_cart', cart.productId)
   }
 
   async function placeOrder() {

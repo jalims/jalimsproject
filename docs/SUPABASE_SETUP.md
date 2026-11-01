@@ -89,6 +89,8 @@ Récupérez `SUPABASE_SERVICE_ROLE_KEY` dans les paramètres API du projet Supab
 
 Générez `ANALYTICS_VISITOR_SECRET` avec au moins 32 octets aléatoires (par exemple `node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"`), puis ajoutez la même valeur à `.env.local` et aux variables d’environnement serveur de Vercel. Cette clé signe les cookies pseudonymes Analytics ; ne la préfixez pas par `NEXT_PUBLIC_` et ne la communiquez pas au navigateur.
 
+Les statistiques Analytics servent à observer des tendances générales : les événements sont envoyés par le navigateur et peuvent être incomplets, approximatifs ou manipulés. Les ajouts au panier sont des indicateurs déclaratifs, pas des commandes confirmées ; seules les commandes payées représentent des commandes. Les résultats sont agrégés par produit et ne permettent pas une attribution individuelle fiable. Les recherches sont filtrées pour réduire la collecte probable de données personnelles, sans garantie de les exclure toutes.
+
 Les paiements sont envoyés avec `env=test` et les moyens Orange Money, Wave et Free Money. L’IPN envoyé à PayTech est `https://jalims.com/api/payment/ipn`; il est indépendant de `NEXT_PUBLIC_SITE_URL` et ce domaine ne doit pas rediriger cette URL. PayTech indique qu’en test le montant débité est aléatoire (100 à 150 FCFA) et que le sandbox est réservé aux tests internes; ne l’utilisez pas pour des transactions publiques. Le retour du navigateur ne confirme pas le paiement : seul l’IPN valide le statut.
 
 ## 9. Attributs et variantes produit

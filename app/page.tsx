@@ -12,7 +12,7 @@ import QuantityInput from './ui/quantity-input'
 import ConnectionError from './ui/connection-error'
 import { HomeSkeleton, ProductGridSkeleton } from './ui/loading-skeletons'
 import { defaultHomepageContent, type HomepageContent } from '../lib/homepage-content'
-import { trackProductEvent, trackSearch } from '../lib/analytics'
+import { trackSearch } from '../lib/analytics'
 
 type Product = {
   id: string | number
@@ -474,7 +474,7 @@ function HomeContent() {
   />
   <button type="button" aria-label="Augmenter la quantité" onClick={() => changeQuantity(productKey, 1)}>+</button>
 </div>
-                        <Link className="order-button" href={checkoutUrl} onClick={() => trackProductEvent('add_to_cart', productKey)}>
+                        <Link className="order-button" href={checkoutUrl}>
                           Commander <span aria-hidden="true">→</span>
                         </Link>
                       </div>

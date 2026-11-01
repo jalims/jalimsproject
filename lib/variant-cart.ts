@@ -32,13 +32,20 @@ export function readVariantCart(): VariantCart | null {
   }
 }
 
-export function saveVariantCart(cart: VariantCart) {
+export function saveVariantCart(cart: VariantCart): boolean {
   try {
     localStorage.setItem(storageKey, JSON.stringify(cart))
+  } catch {
+    return false
+  }
+
+  try {
     window.dispatchEvent(new Event(cartUpdatedEvent))
   } catch {
-    return
+    // The cart is persisted; a notification failure must not report a failed save.
   }
+
+  return true
 }
 
 export function clearVariantCart() {
