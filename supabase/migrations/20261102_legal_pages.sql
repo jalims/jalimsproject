@@ -34,7 +34,7 @@ create unique index if not exists legal_page_versions_one_draft_per_slug
 create or replace function public.prevent_published_legal_page_mutation()
 returns trigger
 language plpgsql
-set search_path = public, pg_temp
+set search_path = pg_catalog
 as $$
 begin
   if old.status = 'publie' then
@@ -57,7 +57,7 @@ returns boolean
 language sql
 stable
 security definer
-set search_path = public, pg_temp
+set search_path = pg_catalog
 as $$
   select exists (
     select 1
@@ -74,33 +74,23 @@ as $$
   );
 $$;
 
-revoke all on function public.is_latest_published_legal_page(text, integer) from public;
-grant execute on function public.is_latest_published_legal_page(text, integer) to anon, authenticated, service_role;
-
 alter table public.legal_page_versions enable row level security;
+
+-- Seuls les rôles qui évaluent la politique RLS peuvent appeler la fonction.
+revoke all on function public.is_latest_published_legal_page(text, integer)
+  from public, anon, authenticated, service_role;
+grant execute on function public.is_latest_published_legal_page(text, integer) to anon, authenticated;
+
+-- Les rôles navigateur n’ont que le droit de lecture, filtré par la politique RLS.
+revoke all on table public.legal_page_versions from public, anon, authenticated, service_role;
+grant select on table public.legal_page_versions to anon, authenticated;
+grant select, insert, update, delete on table public.legal_page_versions to service_role;
 
 create policy "Lecture publique de la dernière version publiée"
   on public.legal_page_versions
   for select
   to anon, authenticated
   using (public.is_latest_published_legal_page(slug, version));
-
-create policy "Gestion admin des versions légales"
-  on public.legal_page_versions
-  for all
-  to authenticated
-  using (
-    auth.jwt() -> 'app_metadata' ->> 'role' = 'admin'
-    and lower(coalesce(auth.jwt() ->> 'email', '')) = 'jalimsofficiel@gmail.com'
-  )
-  with check (
-    auth.jwt() -> 'app_metadata' ->> 'role' = 'admin'
-    and lower(coalesce(auth.jwt() ->> 'email', '')) = 'jalimsofficiel@gmail.com'
-  );
-
-grant select on public.legal_page_versions to anon;
-grant select, insert, update, delete on public.legal_page_versions to authenticated;
-grant all on public.legal_page_versions to service_role;
 
 create table if not exists public.terms_acceptances (
   user_id uuid not null references auth.users(id),
@@ -120,12 +110,6 @@ comment on column public.terms_acceptances.accepted_at is 'Date et heure de l’
 
 alter table public.terms_acceptances enable row level security;
 
-create policy "Insertion de sa propre acceptation"
-  on public.terms_acceptances
-  for insert
-  to authenticated
-  with check (auth.uid() = user_id);
-
 create policy "Lecture admin des acceptations"
   on public.terms_acceptances
   for select
@@ -135,5 +119,8 @@ create policy "Lecture admin des acceptations"
     and lower(coalesce(auth.jwt() ->> 'email', '')) = 'jalimsofficiel@gmail.com'
   );
 
-grant select, insert on public.terms_acceptances to authenticated;
-grant all on public.terms_acceptances to service_role;
+-- Les utilisateurs authentifiés ne peuvent que lire les acceptations en tant
+-- qu’administrateur. L’écriture est réservée à l’API serveur.
+revoke all on table public.terms_acceptances from public, anon, authenticated, service_role;
+grant select on table public.terms_acceptances to authenticated;
+grant insert on table public.terms_acceptances to service_role;
