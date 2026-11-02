@@ -3,6 +3,12 @@
 Règles : une ligne par fichier lancé, jamais relancé deux fois. Avant chaque
 migration : sauvegarde CSV des tables touchées, puis test à blanc (begin; ... rollback;).
 
+## Activité du 2026-11-02
+
+- `supabase/migrations/20261105_product_origins.sql` — Ajoute à `products` les colonnes `origin` (défaut `import`), `local_stock`, `city`, `delivery_delay` et `stock_updated_at`, ainsi que les contraintes limitant l’origine à `local`/`import` et le stock à une valeur positive ou nulle. **Statut : exécutée manuellement dans Supabase SQL Editor.** **Relance : idempotente** (`ADD COLUMN IF NOT EXISTS`, contraintes vérifiées avant création et mise à jour limitée aux valeurs nulles).
+- `supabase/examples/product_origin_test_data.sql` — Insère ou met à jour cinq produits `[TEST Jalims]` (trois locaux et deux importés). Ce fichier est un script de données de démonstration, pas une migration. **Statut : exécuté, puis les produits de démonstration ont été supprimés.** **Relance : ne pas relancer en production** ; le script recréerait les produits supprimés. Les identifiants fixes rendent les insertions répétées déterministes en environnement de test.
+- `supabase/migrations/20261106_order_product_origin_snapshots.sql` — Ajoute `origin`, `city` et `delivery_delay` à `orders` et `order_variant_lines` (valeurs déjà présentes par défaut en `import`), ajoute les contraintes d’origine, puis crée/remplace les fonctions et déclencheurs `BEFORE INSERT` qui copient l’origine et les informations locales du produit vers la commande et de la commande vers ses lignes. **Statut : préparée, exécution dans Supabase à confirmer ; non exécutée par l’assistant.** **Relance : idempotente** (colonnes et contraintes vérifiées, fonctions remplacées, déclencheurs recréés).
+
 | Fichier | Date de lancement | Résultat | Remarque |
 |---|---|---|---|
 | 20260926_jalims_mvp.sql | date inconnue | appliquée | |
