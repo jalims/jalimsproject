@@ -2662,6 +2662,8 @@ button {
   border-color: #F97316;
   background: #F97316;
   color: #111;
+  padding: 3px 7px;
+  font-size: 9px;
 }
 
 .product-origin-badge-import {

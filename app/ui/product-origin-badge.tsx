@@ -24,7 +24,7 @@ export default function ProductOriginBadge({
   if (hasLocalStock) {
     return (
       <div className="product-origin-indicator">
-        <span className="product-origin-badge product-origin-badge-local">🇸🇳 Disponible au Sénégal</span>
+        <span className="product-origin-badge product-origin-badge-local">Disponible au Sénégal</span>
         <p className="product-origin-details">
           {city?.trim() || 'Ville à confirmer'} · livraison {deliveryDelay?.trim() || 'à confirmer'}
         </p>
