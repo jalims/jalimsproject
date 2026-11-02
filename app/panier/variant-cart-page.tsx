@@ -9,6 +9,7 @@ import { clearVariantCart, readVariantCart, saveVariantCart, type VariantCart } 
 import ConnectionError from '../ui/connection-error'
 import { VariantCartSkeleton } from '../ui/loading-skeletons'
 import { trackProductEvent } from '../../lib/analytics'
+import { SENEGAL_REGIONS } from '../../lib/senegal-regions'
 
 type Product = {
   id: string
@@ -16,6 +17,7 @@ type Product = {
   price: number
   image_url: string | null
   moq: number
+  origin: 'local' | 'import'
 }
 
 type Variant = {
@@ -50,6 +52,8 @@ export default function VariantCartPage() {
   const [attributes, setAttributes] = useState<Attribute[]>([])
   const [pickupPoints, setPickupPoints] = useState<{ id: string; name: string; city: string }[]>([])
   const [pickupPointId, setPickupPointId] = useState('')
+  const [deliveryRegion, setDeliveryRegion] = useState('')
+  const [deliveryNeighborhood, setDeliveryNeighborhood] = useState('')
   const [paymentMethod, setPaymentMethod] = useState<(typeof paymentMethods)[number]>('Wave')
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
@@ -74,7 +78,7 @@ export default function VariantCartPage() {
         }
 
         const [{ data: loadedProduct, error: productError }, { data: loadedVariants, error: variantsError }, { data: loadedAttributes, error: attributesError }, { data: loadedPickupPoints, error: pickupPointsError }] = await Promise.all([
-          supabase.from('products').select('id, name, price, image_url, moq, active').eq('id', savedCart.productId).eq('active', true).maybeSingle(),
+          supabase.from('products').select('id, name, price, image_url, moq, active, origin').eq('id', savedCart.productId).eq('active', true).maybeSingle(),
           supabase.from('product_variants').select('id, product_id, attribute_values, stock, price_adjustment').in('id', savedCart.lines.map((line) => line.variantId)).eq('active', true),
           supabase.from('product_attributes').select('attribute_key, attribute_colors').eq('product_id', savedCart.productId).order('sort_order'),
           supabase.from('pickup_points').select('id, name, city').eq('active', true).order('city'),
@@ -168,6 +172,16 @@ export default function VariantCartPage() {
 
   async function placeOrder() {
     if (!cart || !product || availableCartLines.length === 0 || belowMinimum) return
+    if (product.origin === 'local') {
+      if (!deliveryRegion) {
+        setErrorMessage('Veuillez choisir votre région de livraison.')
+        return
+      }
+      if (!deliveryNeighborhood.trim()) {
+        setErrorMessage('Veuillez renseigner votre quartier ou zone de livraison.')
+        return
+      }
+    }
     setSubmitting(true)
     setErrorMessage('')
 
@@ -182,11 +196,22 @@ export default function VariantCartPage() {
       p_product_id: product.id,
       p_lines: availableCartLines.map((line) => ({ variant_id: line.variant.id, quantity: line.quantity })),
       p_pickup_point_id: pickupPointId || null,
+      p_delivery_region: deliveryRegion,
+      p_delivery_neighborhood: deliveryNeighborhood.trim(),
     })
 
     if (error) {
       logClientError('Variant order creation failed', error)
-      setErrorMessage('La commande n’a pas pu être créée. Vérifiez votre panier et réessayez.')
+      const message = error.message
+      setErrorMessage(message.includes('delivery_region_required')
+        ? 'Veuillez choisir votre région de livraison.'
+        : message.includes('delivery_region_invalid')
+          ? 'La région choisie est invalide. Sélectionnez une région dans la liste.'
+          : message.includes('delivery_neighborhood_required')
+            ? 'Veuillez renseigner votre quartier ou zone de livraison.'
+            : message.includes('delivery_neighborhood_too_long')
+              ? 'Le quartier ou la zone ne doit pas dépasser 160 caractères.'
+              : 'La commande n’a pas pu être créée. Vérifiez votre panier et réessayez.')
       setSubmitting(false)
       return
     }
@@ -298,6 +323,30 @@ export default function VariantCartPage() {
 
             <section className="variant-cart-checkout">
               {hasInvalidStock && <p className="variant-stock-message" role="status">Les combinaisons en rupture resteront dans le panier; les autres peuvent être commandées.</p>}
+              {product.origin === 'local' && (
+                <section className="local-delivery-address" aria-labelledby="local-delivery-title">
+                  <h3 id="local-delivery-title">Adresse de livraison</h3>
+                  <label className="pickup-select">
+                    <span>Région</span>
+                    <select value={deliveryRegion} onChange={(event) => setDeliveryRegion(event.target.value)} required>
+                      <option value="">Choisir une région</option>
+                      {SENEGAL_REGIONS.map((region) => <option key={region} value={region}>{region}</option>)}
+                    </select>
+                  </label>
+                  <label className="pickup-select">
+                    <span>Quartier ou zone</span>
+                    <input
+                      type="text"
+                      value={deliveryNeighborhood}
+                      onChange={(event) => setDeliveryNeighborhood(event.target.value)}
+                      maxLength={160}
+                      placeholder="Ex. Parcelles Assainies, Unité 14"
+                      required
+                    />
+                  </label>
+                  <p>Votre nom, téléphone et adresse seront transmis au partenaire qui livre votre commande.</p>
+                </section>
+              )}
               {pickupPoints.length > 0 && (
                 <label className="pickup-select">
                   <span>Point de retrait</span>

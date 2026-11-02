@@ -27,9 +27,11 @@ type Product = {
   city: string | null
   delivery_delay: string | null
   stock_updated_at: string | null
+  partner_id: string | null
 }
 
 type AccessState = 'checking' | 'signed-out' | 'not-admin' | 'auth-error' | 'ready'
+type PartnerOption = { id: string; name: string; city: string; active: boolean }
 type AttributeDefinition = {
   attribute_key: string
   label: string
@@ -56,6 +58,7 @@ const emptyForm = {
   localStock: '',
   city: '',
   deliveryDelay: '',
+  partnerId: '',
 }
 
 function getPreviewUrl(value: string) {
@@ -141,6 +144,7 @@ export default function AdminPage() {
   const [adminEmail, setAdminEmail] = useState('')
   const [authError, setAuthError] = useState('')
   const [products, setProducts] = useState<Product[]>([])
+  const [partnerOptions, setPartnerOptions] = useState<PartnerOption[]>([])
   const [productsError, setProductsError] = useState('')
   const [productSearch, setProductSearch] = useState('')
   const [productFilter, setProductFilter] = useState<'all' | 'active' | 'hidden'>('all')
@@ -164,7 +168,7 @@ export default function AdminPage() {
   async function loadProducts() {
     const { data, error } = await supabase
       .from('products')
-      .select('id, name, description, price, delivery_estimate, image_url, category, moq, stock_status, active, featured, origin, local_stock, city, delivery_delay, stock_updated_at')
+      .select('id, name, description, price, delivery_estimate, image_url, category, moq, stock_status, active, featured, origin, local_stock, city, delivery_delay, stock_updated_at, partner_id')
       .order('name')
 
     if (error) {
@@ -175,6 +179,20 @@ export default function AdminPage() {
 
     setProductsError('')
     setProducts((data ?? []) as Product[])
+  }
+
+  async function loadPartnerOptions() {
+    const { data, error } = await supabase
+      .from('partners')
+      .select('id, name, city, active')
+      .eq('active', true)
+      .order('name')
+    if (error) {
+      logClientError('Admin product partner list load failed', error)
+      setFeedback({ kind: 'error', text: 'Impossible de charger la liste des partenaires actifs.' })
+      return
+    }
+    setPartnerOptions((data ?? []) as PartnerOption[])
   }
 
   async function loadAttributeDefinitions() {
@@ -240,6 +258,7 @@ export default function AdminPage() {
 
       setAccess('ready')
       void loadProducts()
+      void loadPartnerOptions()
       void loadAttributeDefinitions()
     }
 
@@ -294,9 +313,9 @@ export default function AdminPage() {
     }
 
     if (form.origin === 'local' && (
-      !Number.isInteger(localStock) || localStock <= 0 || !form.city.trim() || !form.deliveryDelay.trim()
+      !Number.isInteger(localStock) || localStock <= 0 || !form.city.trim() || !form.deliveryDelay.trim() || !form.partnerId
     )) {
-      setFeedback({ kind: 'error', text: 'Pour un produit disponible au Sénégal, indiquez un stock entier supérieur à zéro, une ville et un délai de livraison.' })
+      setFeedback({ kind: 'error', text: 'Pour un produit disponible au Sénégal, indiquez un stock, une ville, un délai et un partenaire actif.' })
       return
     }
 
@@ -363,6 +382,7 @@ export default function AdminPage() {
       local_stock: localStock,
       city: form.origin === 'local' ? form.city.trim() : null,
       delivery_delay: form.origin === 'local' ? form.deliveryDelay.trim() : null,
+      partner_id: form.origin === 'local' ? form.partnerId : null,
     }
 
     if (!productId) {
@@ -536,6 +556,7 @@ export default function AdminPage() {
       localStock: product.local_stock ? String(product.local_stock) : '',
       city: product.city ?? '',
       deliveryDelay: product.delivery_delay ?? '',
+      partnerId: product.partner_id ?? '',
     })
     setFeedback(null)
     void loadProductVariantConfiguration(String(product.id))
@@ -693,6 +714,7 @@ export default function AdminPage() {
           <Link className="admin-nav-item current" href="/admin"><span className="admin-nav-icon" aria-hidden="true">▦</span> Produits</Link>
           <Link className="admin-nav-item" href="/admin/importer"><span className="admin-nav-icon" aria-hidden="true">↑</span> Importer des produits</Link>
           <Link className="admin-nav-item" href="/admin/commandes"><span className="admin-nav-icon" aria-hidden="true">↗</span> Commandes</Link>
+          <Link className="admin-nav-item" href="/admin/partenaires"><span className="admin-nav-icon" aria-hidden="true">⌖</span> Partenaires</Link>
           <Link className="admin-nav-item" href="/admin/clients"><span className="admin-nav-icon" aria-hidden="true">♙</span> Clients</Link>
           <Link className="admin-nav-item" href="/admin/statistiques"><span className="admin-nav-icon" aria-hidden="true">▤</span> Statistiques</Link>
           <Link className="admin-nav-item" href="/admin/messages"><span className="admin-nav-icon" aria-hidden="true">✉</span> Messages</Link>
@@ -800,6 +822,7 @@ export default function AdminPage() {
                   onChange={(event) => setForm({
                     ...form,
                     origin: event.target.value === 'local' ? 'local' : 'import',
+                    partnerId: event.target.value === 'local' ? form.partnerId : '',
                   })}
                 >
                   <option value="import">Import Chine</option>
@@ -843,6 +866,21 @@ export default function AdminPage() {
                       value={form.deliveryDelay}
                       onChange={(event) => setForm({ ...form, deliveryDelay: event.target.value })}
                     />
+                  </label>
+                  <label>
+                    <span>Partenaire</span>
+                    <select
+                      disabled={saving}
+                      required
+                      value={form.partnerId}
+                      onChange={(event) => setForm({ ...form, partnerId: event.target.value })}
+                    >
+                      <option value="">Choisir un partenaire actif</option>
+                      {partnerOptions.map((partner) => (
+                        <option key={partner.id} value={partner.id}>{partner.name} · {partner.city}</option>
+                      ))}
+                    </select>
+                    {partnerOptions.length === 0 && <small>Aucun partenaire actif. Ajoutez-en depuis l’écran Partenaires.</small>}
                   </label>
                 </div>
               )}

@@ -17,6 +17,7 @@ type ProductInput = {
   local_stock: number
   city: string | null
   delivery_delay: string | null
+  partner_id: string | null
 }
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
@@ -48,6 +49,7 @@ function validateProduct(value: unknown): ProductInput | null {
     local_stock,
     city,
     delivery_delay,
+    partner_id,
   } = value
 
   if (
@@ -72,6 +74,7 @@ function validateProduct(value: unknown): ProductInput | null {
       typeof local_stock !== 'number' || !Number.isInteger(local_stock) || local_stock <= 0
       || typeof city !== 'string' || city.trim().length === 0 || city.trim().length > 100
       || typeof delivery_delay !== 'string' || delivery_delay.trim().length === 0 || delivery_delay.trim().length > 100
+      || typeof partner_id !== 'string' || !uuidPattern.test(partner_id)
     ) {
       return null
     }
@@ -91,6 +94,7 @@ function validateProduct(value: unknown): ProductInput | null {
       local_stock,
       city: city.trim(),
       delivery_delay: delivery_delay.trim(),
+      partner_id,
     }
   }
 
@@ -109,7 +113,26 @@ function validateProduct(value: unknown): ProductInput | null {
     local_stock: 0,
     city: null,
     delivery_delay: null,
+    partner_id: null,
   }
+}
+
+async function validateActivePartner(
+  supabase: ReturnType<typeof createSupabaseAdminClient>,
+  product: ProductInput,
+) {
+  if (!product.partner_id) return { valid: true, failed: false }
+
+  const { data, error } = await supabase
+    .from('partners')
+    .select('id, active')
+    .eq('id', product.partner_id)
+    .maybeSingle()
+  if (error) {
+    console.error('[Admin products] Partner lookup failed', error.message)
+    return { valid: false, failed: true }
+  }
+  return { valid: data?.active === true, failed: false }
 }
 
 async function readJson(request: Request) {
@@ -132,10 +155,17 @@ export async function POST(request: Request) {
   if (!isRecord(body)) return NextResponse.json({ error: 'Les informations du produit sont invalides.' }, { status: 400 })
   const id = getId(body.id)
   const product = validateProduct(body.product)
-  if (!id || !product) return NextResponse.json({ error: 'Vérifiez les informations du produit et son origine.' }, { status: 400 })
+  if (!id || !product) return NextResponse.json({ error: 'Vérifiez les informations du produit, son origine et son partenaire.' }, { status: 400 })
 
   try {
     const supabase = createSupabaseAdminClient()
+    const partnerValidation = await validateActivePartner(supabase, product)
+    if (partnerValidation.failed) {
+      return NextResponse.json({ error: 'Impossible de vérifier le partenaire sélectionné.' }, { status: 500 })
+    }
+    if (!partnerValidation.valid) {
+      return NextResponse.json({ error: 'Choisissez un partenaire actif pour ce produit local.' }, { status: 400 })
+    }
     const { error } = await supabase.from('products').insert({
       id,
       ...product,
@@ -163,10 +193,17 @@ export async function PUT(request: Request) {
   if (!isRecord(body)) return NextResponse.json({ error: 'Les informations du produit sont invalides.' }, { status: 400 })
   const id = getId(body.id)
   const product = validateProduct(body.product)
-  if (!id || !product) return NextResponse.json({ error: 'Vérifiez les informations du produit et son origine.' }, { status: 400 })
+  if (!id || !product) return NextResponse.json({ error: 'Vérifiez les informations du produit, son origine et son partenaire.' }, { status: 400 })
 
   try {
     const supabase = createSupabaseAdminClient()
+    const partnerValidation = await validateActivePartner(supabase, product)
+    if (partnerValidation.failed) {
+      return NextResponse.json({ error: 'Impossible de vérifier le partenaire sélectionné.' }, { status: 500 })
+    }
+    if (!partnerValidation.valid) {
+      return NextResponse.json({ error: 'Choisissez un partenaire actif pour ce produit local.' }, { status: 400 })
+    }
     const { data, error } = await supabase
       .from('products')
       .update({

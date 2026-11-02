@@ -22,6 +22,12 @@ type AdminOrder = {
   origin: 'local' | 'import'
   city: string | null
   delivery_delay: string | null
+  delivery_region: string | null
+  delivery_neighborhood: string | null
+  partner_id: string | null
+  partner_notified_at: string | null
+  customer_name: string
+  customer_phone: string
   variant_lines: {
     id: string
     attribute_values: Record<string, string>
@@ -52,6 +58,13 @@ type MessageLog = {
 
 type MessagePreview = { subject: string; text: string; warnings: string[] }
 type PendingStatus = { orderId: string; status: string; sendMessage: boolean; dateEstimate: string }
+type OrderDeliveryDetails = {
+  order_id: string
+  delivery_region: string | null
+  delivery_neighborhood: string | null
+  customer_name: string
+  customer_phone: string
+}
 
 const templateLabels: Record<OrderMessageTemplateKey, string> = {
   commande_confirmee: 'Commande confirmée',
@@ -90,6 +103,10 @@ const messageStatusLabels: Record<MessageLog['status'], string> = {
   echec: 'Échec',
   prepare: 'Préparé',
 }
+
+const partnerNotificationStatuses = new Set<string>(localOrderStatusOptions
+  .map(([status]) => status)
+  .filter((status) => status !== 'pending_payment' && status !== 'cancelled'))
 
 async function readApiBody(response: Response): Promise<Record<string, unknown>> {
   const body: unknown = await response.json()
@@ -168,6 +185,8 @@ export default function AdminOrdersPage() {
   const [messageFeedback, setMessageFeedback] = useState<{ orderId: string; text: string; error: boolean } | null>(null)
   const [whatsAppUrl, setWhatsAppUrl] = useState('')
   const [now, setNow] = useState(0)
+  const [partnerNotificationBusyId, setPartnerNotificationBusyId] = useState('')
+  const [partnerNotificationFeedback, setPartnerNotificationFeedback] = useState<{ orderId: string; text: string; error: boolean } | null>(null)
 
   useEffect(() => {
     const initialUpdate = window.setTimeout(() => setNow(Date.now()), 0)
@@ -190,7 +209,7 @@ export default function AdminOrdersPage() {
 
       const { data, error } = await supabase
         .from('orders')
-        .select('id, product_id, pickup_point_id, jalims_code, quantity, total_price, variant_id, variant_values, variant_stock_committed, origin, city, delivery_delay, status, created_at')
+        .select('id, product_id, pickup_point_id, jalims_code, quantity, total_price, variant_id, variant_values, variant_stock_committed, origin, city, delivery_delay, delivery_region, delivery_neighborhood, partner_id, partner_notified_at, status, created_at')
         .order('created_at', { ascending: false })
       if (!active) return
       if (error) {
@@ -203,9 +222,37 @@ export default function AdminOrdersPage() {
 
       const orderRows = data ?? []
       const orderIds = orderRows.map((order) => order.id)
+      const localOrderIds = orderRows.filter((order) => order.origin === 'local').map((order) => order.id)
       const productIds = [...new Set(orderRows.map((order) => order.product_id))]
       const pickupPointIds = [...new Set(orderRows.map((order) => order.pickup_point_id).filter((id): id is string => Boolean(id)))]
-      const [{ data: products, error: productsError }, { data: pickupPoints, error: pickupError }, { data: variantLines, error: variantLinesError }, { data: logs, error: logsError }] = await Promise.all([
+      const { data: sessionData } = await supabase.auth.getSession()
+      const deliveryDetailsRequest = localOrderIds.length > 0 && sessionData.session?.access_token
+        ? fetch('/api/admin/order-delivery-details', {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${sessionData.session.access_token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ orderIds: localOrderIds }),
+        }).then(async (response) => {
+          const body = await readApiBody(response)
+          if (!response.ok) {
+            throw new Error(typeof body.error === 'string' ? body.error : 'Impossible de charger les coordonnées de livraison.')
+          }
+          if (!Array.isArray(body.details)) throw new Error('Les détails de livraison reçus sont invalides.')
+          return { details: body.details as OrderDeliveryDetails[], error: null }
+        })
+          .catch((error: unknown) => ({
+            details: [] as OrderDeliveryDetails[],
+            error: error instanceof Error ? error : new Error('Impossible de charger les coordonnées de livraison.'),
+          }))
+        : Promise.resolve({
+          details: [] as OrderDeliveryDetails[],
+          error: localOrderIds.length > 0
+            ? new Error('Votre session administrateur a expiré. Reconnectez-vous pour charger les coordonnées.')
+            : null,
+        })
+      const [{ data: products, error: productsError }, { data: pickupPoints, error: pickupError }, { data: variantLines, error: variantLinesError }, { data: logs, error: logsError }, deliveryDetailsResult] = await Promise.all([
         productIds.length
           ? supabase.from('products').select('id, name, image_url').in('id', productIds)
           : Promise.resolve({ data: [], error: null }),
@@ -218,6 +265,7 @@ export default function AdminOrdersPage() {
         orderIds.length
           ? supabase.from('order_messages').select('id, order_id, template_key, channel, source, status, created_at, sent_at, error').in('order_id', orderIds).order('created_at', { ascending: false })
           : Promise.resolve({ data: [], error: null }),
+        deliveryDetailsRequest,
       ])
       if (!active) return
 
@@ -226,8 +274,15 @@ export default function AdminOrdersPage() {
         logClientError('Admin order details load failed', detailError)
         setErrorMessage('Les commandes sont chargées, mais certains détails ou messages sont indisponibles.')
       } else {
+        if (deliveryDetailsResult.error) {
+          logClientError('Admin order delivery details load failed', deliveryDetailsResult.error)
+          setErrorMessage('Les commandes sont chargées, mais les coordonnées de livraison sont indisponibles.')
+        } else {
+          setErrorMessage('')
+        }
         const productById = new Map((products ?? []).map((product) => [product.id, product]))
         const pickupPointById = new Map((pickupPoints ?? []).map((point) => [point.id, point]))
+        const deliveryDetailsByOrderId = new Map(deliveryDetailsResult.details.map((detail) => [detail.order_id, detail]))
         const linesByOrderId = new Map<string, AdminOrder['variant_lines']>()
         for (const line of variantLines ?? []) {
           const lines = linesByOrderId.get(line.order_id) ?? []
@@ -236,6 +291,9 @@ export default function AdminOrdersPage() {
         }
         setOrders(orderRows.map((order) => ({
           ...order,
+          ...deliveryDetailsByOrderId.get(order.id),
+          customer_name: deliveryDetailsByOrderId.get(order.id)?.customer_name ?? '',
+          customer_phone: deliveryDetailsByOrderId.get(order.id)?.customer_phone ?? '',
           variant_lines: linesByOrderId.get(order.id) ?? [],
           products: productById.get(order.product_id) ?? null,
           pickup_points: order.pickup_point_id ? pickupPointById.get(order.pickup_point_id) ?? null : null,
@@ -262,10 +320,74 @@ export default function AdminOrdersPage() {
       setErrorMessage('Le message a été traité, mais son historique n’a pas pu être actualisé.')
       return
     }
+
     setMessageLogs((current) => [
       ...current.filter((log) => log.order_id !== orderId),
       ...((data ?? []) as MessageLog[]),
     ])
+  }
+
+  async function notifyPartner(order: AdminOrder, resend = false) {
+      if (resend && !window.confirm(`Renvoyer le message WhatsApp pour la commande ${order.jalims_code} ?`)) return
+
+      const newTab = window.open('about:blank', '_blank')
+      if (!newTab) {
+        setPartnerNotificationFeedback({
+          orderId: order.id,
+          text: 'Autorisez les fenêtres pop-up pour ouvrir WhatsApp, puis réessayez.',
+          error: true,
+        })
+        return
+      }
+
+      setPartnerNotificationBusyId(order.id)
+      setPartnerNotificationFeedback(null)
+      try {
+        const { data: sessionData, error: sessionError } = await supabase.auth.getSession()
+        if (sessionError || !sessionData.session?.access_token) {
+          throw new Error('Votre session administrateur a expiré. Reconnectez-vous puis réessayez.')
+        }
+
+        const response = await fetch('/api/admin/partner-notification', {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${sessionData.session.access_token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ orderId: order.id, resend }),
+        })
+        const body = await readApiBody(response)
+        if (!response.ok) {
+          throw new Error(typeof body.error === 'string' ? body.error : 'Le message du partenaire n’a pas pu être préparé.')
+        }
+        if (typeof body.whatsapp_url !== 'string' || typeof body.partner_notified_at !== 'string') {
+          throw new Error('La réponse du serveur ne contient pas les informations de notification.')
+        }
+        const whatsappUrl = new URL(body.whatsapp_url)
+        if (whatsappUrl.protocol !== 'https:' || whatsappUrl.hostname !== 'wa.me') {
+          throw new Error('Le lien WhatsApp renvoyé par le serveur est invalide.')
+        }
+
+        newTab.location.replace(whatsappUrl.toString())
+        setOrders((current) => current.map((item) => item.id === order.id
+          ? { ...item, partner_notified_at: body.partner_notified_at as string }
+          : item))
+        setPartnerNotificationFeedback({
+          orderId: order.id,
+          text: 'WhatsApp est prêt avec le message au partenaire.',
+          error: false,
+        })
+      } catch (error) {
+        newTab.close()
+        logClientError('Admin partner notification failed', error)
+        setPartnerNotificationFeedback({
+          orderId: order.id,
+          text: error instanceof Error ? error.message : 'Le message du partenaire n’a pas pu être préparé.',
+          error: true,
+        })
+      } finally {
+        setPartnerNotificationBusyId('')
+      }
   }
 
   async function updateStatus(orderId: string, status: string) {
@@ -488,6 +610,7 @@ export default function AdminOrdersPage() {
         <nav className="admin-shortcuts" aria-label="Outils d’administration">
           <Link className="admin-nav-item" href="/admin">Produits</Link>
           <Link className="admin-nav-item current" href="/admin/commandes">Commandes</Link>
+          <Link className="admin-nav-item" href="/admin/partenaires">Partenaires</Link>
           <Link className="admin-nav-item" href="/admin/clients">Clients</Link>
           <Link className="admin-nav-item" href="/admin/statistiques">Statistiques</Link>
           <Link className="admin-nav-item" href="/admin/messages">Messages</Link>
@@ -509,6 +632,7 @@ export default function AdminOrdersPage() {
               )
               const pending = pendingStatus?.orderId === order.id ? pendingStatus : null
               const composing = composerOrderId === order.id
+              const partnerFeedback = partnerNotificationFeedback?.orderId === order.id ? partnerNotificationFeedback : null
               return (
                 <article className="admin-order-row admin-order-message-row" key={order.id}>
                   <div className="order-product-thumb">{order.products?.image_url && <Image src={order.products.image_url} alt="" fill sizes="58px" unoptimized />}</div>
@@ -524,6 +648,16 @@ export default function AdminOrdersPage() {
                         {line.origin === 'local' ? ` · Disponible au Sénégal · ${line.city || 'Ville à confirmer'} · livraison ${line.delivery_delay || 'à confirmer'}` : ''}
                       </span>
                     )) : Object.entries(order.variant_values ?? {}).map(([key, value]) => <span key={key}>{attributeLabels[key] ?? key.replaceAll('_', ' ')} : {value}</span>)}
+                    {order.origin === 'local' && (
+                      <>
+                        <span className="order-delivery-admin-details">
+                          Adresse de livraison : {order.delivery_region || 'Région à confirmer'} · {order.delivery_neighborhood || 'Quartier à confirmer'}
+                        </span>
+                        <span className="order-delivery-admin-details">
+                          Client : {order.customer_name || 'Nom non renseigné'} · Téléphone : {order.customer_phone || 'Non renseigné'}
+                        </span>
+                      </>
+                    )}
                     {(order.variant_id || order.variant_lines.length > 0) && isPaidOrder(order) && !order.variant_stock_committed && <span className="variant-stock-warning">Paiement tardif : vérifier le stock des variantes de cette commande.</span>}
                     <span>{order.pickup_points ? `${order.pickup_points.name}, ${order.pickup_points.city}` : 'Point de retrait à confirmer'}</span>
                   </div>
@@ -534,6 +668,37 @@ export default function AdminOrdersPage() {
                       {(order.origin === 'local' ? localOrderStatusOptions : importOrderStatusOptions).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
                     </select>
                   </label>
+
+                  {order.origin === 'local' && partnerNotificationStatuses.has(order.status) && (
+                    <div className="partner-notification-actions">
+                      {order.partner_notified_at && (
+                        <span>
+                          Partenaire prévenu le {new Date(order.partner_notified_at).toLocaleString('fr-FR', {
+                            dateStyle: 'medium',
+                            timeStyle: 'short',
+                          })}
+                        </span>
+                      )}
+                      {order.partner_id ? (
+                        <button
+                          type="button"
+                          disabled={partnerNotificationBusyId === order.id}
+                          onClick={() => void notifyPartner(order, Boolean(order.partner_notified_at))}
+                        >
+                          {partnerNotificationBusyId === order.id
+                            ? 'Préparation...'
+                            : order.partner_notified_at ? 'Renvoyer' : 'Prévenir le partenaire'}
+                        </button>
+                      ) : (
+                        <button type="button" disabled>Aucun partenaire</button>
+                      )}
+                      {partnerFeedback && (
+                        <p className={`admin-feedback ${partnerFeedback.error ? 'error' : 'success'}`} role={partnerFeedback.error ? 'alert' : 'status'}>
+                          {partnerFeedback.text}
+                        </p>
+                      )}
+                    </div>
+                  )}
 
                   {confirmationAlerts.length > 0 && (
                     <div className="order-message-alert">

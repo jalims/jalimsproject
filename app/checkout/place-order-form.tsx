@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { FormEvent, useEffect, useRef, useState } from 'react'
 import { supabase } from '../../lib/supabase'
 import { logClientError } from '../../lib/user-facing-errors'
+import { SENEGAL_REGIONS } from '../../lib/senegal-regions'
 
 type PickupPoint = {
   id: string
@@ -14,6 +15,7 @@ type PickupPoint = {
 
 type PlaceOrderFormProps = {
   productId: string
+  origin: 'local' | 'import'
   quantity: number
   pickupPoints: PickupPoint[]
   variantValues: Record<string, string>
@@ -23,10 +25,12 @@ type PlaceOrderFormProps = {
 
 const paymentMethods = ['Wave', 'Orange Money', 'Free Money', 'Carte Bancaire'] as const
 
-export default function PlaceOrderForm({ productId, quantity, pickupPoints, variantValues, variantUnavailable, hasPublishedTerms }: PlaceOrderFormProps) {
+export default function PlaceOrderForm({ productId, origin, quantity, pickupPoints, variantValues, variantUnavailable, hasPublishedTerms }: PlaceOrderFormProps) {
   const [authLoading, setAuthLoading] = useState(true)
   const [signedIn, setSignedIn] = useState(false)
   const [pickupPointId, setPickupPointId] = useState(pickupPoints[0]?.id ?? '')
+  const [deliveryRegion, setDeliveryRegion] = useState('')
+  const [deliveryNeighborhood, setDeliveryNeighborhood] = useState('')
   const [paymentMethod, setPaymentMethod] = useState<(typeof paymentMethods)[number]>('Wave')
   const [submitting, setSubmitting] = useState(false)
   const [errorMessage, setErrorMessage] = useState('')
@@ -63,11 +67,22 @@ export default function PlaceOrderForm({ productId, quantity, pickupPoints, vari
       p_quantity: quantity,
       p_pickup_point_id: pickupPointId || null,
       p_variant_values: variantValues,
+      p_delivery_region: deliveryRegion,
+      p_delivery_neighborhood: deliveryNeighborhood.trim(),
     })
 
     if (error) {
       logClientError('Order creation failed', error)
-      setErrorMessage('La commande n’a pas pu être créée. Vérifiez vos informations et réessayez.')
+      const message = error.message
+      setErrorMessage(message.includes('delivery_region_required')
+        ? 'Veuillez choisir votre région de livraison.'
+        : message.includes('delivery_region_invalid')
+          ? 'La région choisie est invalide. Sélectionnez une région dans la liste.'
+          : message.includes('delivery_neighborhood_required')
+            ? 'Veuillez renseigner votre quartier ou zone de livraison.'
+            : message.includes('delivery_neighborhood_too_long')
+              ? 'Le quartier ou la zone ne doit pas dépasser 160 caractères.'
+              : 'La commande n’a pas pu être créée. Vérifiez vos informations et réessayez.')
       setSubmitting(false)
       return
     }
@@ -160,6 +175,30 @@ export default function PlaceOrderForm({ productId, quantity, pickupPoints, vari
         </select>
         {paymentMethod === 'Wave' && <small className="payment-method-note">Nécessite l’application Wave installée sur votre téléphone.</small>}
       </label>
+      {origin === 'local' && (
+        <section className="local-delivery-address" aria-labelledby="local-delivery-title">
+          <h3 id="local-delivery-title">Adresse de livraison</h3>
+          <label className="pickup-select">
+            <span>Région</span>
+            <select value={deliveryRegion} onChange={(event) => setDeliveryRegion(event.target.value)} required>
+              <option value="">Choisir une région</option>
+              {SENEGAL_REGIONS.map((region) => <option key={region} value={region}>{region}</option>)}
+            </select>
+          </label>
+          <label className="pickup-select">
+            <span>Quartier ou zone</span>
+            <input
+              type="text"
+              value={deliveryNeighborhood}
+              onChange={(event) => setDeliveryNeighborhood(event.target.value)}
+              maxLength={160}
+              placeholder="Ex. Parcelles Assainies, Unité 14"
+              required
+            />
+          </label>
+          <p>Votre nom, téléphone et adresse seront transmis au partenaire qui livre votre commande.</p>
+        </section>
+      )}
       {pickupPoints.length > 0 ? (
         <label className="pickup-select">
           <span>Point de retrait</span>

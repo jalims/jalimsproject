@@ -25,6 +25,8 @@ type Order = {
   origin: 'local' | 'import'
   city: string | null
   delivery_delay: string | null
+  delivery_region: string | null
+  delivery_neighborhood: string | null
   variant_lines: {
     id: string
     attribute_values: Record<string, string>
@@ -103,7 +105,7 @@ function OrdersContent() {
         setSignedIn(true)
         const { data, error } = await supabase
           .from('orders')
-          .select('id, product_id, pickup_point_id, jalims_code, quantity, total_price, variant_id, variant_values, variant_stock_committed, origin, city, delivery_delay, status, created_at')
+          .select('id, product_id, pickup_point_id, jalims_code, quantity, total_price, variant_id, variant_values, variant_stock_committed, origin, city, delivery_delay, delivery_region, delivery_neighborhood, status, created_at')
           .eq('user_id', userData.user.id)
           .order('created_at', { ascending: false })
 
@@ -241,6 +243,9 @@ function OrdersContent() {
                           <>
                             <span className="order-origin-badge">Disponible au Sénégal</span>
                             <span className="order-origin-details">{line.city || 'Ville à confirmer'} · livraison {line.delivery_delay || 'à confirmer'}</span>
+                            {order.delivery_region && order.delivery_neighborhood && (
+                              <span className="order-origin-details">Adresse de livraison : {order.delivery_region} · {order.delivery_neighborhood}</span>
+                            )}
                           </>
                         )}
                         {order.status !== 'pending_payment' && order.status !== 'cancelled' && (
@@ -254,6 +259,9 @@ function OrdersContent() {
                           <>
                             <span className="order-origin-badge">Disponible au Sénégal</span>
                             <span className="order-origin-details">{order.city || 'Ville à confirmer'} · livraison {order.delivery_delay || 'à confirmer'}</span>
+                            {order.delivery_region && order.delivery_neighborhood && (
+                              <span className="order-origin-details">Adresse de livraison : {order.delivery_region} · {order.delivery_neighborhood}</span>
+                            )}
                           </>
                         )}
                         {order.status !== 'pending_payment' && order.status !== 'cancelled' && (

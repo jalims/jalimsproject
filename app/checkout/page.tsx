@@ -16,7 +16,7 @@ export default async function CheckoutPage({ searchParams }: CheckoutPageProps) 
 
   const { data: product } = await supabase
     .from('products')
-    .select('id, name, price, image_url, category, moq, active')
+    .select('id, name, price, image_url, category, moq, active, origin')
     .eq('id', productId)
     .eq('active', true)
     .maybeSingle()
@@ -149,6 +149,7 @@ export default async function CheckoutPage({ searchParams }: CheckoutPageProps) 
             </div>
             <PlaceOrderForm
               productId={String(product.id)}
+              origin={product.origin === 'local' ? 'local' : 'import'}
               quantity={quantity}
               pickupPoints={pickupPoints ?? []}
               variantValues={variantValues}

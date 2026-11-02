@@ -4973,6 +4973,10 @@ button {
   color: #c2410c !important;
 }
 
+.order-delivery-admin-details {
+  color: #55453b !important;
+}
+
 .order-total {
   flex: 0 0 auto;
   color: var(--orange-dark);
@@ -5221,6 +5225,7 @@ button {
 
 .order-message-alert,
 .order-status-message-prompt,
+.partner-notification-actions,
 .order-message-actions,
 .order-message-feedback,
 .order-message-composer,
@@ -5240,6 +5245,45 @@ button {
   background: #fff8ee;
   color: #7a4a20;
   font-size: 11px;
+}
+
+.partner-notification-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 9px;
+  padding: 10px;
+  border: 1px solid #f3c59f;
+  border-radius: 5px;
+  background: #fff9f3;
+  color: #66564a;
+  font-size: 11px;
+}
+
+.partner-notification-actions > span {
+  flex: 1 1 240px;
+}
+
+.partner-notification-actions button {
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid #e7a16c;
+  border-radius: 5px;
+  background: #fff;
+  color: #a34f14;
+  font-size: 11px;
+  font-weight: 680;
+  cursor: pointer;
+}
+
+.partner-notification-actions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.partner-notification-actions .admin-feedback {
+  flex-basis: 100%;
+  margin: 0;
 }
 
 .order-message-alert-badge {
@@ -5567,6 +5611,40 @@ button {
   font-size: 12px;
 }
 
+.local-delivery-address {
+  display: grid;
+  gap: 11px;
+  padding: 14px;
+  border: 1px solid #f3c59f;
+  border-radius: 7px;
+  background: #fff9f3;
+}
+
+.local-delivery-address h3 {
+  margin: 0;
+  color: #24201d;
+  font-size: 13px;
+}
+
+.local-delivery-address input {
+  width: 100%;
+  min-height: 44px;
+  padding: 0 11px;
+  border: 1px solid #e8d9cb;
+  border-radius: 5px;
+  background: #fff;
+  color: var(--foreground);
+  font: inherit;
+  font-size: 12px;
+}
+
+.local-delivery-address > p {
+  margin: 0;
+  color: #66564a;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
 .payment-method-note {
   color: var(--muted);
   font-size: 10px;
@@ -5631,6 +5709,7 @@ button {
 
   .admin-order-message-row > .order-message-alert,
   .admin-order-message-row > .order-status-message-prompt,
+  .admin-order-message-row > .partner-notification-actions,
   .admin-order-message-row > .order-message-actions,
   .admin-order-message-row > .order-message-feedback,
   .admin-order-message-row > .order-message-composer,
