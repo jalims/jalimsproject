@@ -7,6 +7,7 @@ import { useEffect, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { supabase } from '../../lib/supabase'
 import { logClientError } from '../../lib/user-facing-errors'
+import { getOrderStatusLabel, getOrderTrackingStep, getOrderTrackingSteps } from '../../lib/order-tracking'
 import ConnectionError from '../ui/connection-error'
 import { OrdersListSkeleton } from '../ui/loading-skeletons'
 import PayOrderButton from './pay-order-button'
@@ -21,34 +22,23 @@ type Order = {
   variant_id: string | null
   variant_values: Record<string, string>
   variant_stock_committed: boolean
-  variant_lines: { id: string; attribute_values: Record<string, string>; quantity: number; unit_price: number; line_total: number }[]
+  origin: 'local' | 'import'
+  city: string | null
+  delivery_delay: string | null
+  variant_lines: {
+    id: string
+    attribute_values: Record<string, string>
+    quantity: number
+    unit_price: number
+    line_total: number
+    origin: 'local' | 'import'
+    city: string | null
+    delivery_delay: string | null
+  }[]
   status: string
   created_at: string
   products: { name: string; image_url: string | null } | null
   pickup_points: { name: string; address: string; city: string } | null
-}
-
-const statusLabels: Record<string, string> = {
-  pending_payment: 'En attente de paiement',
-  payé: 'Payé',
-  'commandé_fournisseur': 'Commandé au fournisseur',
-  'chez_transitaire': 'Chez le transitaire',
-  en_transit: 'En transit vers le Sénégal',
-  arrivé: 'Arrivé au Sénégal',
-  prête_a_retirer: 'Prête à retirer',
-  récupéré: 'Récupéré',
-  cancelled: 'Annulé',
-}
-
-const trackingSteps = ['Payée', 'Commandée', 'En transit', 'Prête à retirer', 'Retirée']
-
-function getTrackingStep(status: string) {
-  if (status === 'payé') return 0
-  if (status === 'commandé_fournisseur') return 1
-  if (['chez_transitaire', 'en_transit', 'arrivé'].includes(status)) return 2
-  if (status === 'prête_a_retirer') return 3
-  if (status === 'récupéré') return 4
-  return -1
 }
 
 const attributeLabels: Record<string, string> = {
@@ -58,6 +48,25 @@ const attributeLabels: Record<string, string> = {
   dimensions: 'Dimensions',
   model: 'Modèle',
   weight: 'Poids',
+}
+
+function OrderTracking({ status, origin, itemName }: { status: string; origin: string; itemName: string }) {
+  const steps = getOrderTrackingSteps(origin)
+  const currentStep = getOrderTrackingStep(status, origin)
+
+  return (
+    <ol className={`order-tracking${origin === 'local' ? ' order-tracking-local' : ''}`} aria-label={`Suivi de ${itemName}`}>
+      {steps.map((step, index) => {
+        const completed = currentStep >= index
+        return (
+          <li className={completed ? 'is-complete' : ''} aria-current={currentStep === index ? 'step' : undefined} key={step}>
+            <span className="order-tracking-marker" aria-hidden="true">{completed ? '✓' : index + 1}</span>
+            <span>{step}</span>
+          </li>
+        )
+      })}
+    </ol>
+  )
 }
 
 function OrdersContent() {
@@ -94,7 +103,7 @@ function OrdersContent() {
         setSignedIn(true)
         const { data, error } = await supabase
           .from('orders')
-          .select('id, product_id, pickup_point_id, jalims_code, quantity, total_price, variant_id, variant_values, variant_stock_committed, status, created_at')
+          .select('id, product_id, pickup_point_id, jalims_code, quantity, total_price, variant_id, variant_values, variant_stock_committed, origin, city, delivery_delay, status, created_at')
           .eq('user_id', userData.user.id)
           .order('created_at', { ascending: false })
 
@@ -115,7 +124,7 @@ function OrdersContent() {
               ? supabase.from('pickup_points').select('id, name, address, city').in('id', pickupPointIds)
               : Promise.resolve({ data: [], error: null }),
             orderIds.length
-              ? supabase.from('order_variant_lines').select('id, order_id, attribute_values, quantity, unit_price, line_total').in('order_id', orderIds)
+              ? supabase.from('order_variant_lines').select('id, order_id, attribute_values, quantity, unit_price, line_total, origin, city, delivery_delay').in('order_id', orderIds)
               : Promise.resolve({ data: [], error: null }),
           ])
 
@@ -211,23 +220,10 @@ function OrdersContent() {
                     <span>{order.status === 'prête_a_retirer' ? 'Code de retrait' : 'Commande Jalims'}</span>
                     <strong>{order.status === 'prête_a_retirer' ? order.jalims_code : new Date(order.created_at).toLocaleDateString('fr-FR')}</strong>
                   </div>
-                  <span className={`order-status status-${order.status.replaceAll('_', '-')}`}>{statusLabels[order.status] ?? order.status}</span>
+                  <span className={`order-status status-${order.status.replaceAll('_', '-')}`}>{getOrderStatusLabel(order.status, order.origin)}</span>
                 </div>
                 {order.status === 'cancelled' ? (
                   <div className="order-cancelled-note">Cette commande a été annulée. Pour toute question, contactez l’équipe Jalims.</div>
-                ) : order.status !== 'pending_payment' ? (
-                  <ol className="order-tracking" aria-label="Suivi de la commande">
-                    {trackingSteps.map((step, index) => {
-                      const currentStep = getTrackingStep(order.status)
-                      const completed = currentStep >= index
-                      return (
-                        <li className={completed ? 'is-complete' : ''} aria-current={currentStep === index ? 'step' : undefined} key={step}>
-                          <span className="order-tracking-marker" aria-hidden="true">{completed ? '✓' : index + 1}</span>
-                          <span>{step}</span>
-                        </li>
-                      )
-                    })}
-                  </ol>
                 ) : null}
                 <div className="order-card-product">
                   <div className="order-product-thumb">
@@ -237,10 +233,34 @@ function OrdersContent() {
                     <strong>{order.products?.name ?? 'Produit Jalims'}</strong>
                     <span>Quantité : {order.quantity}</span>
                     {order.variant_lines.length > 0 ? order.variant_lines.map((line) => (
-                      <span key={line.id}>
-                        {Object.entries(line.attribute_values).map(([key, value]) => `${attributeLabels[key] ?? key.replaceAll('_', ' ')} : ${value}`).join(' · ')} · {line.quantity} × {Number(line.unit_price).toLocaleString('fr-FR')} FCFA
-                      </span>
-                    )) : Object.entries(order.variant_values ?? {}).map(([key, value]) => <span key={key}>{attributeLabels[key] ?? key.replaceAll('_', ' ')} : {value}</span>)}
+                      <div className="order-line-tracking" key={line.id}>
+                        <span>
+                          {Object.entries(line.attribute_values).map(([key, value]) => `${attributeLabels[key] ?? key.replaceAll('_', ' ')} : ${value}`).join(' · ')} · {line.quantity} × {Number(line.unit_price).toLocaleString('fr-FR')} FCFA
+                        </span>
+                        {line.origin === 'local' && (
+                          <>
+                            <span className="order-origin-badge">Disponible au Sénégal</span>
+                            <span className="order-origin-details">{line.city || 'Ville à confirmer'} · livraison {line.delivery_delay || 'à confirmer'}</span>
+                          </>
+                        )}
+                        {order.status !== 'pending_payment' && order.status !== 'cancelled' && (
+                          <OrderTracking status={order.status} origin={line.origin} itemName={order.products?.name ?? 'votre produit'} />
+                        )}
+                      </div>
+                    )) : (
+                      <>
+                        {Object.entries(order.variant_values ?? {}).map(([key, value]) => <span key={key}>{attributeLabels[key] ?? key.replaceAll('_', ' ')} : {value}</span>)}
+                        {order.origin === 'local' && (
+                          <>
+                            <span className="order-origin-badge">Disponible au Sénégal</span>
+                            <span className="order-origin-details">{order.city || 'Ville à confirmer'} · livraison {order.delivery_delay || 'à confirmer'}</span>
+                          </>
+                        )}
+                        {order.status !== 'pending_payment' && order.status !== 'cancelled' && (
+                          <OrderTracking status={order.status} origin={order.origin} itemName={order.products?.name ?? 'votre produit'} />
+                        )}
+                      </>
+                    )}
                     {(order.variant_id || order.variant_lines.length > 0) && !['pending_payment', 'cancelled'].includes(order.status) && !order.variant_stock_committed && <span className="variant-stock-warning">Notre équipe confirme la disponibilité de certaines variantes.</span>}
                     {order.pickup_points && <span>Retrait : {order.pickup_points.name}, {order.pickup_points.city}</span>}
                   </div>
@@ -253,6 +273,8 @@ function OrdersContent() {
                       ? 'Paiement sécurisé via Orange Money, Wave ou Free Money.'
                       : order.status === 'cancelled'
                         ? 'Le suivi de cette commande est terminé.'
+                        : order.origin === 'local'
+                          ? 'Le suivi et le délai indiqués concernent la disponibilité locale de cet article.'
                         : order.status === 'prête_a_retirer'
                           ? 'Présentez le code de retrait et une pièce d’identité au point de retrait.'
                           : 'Le statut sera actualisé au fil de l’acheminement.'}

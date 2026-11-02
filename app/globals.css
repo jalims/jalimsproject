@@ -4849,6 +4849,17 @@ button {
   font-weight: 650;
 }
 
+.order-tracking-local li.is-complete {
+  color: #c2410c;
+}
+
+.order-tracking-local li.is-complete .order-tracking-marker,
+.order-tracking-local li[aria-current="step"] .order-tracking-marker {
+  border-color: #fed7aa;
+  background: #fff1e4;
+  color: #c2410c;
+}
+
 .order-tracking-marker {
   display: grid;
   flex: 0 0 23px;
@@ -4923,6 +4934,43 @@ button {
   font-size: 13px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.order-product-name .order-tracking {
+  width: 100%;
+  padding: 8px 0 0;
+  border: 0;
+}
+
+.order-line-tracking {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 5px;
+  padding: 8px 0;
+  border-top: 1px solid #f3ece5;
+}
+
+.order-origin-badge {
+  display: inline-flex;
+  width: fit-content;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: #f97316;
+  color: #111;
+  font-size: 10px;
+  font-weight: 650;
+  line-height: 1.2;
+}
+
+.order-origin-details {
+  color: #71645a;
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.order-origin-admin-details {
+  color: #c2410c !important;
 }
 
 .order-total {

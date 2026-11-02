@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useEffect, useState } from 'react'
 import { hasJalimsAdminAccess } from '../../../lib/admin-access'
 import { isOrderMessageTemplateKey, ORDER_MESSAGE_TEMPLATE_KEYS, type OrderMessageTemplateKey } from '../../../lib/order-messages'
+import { importOrderStatusOptions, localOrderStatusOptions } from '../../../lib/order-tracking'
 import { logClientError } from '../../../lib/user-facing-errors'
 import { supabase } from '../../../lib/supabase'
 
@@ -18,7 +19,19 @@ type AdminOrder = {
   variant_id: string | null
   variant_values: Record<string, string>
   variant_stock_committed: boolean
-  variant_lines: { id: string; attribute_values: Record<string, string>; quantity: number; unit_price: number; line_total: number }[]
+  origin: 'local' | 'import'
+  city: string | null
+  delivery_delay: string | null
+  variant_lines: {
+    id: string
+    attribute_values: Record<string, string>
+    quantity: number
+    unit_price: number
+    line_total: number
+    origin: 'local' | 'import'
+    city: string | null
+    delivery_delay: string | null
+  }[]
   status: string
   created_at: string
   products: { name: string; image_url: string | null } | null
@@ -39,18 +52,6 @@ type MessageLog = {
 
 type MessagePreview = { subject: string; text: string; warnings: string[] }
 type PendingStatus = { orderId: string; status: string; sendMessage: boolean; dateEstimate: string }
-
-const statuses = [
-  ['pending_payment', 'En attente de paiement'],
-  ['payé', 'Payé'],
-  ['commandé_fournisseur', 'Commandé au fournisseur'],
-  ['chez_transitaire', 'Chez le transitaire'],
-  ['en_transit', 'En transit'],
-  ['arrivé', 'Arrivé au Sénégal'],
-  ['prête_a_retirer', 'Prête à retirer'],
-  ['récupéré', 'Récupéré'],
-  ['cancelled', 'Annulé'],
-]
 
 const templateLabels: Record<OrderMessageTemplateKey, string> = {
   commande_confirmee: 'Commande confirmée',
@@ -123,6 +124,33 @@ function isPaidOrder(order: AdminOrder) {
   return !['pending_payment', 'cancelled'].includes(order.status)
 }
 
+async function updateOrderStatus(orderId: string, status: string) {
+  const { data, error } = await supabase.auth.getSession()
+  if (error || !data.session?.access_token) {
+    if (error) logClientError('Admin order session read failed', error)
+    return { error: 'Votre session a expiré. Reconnectez-vous puis réessayez.' }
+  }
+
+  try {
+    const response = await fetch('/api/admin/order-status', {
+      method: 'PATCH',
+      headers: {
+        Authorization: `Bearer ${data.session.access_token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ orderId, status }),
+    })
+    const body = await readApiBody(response)
+    if (!response.ok) {
+      return { error: typeof body.error === 'string' ? body.error : 'Le statut de la commande n’a pas pu être modifié.' }
+    }
+    return { error: null }
+  } catch (error) {
+    logClientError('Admin order status request failed', error)
+    return { error: 'Le statut de la commande n’a pas pu être modifié. Vérifiez votre connexion.' }
+  }
+}
+
 export default function AdminOrdersPage() {
   const [checking, setChecking] = useState(true)
   const [authorized, setAuthorized] = useState(false)
@@ -162,7 +190,7 @@ export default function AdminOrdersPage() {
 
       const { data, error } = await supabase
         .from('orders')
-        .select('id, product_id, pickup_point_id, jalims_code, quantity, total_price, variant_id, variant_values, variant_stock_committed, status, created_at')
+        .select('id, product_id, pickup_point_id, jalims_code, quantity, total_price, variant_id, variant_values, variant_stock_committed, origin, city, delivery_delay, status, created_at')
         .order('created_at', { ascending: false })
       if (!active) return
       if (error) {
@@ -185,7 +213,7 @@ export default function AdminOrdersPage() {
           ? supabase.from('pickup_points').select('id, name, address, city').in('id', pickupPointIds)
           : Promise.resolve({ data: [], error: null }),
         orderIds.length
-          ? supabase.from('order_variant_lines').select('id, order_id, attribute_values, quantity, unit_price, line_total').in('order_id', orderIds)
+          ? supabase.from('order_variant_lines').select('id, order_id, attribute_values, quantity, unit_price, line_total, origin, city, delivery_delay').in('order_id', orderIds)
           : Promise.resolve({ data: [], error: null }),
         orderIds.length
           ? supabase.from('order_messages').select('id, order_id, template_key, channel, source, status, created_at, sent_at, error').in('order_id', orderIds).order('created_at', { ascending: false })
@@ -243,7 +271,7 @@ export default function AdminOrdersPage() {
   async function updateStatus(orderId: string, status: string) {
     setSavingId(orderId)
     setErrorMessage('')
-    const { error } = await supabase.from('orders').update({ status }).eq('id', orderId)
+    const { error } = await updateOrderStatus(orderId, status)
     setSavingId('')
     if (error) {
       logClientError('Admin order status update failed', error)
@@ -256,6 +284,10 @@ export default function AdminOrdersPage() {
 
   function chooseStatus(order: AdminOrder, status: string) {
     if (status === order.status) return
+    if (order.origin === 'local') {
+      void updateStatus(order.id, status)
+      return
+    }
     if (isPaidOrder(order) && ['en_transit', 'prête_a_retirer'].includes(status)) {
       setPendingStatus({ orderId: order.id, status, sendMessage: true, dateEstimate: '' })
       setErrorMessage('')
@@ -483,9 +515,13 @@ export default function AdminOrdersPage() {
                   <div className="admin-order-main">
                     <strong>{order.products?.name ?? 'Produit Jalims'}</strong>
                     <span>{order.jalims_code} · {order.quantity} unité{order.quantity === 1 ? '' : 's'}</span>
+                    {order.origin === 'local' && order.variant_lines.length === 0 && (
+                      <span className="order-origin-admin-details">Disponible au Sénégal · {order.city || 'Ville à confirmer'} · livraison {order.delivery_delay || 'à confirmer'}</span>
+                    )}
                     {order.variant_lines.length > 0 ? order.variant_lines.map((line) => (
                       <span key={line.id}>
                         {Object.entries(line.attribute_values).map(([key, value]) => `${attributeLabels[key] ?? key.replaceAll('_', ' ')} : ${value}`).join(' · ')} · {line.quantity} × {Number(line.unit_price).toLocaleString('fr-FR')} FCFA
+                        {line.origin === 'local' ? ` · Disponible au Sénégal · ${line.city || 'Ville à confirmer'} · livraison ${line.delivery_delay || 'à confirmer'}` : ''}
                       </span>
                     )) : Object.entries(order.variant_values ?? {}).map(([key, value]) => <span key={key}>{attributeLabels[key] ?? key.replaceAll('_', ' ')} : {value}</span>)}
                     {(order.variant_id || order.variant_lines.length > 0) && isPaidOrder(order) && !order.variant_stock_committed && <span className="variant-stock-warning">Paiement tardif : vérifier le stock des variantes de cette commande.</span>}
@@ -495,7 +531,7 @@ export default function AdminOrdersPage() {
                   <label className="admin-order-status">
                     <span>Statut</span>
                     <select value={pending?.status ?? order.status} disabled={savingId === order.id || Boolean(pending)} onChange={(event) => chooseStatus(order, event.target.value)}>
-                      {statuses.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                      {(order.origin === 'local' ? localOrderStatusOptions : importOrderStatusOptions).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
                     </select>
                   </label>
 
