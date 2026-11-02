@@ -6,6 +6,7 @@ import { Search } from 'lucide-react'
 import { FormEvent, useEffect, useState } from 'react'
 import { supabase } from '../../lib/supabase'
 import { hasJalimsAdminAccess } from '../../lib/admin-access'
+import { isLocalStockWarning } from '../../lib/product-origin'
 import { getAuthErrorMessage, logClientError } from '../../lib/user-facing-errors'
 import QuantityInput from '../ui/quantity-input'
 
@@ -21,6 +22,11 @@ type Product = {
   stock_status: string
   active: boolean
   featured: boolean
+  origin: 'local' | 'import'
+  local_stock: number
+  city: string | null
+  delivery_delay: string | null
+  stock_updated_at: string | null
 }
 
 type AccessState = 'checking' | 'signed-out' | 'not-admin' | 'auth-error' | 'ready'
@@ -46,6 +52,10 @@ const emptyForm = {
   moq: '1',
   stockStatus: 'available',
   featured: false,
+  origin: 'import' as 'local' | 'import',
+  localStock: '',
+  city: '',
+  deliveryDelay: '',
 }
 
 function getPreviewUrl(value: string) {
@@ -74,6 +84,58 @@ function buildVariantCombinations(attributes: { key: string; values: string[] }[
   )
 }
 
+async function requestAdminProducts(method: 'POST' | 'PUT' | 'PATCH' | 'DELETE', body: Record<string, unknown>) {
+  try {
+    const { data, error } = await supabase.auth.getSession()
+    if (error) {
+      logClientError('Admin product session read failed', error)
+      return { error: 'Impossible de vérifier votre session administrateur. Reconnectez-vous puis réessayez.' }
+    }
+
+    const accessToken = data.session?.access_token
+    if (!accessToken) return { error: 'Votre session a expiré. Reconnectez-vous puis réessayez.' }
+
+    const response = await fetch('/api/admin/products', {
+      method,
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    })
+
+    let result: unknown
+    try {
+      result = await response.json()
+    } catch (error) {
+      logClientError('Admin product API response parsing failed', error)
+      return { error: 'La réponse du serveur est invalide. Réessayez.' }
+    }
+
+    if (!response.ok) {
+      const message = typeof result === 'object' && result !== null && 'error' in result && typeof result.error === 'string'
+        ? result.error
+        : 'La modification du produit n’a pas pu être enregistrée.'
+      return { error: message }
+    }
+
+    return { error: null }
+  } catch (error) {
+    logClientError('Admin product API request failed', error)
+    return { error: 'Le serveur est momentanément inaccessible. Vérifiez votre connexion puis réessayez.' }
+  }
+}
+
+function formatStockUpdatedAt(value: string | null) {
+  if (!value || !Number.isFinite(Date.parse(value))) return 'Jamais'
+  return new Date(value).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' })
+}
+
+async function removeCreatedProduct(productId: string) {
+  const { error } = await requestAdminProducts('DELETE', { id: productId })
+  if (error) logClientError('Admin product draft cleanup failed', error)
+}
+
 export default function AdminPage() {
   const [access, setAccess] = useState<AccessState>('checking')
   const [adminEmail, setAdminEmail] = useState('')
@@ -96,11 +158,13 @@ export default function AdminPage() {
   const [attributeColorInputs, setAttributeColorInputs] = useState<Record<string, Record<string, string>>>({})
   const [variantDrafts, setVariantDrafts] = useState<Record<string, VariantDraft>>({})
   const [variantConfigLoading, setVariantConfigLoading] = useState(false)
+  const [stockQuantities, setStockQuantities] = useState<Record<string, string>>({})
+  const [confirmingStockId, setConfirmingStockId] = useState<string | null>(null)
 
   async function loadProducts() {
     const { data, error } = await supabase
       .from('products')
-      .select('id, name, description, price, delivery_estimate, image_url, category, moq, stock_status, active, featured')
+      .select('id, name, description, price, delivery_estimate, image_url, category, moq, stock_status, active, featured, origin, local_stock, city, delivery_delay, stock_updated_at')
       .order('name')
 
     if (error) {
@@ -212,6 +276,7 @@ export default function AdminPage() {
     const name = form.name.trim()
     const price = Number(form.price)
     const moq = Number(form.moq)
+    const localStock = form.origin === 'local' ? Number(form.localStock) : 0
     const imageUrl = getPreviewUrl(form.imageUrl.trim())
     const configuredAttributes = selectedAttributeKeys.map((attributeKey) => ({
       attribute_key: attributeKey,
@@ -225,6 +290,13 @@ export default function AdminPage() {
 
     if (!name || !Number.isFinite(price) || price <= 0 || !Number.isInteger(moq) || moq < 1) {
       setFeedback({ kind: 'error', text: 'Vérifiez le nom, le prix et la quantité minimale.' })
+      return
+    }
+
+    if (form.origin === 'local' && (
+      !Number.isInteger(localStock) || localStock <= 0 || !form.city.trim() || !form.deliveryDelay.trim()
+    )) {
+      setFeedback({ kind: 'error', text: 'Pour un produit disponible au Sénégal, indiquez un stock entier supérieur à zéro, une ville et un délai de livraison.' })
       return
     }
 
@@ -276,26 +348,33 @@ export default function AdminPage() {
     let createdProduct = false
     const uploadedPaths: string[] = []
     let productImageUrl = imageUrl
+    const productValues = {
+      name,
+      description: form.description.trim(),
+      price,
+      delivery_estimate: form.deliveryEstimate.trim() || null,
+      image_url: productImageUrl,
+      category: form.category.trim() || null,
+      moq,
+      stock_status: form.stockStatus,
+      featured: form.featured,
+      active: editingId ? editingActive : false,
+      origin: form.origin,
+      local_stock: localStock,
+      city: form.origin === 'local' ? form.city.trim() : null,
+      delivery_delay: form.origin === 'local' ? form.deliveryDelay.trim() : null,
+    }
 
     if (!productId) {
       productId = crypto.randomUUID()
-      const { error } = await supabase.from('products').insert({
+      const { error } = await requestAdminProducts('POST', {
         id: productId,
-        name,
-        description: form.description.trim(),
-        price,
-        image_url: null,
-        category: form.category.trim() || null,
-        moq,
-        stock_status: form.stockStatus,
-        featured: form.featured,
-        active: false,
+        product: { ...productValues, image_url: imageUrl, active: false },
       })
 
       if (error) {
         setSaving(false)
-        logClientError('Admin product creation failed', error)
-        setFeedback({ kind: 'error', text: 'Le produit n’a pas pu être créé. Vérifiez votre accès administrateur et réessayez.' })
+        setFeedback({ kind: 'error', text: error })
         return
       }
       createdProduct = true
@@ -322,7 +401,7 @@ export default function AdminPage() {
         if (uploadError) {
           logClientError('Admin product image upload failed', uploadError)
           if (uploadedPaths.length) await supabase.storage.from('products').remove(uploadedPaths)
-          if (createdProduct) await supabase.from('products').delete().eq('id', productId)
+          if (createdProduct) await removeCreatedProduct(productId)
           setSaving(false)
           setFeedback({ kind: 'error', text: `La photo ${index + 1}/${imageFiles.length} n’a pas pu être envoyée. Vérifiez votre accès administrateur et réessayez.` })
           return
@@ -343,35 +422,25 @@ export default function AdminPage() {
       if (galleryError) {
         logClientError('Admin product gallery save failed', galleryError)
         await supabase.storage.from('products').remove(uploadedPaths)
-        if (createdProduct) await supabase.from('products').delete().eq('id', productId)
+        if (createdProduct) await removeCreatedProduct(productId)
         setSaving(false)
         setFeedback({ kind: 'error', text: 'Les photos ont été envoyées, mais elles n’ont pas pu être ajoutées au produit.' })
         return
       }
     }
 
-    const productValues = {
-      name,
-      description: form.description.trim(),
-      price,
-      delivery_estimate: form.deliveryEstimate.trim() || null,
-      image_url: productImageUrl,
-      category: form.category.trim() || null,
-      moq,
-      stock_status: form.stockStatus,
-      featured: form.featured,
-      active: editingId ? editingActive : false,
-    }
-    const { error } = await supabase.from('products').update(productValues).eq('id', productId)
+    const { error } = await requestAdminProducts('PUT', {
+      id: productId,
+      product: { ...productValues, image_url: productImageUrl },
+    })
 
     if (error) {
-      logClientError('Admin product update failed', error)
       setSaving(false)
       if (uploadedPaths.length) await supabase.storage.from('products').remove(uploadedPaths)
-      if (createdProduct) await supabase.from('products').delete().eq('id', productId)
+      if (createdProduct) await removeCreatedProduct(productId)
       setFeedback({
         kind: 'error',
-        text: 'Le produit n’a pas pu être enregistré. Veuillez réessayer.',
+        text: error,
       })
       return
     }
@@ -387,7 +456,7 @@ export default function AdminPage() {
       setSaving(false)
       if (createdProduct) {
         if (uploadedPaths.length) await supabase.storage.from('products').remove(uploadedPaths)
-        await supabase.from('products').delete().eq('id', productId)
+        await removeCreatedProduct(productId)
       }
       setFeedback({ kind: 'error', text: 'Les options du produit n’ont pas pu être enregistrées.' })
       return
@@ -408,7 +477,7 @@ export default function AdminPage() {
         setSaving(false)
         if (createdProduct) {
           if (uploadedPaths.length) await supabase.storage.from('products').remove(uploadedPaths)
-          await supabase.from('products').delete().eq('id', productId)
+          await removeCreatedProduct(productId)
         }
         setFeedback({
           kind: 'error',
@@ -419,11 +488,14 @@ export default function AdminPage() {
     }
 
     if (createdProduct) {
-      const { error: activateError } = await supabase.from('products').update({ active: true }).eq('id', productId)
+      const { error: activateError } = await requestAdminProducts('PATCH', {
+        id: productId,
+        action: 'set-active',
+        active: true,
+      })
       if (activateError) {
-        logClientError('Admin product publish failed', activateError)
         setSaving(false)
-        setFeedback({ kind: 'error', text: 'Les options sont enregistrées, mais le produit n’a pas pu être publié.' })
+        setFeedback({ kind: 'error', text: `Les options sont enregistrées, mais le produit n’a pas pu être publié : ${activateError}` })
         return
       }
     }
@@ -460,6 +532,10 @@ export default function AdminPage() {
       moq: String(product.moq ?? 1),
       stockStatus: product.stock_status ?? 'available',
       featured: product.featured ?? false,
+      origin: product.origin ?? 'import',
+      localStock: product.local_stock ? String(product.local_stock) : '',
+      city: product.city ?? '',
+      deliveryDelay: product.delivery_delay ?? '',
     })
     setFeedback(null)
     void loadProductVariantConfiguration(String(product.id))
@@ -500,10 +576,13 @@ export default function AdminPage() {
   }
 
   async function toggleProduct(product: Product) {
-    const { error } = await supabase.from('products').update({ active: !product.active }).eq('id', product.id)
+    const { error } = await requestAdminProducts('PATCH', {
+      id: product.id,
+      action: 'set-active',
+      active: !product.active,
+    })
     if (error) {
-      logClientError('Admin product status update failed', error)
-      setFeedback({ kind: 'error', text: 'La modification du produit n’a pas pu être enregistrée.' })
+      setFeedback({ kind: 'error', text: error })
       return
     }
     if (editingId === String(product.id)) {
@@ -517,6 +596,30 @@ export default function AdminPage() {
       setAttributeColorInputs({})
       setVariantDrafts({})
     }
+    await loadProducts()
+  }
+
+  async function confirmLocalStock(product: Product) {
+    const localStock = Number(stockQuantities[String(product.id)] ?? product.local_stock)
+    if (!Number.isInteger(localStock) || localStock <= 0) {
+      setFeedback({ kind: 'error', text: 'La quantité en stock doit être un entier supérieur à zéro.' })
+      return
+    }
+
+    setConfirmingStockId(String(product.id))
+    const { error } = await requestAdminProducts('PATCH', {
+      id: product.id,
+      action: 'confirm-stock',
+      localStock,
+    })
+    setConfirmingStockId(null)
+
+    if (error) {
+      setFeedback({ kind: 'error', text: error })
+      return
+    }
+
+    setFeedback({ kind: 'success', text: `Stock confirmé pour ${product.name}.` })
     await loadProducts()
   }
 
@@ -688,6 +791,61 @@ export default function AdminPage() {
                   onChange={(event) => setForm({ ...form, deliveryEstimate: event.target.value })}
                 />
               </label>
+
+              <label>
+                <span>Origine du produit</span>
+                <select
+                  disabled={saving}
+                  value={form.origin}
+                  onChange={(event) => setForm({
+                    ...form,
+                    origin: event.target.value === 'local' ? 'local' : 'import',
+                  })}
+                >
+                  <option value="import">Import Chine</option>
+                  <option value="local">Disponible au Sénégal</option>
+                </select>
+              </label>
+
+              {form.origin === 'local' && (
+                <div className="admin-local-stock-fields">
+                  <label>
+                    <span>Quantité en stock</span>
+                    <input
+                      disabled={saving}
+                      min="1"
+                      required
+                      step="1"
+                      type="number"
+                      value={form.localStock}
+                      onChange={(event) => setForm({ ...form, localStock: event.target.value })}
+                    />
+                  </label>
+                  <label>
+                    <span>Ville</span>
+                    <input
+                      autoComplete="address-level2"
+                      disabled={saving}
+                      maxLength={100}
+                      placeholder="Ex. Dakar"
+                      required
+                      value={form.city}
+                      onChange={(event) => setForm({ ...form, city: event.target.value })}
+                    />
+                  </label>
+                  <label>
+                    <span>Délai de livraison local</span>
+                    <input
+                      disabled={saving}
+                      maxLength={100}
+                      placeholder="Ex. 24-72h"
+                      required
+                      value={form.deliveryDelay}
+                      onChange={(event) => setForm({ ...form, deliveryDelay: event.target.value })}
+                    />
+                  </label>
+                </div>
+              )}
 
               <label className="featured-checkbox-row">
                 <input
@@ -921,16 +1079,52 @@ export default function AdminPage() {
             ) : (
               <ul className="admin-product-list">
                 {visibleProducts.map((product) => (
-                  <li key={product.id}>
+                  <li
+                    className={isLocalStockWarning(product) ? 'admin-local-stock-warning' : ''}
+                    key={product.id}
+                  >
                     <div className="admin-list-image">
                       {product.image_url && <Image src={product.image_url} alt="" fill sizes="48px" unoptimized />}
                     </div>
                     <div className="admin-list-copy">
                       <strong>{product.name}</strong>
                       <span>{product.featured ? 'Vedette · ' : ''}{product.category || 'Sans catégorie'} · Minimum {product.moq}</span>
+                      {product.origin === 'local' ? (
+                        <span className="admin-local-stock-details">
+                          Disponible au Sénégal · Stock {product.local_stock} · {product.city || 'Ville à confirmer'} · Mis à jour le {formatStockUpdatedAt(product.stock_updated_at)}{isLocalStockWarning(product) ? ' · Stock à confirmer' : ''}
+                        </span>
+                      ) : (
+                        <span className="admin-import-origin">Import Chine</span>
+                      )}
                     </div>
                     <b>{Number(product.price).toLocaleString('fr-FR')} FCFA</b>
                     <span className={`admin-product-status ${product.active ? 'is-live' : 'is-hidden'}`}>{product.active ? 'En ligne' : 'Masqué'}</span>
+                    {product.origin === 'local' && (
+                      <div className="admin-local-stock-actions">
+                        <label>
+                          <span className="sr-only">Quantité de stock pour {product.name}</span>
+                          <input
+                            aria-label={`Quantité en stock pour ${product.name}`}
+                            min="1"
+                            step="1"
+                            type="number"
+                            value={stockQuantities[String(product.id)] ?? String(product.local_stock)}
+                            onChange={(event) => setStockQuantities((current) => ({
+                              ...current,
+                              [String(product.id)]: event.target.value,
+                            }))}
+                          />
+                        </label>
+                        <button
+                          className="admin-stock-confirm"
+                          disabled={confirmingStockId === String(product.id)}
+                          onClick={() => void confirmLocalStock(product)}
+                          type="button"
+                        >
+                          {confirmingStockId === String(product.id) ? 'Confirmation...' : 'Confirmer le stock aujourd’hui'}
+                        </button>
+                      </div>
+                    )}
                     <button className="admin-list-action" type="button" onClick={() => editProduct(product)} aria-label={`Modifier ${product.name}`}>✎</button>
                     <button className="admin-list-action" type="button" onClick={() => void toggleProduct(product)} aria-label={`${product.active ? 'Désactiver' : 'Réactiver'} ${product.name}`}>{product.active ? '−' : '+'}</button>
                   </li>

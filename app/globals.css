@@ -4188,6 +4188,63 @@ button {
   font-size: 10px;
 }
 
+.admin-local-stock-fields {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.admin-local-stock-warning {
+  align-items: flex-start !important;
+  padding: 10px !important;
+  border: 1px solid #fed7aa !important;
+  border-radius: 6px;
+  background: #fff7ed;
+}
+
+.admin-local-stock-details {
+  color: #c2410c !important;
+  line-height: 1.5;
+}
+
+.admin-import-origin {
+  color: #746b63 !important;
+}
+
+.admin-local-stock-actions {
+  display: flex;
+  flex: 1 0 100%;
+  align-items: center;
+  gap: 8px;
+  margin-left: 54px;
+}
+
+.admin-local-stock-actions input {
+  width: 78px;
+  min-height: 34px;
+  padding: 5px 7px;
+  border: 1px solid #f1c49f;
+  border-radius: 5px;
+  background: #fff;
+  color: #29231f;
+}
+
+.admin-stock-confirm {
+  min-height: 34px;
+  padding: 0 10px;
+  border: 1px solid #f97316;
+  border-radius: 5px;
+  background: #f97316;
+  color: #17110c;
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.admin-stock-confirm:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
 .admin-product-list li > b {
   flex: 0 0 auto;
   color: var(--orange-dark);
@@ -6388,6 +6445,19 @@ button {
 
   .admin-product-list li > b {
     display: none;
+  }
+
+  .admin-local-stock-fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .admin-local-stock-actions {
+    margin-left: 45px;
+  }
+
+  .admin-stock-confirm {
+    min-height: 38px;
+    font-size: 10px;
   }
 
   .admin-product-status {
