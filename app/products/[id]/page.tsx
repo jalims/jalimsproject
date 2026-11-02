@@ -2,8 +2,10 @@ import Link from 'next/link'
 import { Truck } from 'lucide-react'
 import { notFound } from 'next/navigation'
 import { supabase } from '../../../lib/supabase'
+import { hasFreshLocalStock } from '../../../lib/product-origin'
 import ProductImageGallery from './product-image-gallery'
 import ProductPurchaseControls from './product-purchase-controls'
+import ProductOriginBadge from '../../ui/product-origin-badge'
 
 type ProductPageProps = {
   params: Promise<{ id: string }>
@@ -15,7 +17,7 @@ export default async function ProductPage({ params, searchParams }: ProductPageP
   const { quantity: quantityParam } = await searchParams
   const { data: product, error: productError } = await supabase
     .from('products')
-    .select('id, name, description, price, delivery_estimate, image_url, category, moq, stock_status, active')
+    .select('id, name, description, price, delivery_estimate, image_url, category, moq, stock_status, active, origin, local_stock, city, delivery_delay, stock_updated_at')
     .eq('id', id)
     .eq('active', true)
     .maybeSingle()
@@ -26,6 +28,7 @@ export default async function ProductPage({ params, searchParams }: ProductPageP
   }
   if (!product) notFound()
   const deliveryEstimate = product.delivery_estimate?.trim()
+  const hasLocalStock = hasFreshLocalStock(product)
 
   const { data: productAttributes, error: attributesError } = await supabase
     .from('product_attributes')
@@ -84,22 +87,33 @@ export default async function ProductPage({ params, searchParams }: ProductPageP
           <div className="detail-copy">
             <p className="eyebrow">{product.category || 'SÉLECTION JALIMS'}</p>
             <h1>{product.name}</h1>
+            <ProductOriginBadge
+              origin={product.origin}
+              localStock={product.local_stock}
+              city={product.city}
+              deliveryDelay={product.delivery_delay}
+              stockUpdatedAt={product.stock_updated_at}
+            />
             <p className="detail-price">{Number(product.price).toLocaleString('fr-FR')} <span>FCFA</span></p>
-            {deliveryEstimate && (
+            {!hasLocalStock && deliveryEstimate && (
               <p className="product-delivery-estimate">
                 <Truck aria-hidden="true" size={16} strokeWidth={1.8} />
                 <span>Délai de livraison estimé : <strong>{deliveryEstimate}</strong></span>
               </p>
             )}
-            <p className="detail-description">{product.description || 'Commandez ce produit depuis la Chine. Jalims organise son acheminement et le dédouanement jusqu’à votre point de retrait au Sénégal.'}</p>
+            <p className="detail-description">{product.description || (hasLocalStock
+              ? 'Ce produit est disponible chez un partenaire local au Sénégal.'
+              : 'Commandez ce produit depuis la Chine. Jalims organise son acheminement et le dédouanement jusqu’à votre point de retrait au Sénégal.')}</p>
             <div className="product-specs">
               <span>Commande minimum</span><strong>{product.moq ?? 1} unité{(product.moq ?? 1) > 1 ? 's' : ''}</strong>
               <span>Disponibilité</span><strong>{isUnavailable ? 'Indisponible' : variantAttributes.length === 0 && product.stock_status === 'preorder' ? 'Sur commande' : 'Disponible'}</strong>
             </div>
-            <div className="delivery-note">
-              <span className="delivery-check" aria-hidden="true">✓</span>
-              <span><strong>Transport et dédouanement inclus dans l’accompagnement</strong><br />Le point et les délais de retrait seront confirmés avec vous.</span>
-            </div>
+            {!hasLocalStock && (
+              <div className="delivery-note">
+                <span className="delivery-check" aria-hidden="true">✓</span>
+                <span><strong>Transport et dédouanement inclus dans l’accompagnement</strong><br />Le point et les délais de retrait seront confirmés avec vous.</span>
+              </div>
+            )}
             <ProductPurchaseControls
               attributes={variantAttributes}
               basePrice={Number(product.price)}

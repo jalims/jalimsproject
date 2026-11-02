@@ -7,9 +7,11 @@ import { useSearchParams } from 'next/navigation'
 import { MessageCircle, Search } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { logClientError } from '../lib/user-facing-errors'
+import { hasFreshLocalStock } from '../lib/product-origin'
 import FavoriteButton from './ui/favorite-button'
 import QuantityInput from './ui/quantity-input'
 import ConnectionError from './ui/connection-error'
+import ProductOriginBadge from './ui/product-origin-badge'
 import { HomeSkeleton, ProductGridSkeleton } from './ui/loading-skeletons'
 import {
   defaultHomepageContent,
@@ -37,7 +39,14 @@ type Product = {
   stock_status: string
   active: boolean
   featured: boolean
+  origin: string
+  local_stock: number | null
+  city: string | null
+  delivery_delay: string | null
+  stock_updated_at: string | null
 }
+
+type OriginFilter = 'all' | 'local' | 'import'
 
 type CategoryOption = {
   value: string
@@ -118,6 +127,13 @@ function HomepageProductCard({
           {product.featured && <span className="featured-product-mark" aria-label="Produit vedette">★</span>}
           <Link href={`/products/${encodeURIComponent(productKey)}`}>{product.name}</Link>
         </h3>
+        <ProductOriginBadge
+          origin={product.origin}
+          localStock={product.local_stock}
+          city={product.city}
+          deliveryDelay={product.delivery_delay}
+          stockUpdatedAt={product.stock_updated_at}
+        />
         <p className="product-price">{Number(product.price).toLocaleString('fr-FR')} <span>FCFA</span></p>
         <div className="product-actions">
           <div className="quantity-control" aria-label={`Quantité de ${product.name}`}>
@@ -143,6 +159,8 @@ function HomepageProductCard({
 function HomeContent() {
   const searchParams = useSearchParams()
   const urlSearch = searchParams.get('q') ?? ''
+  const originParam = searchParams.get('origine')
+  const originFilter: OriginFilter = originParam === 'local' || originParam === 'import' ? originParam : 'all'
   const [products, setProducts] = useState<Product[]>([])
   const [homepageContent, setHomepageContent] = useState<HomepageContent>(defaultHomepageContent)
   const [designContent, setDesignContent] = useState<HomepageDesignContent>(defaultHomepageDesignContent)
@@ -151,7 +169,6 @@ function HomeContent() {
   const [retryCount, setRetryCount] = useState(0)
   const [search, setSearch] = useState(urlSearch)
   const [activeCategory, setActiveCategory] = useState('')
-  const [productFilter, setProductFilter] = useState<'all' | 'featured' | 'available'>('all')
   const [quantities, setQuantities] = useState<Record<string, string>>({})
   const [headerHidden, setHeaderHidden] = useState(false)
   const previousScrollY = useRef(0)
@@ -171,7 +188,7 @@ function HomeContent() {
         const [{ data, error }, { data: contentData }] = await Promise.all([
           supabase
             .from('products')
-            .select('id, name, price, image_url, category, moq, stock_status, active, featured')
+            .select('id, name, price, image_url, category, moq, stock_status, active, featured, origin, local_stock, city, delivery_delay, stock_updated_at')
             .eq('active', true),
           supabase.from('homepage_content').select('*').eq('id', 1).maybeSingle(),
         ])
@@ -250,9 +267,10 @@ function HomeContent() {
     const searchableText = normalizeSearchText(`${product.name} ${product.category ?? ''}`)
     const matchesSearch = searchableText.includes(normalizedSearch)
     const matchesCategory = !activeCategory || product.category?.toLocaleLowerCase() === activeCategory.toLocaleLowerCase()
-    const matchesFeatured = productFilter !== 'featured' || product.featured
-    const matchesAvailability = productFilter !== 'available' || !['out_of_stock', 'rupture', 'unavailable', 'indisponible'].includes(product.stock_status.toLocaleLowerCase())
-    return matchesSearch && matchesCategory && matchesFeatured && matchesAvailability
+    const matchesOrigin = originFilter === 'all'
+      || (originFilter === 'local' && hasFreshLocalStock(product))
+      || (originFilter === 'import' && product.origin === 'import')
+    return matchesSearch && matchesCategory && matchesOrigin
   })
 
   useEffect(() => {
@@ -292,6 +310,14 @@ function HomeContent() {
 
   function clearSearch() {
     changeSearch('')
+  }
+
+  function changeOriginFilter(filter: OriginFilter) {
+    const nextParams = new URLSearchParams(searchParams.toString())
+    if (filter === 'all') nextParams.delete('origine')
+    else nextParams.set('origine', filter)
+    const query = nextParams.toString()
+    window.history.pushState(null, '', query ? `/?${query}` : '/')
   }
 
   function changeQuantity(productKey: string, delta: number) {
@@ -450,12 +476,9 @@ function HomeContent() {
           {search !== deferredSearch && <span className="search-progress" role="status">Mise à jour des résultats...</span>}
 
           <div className="catalog-filter-bar" role="group" aria-label="Filtrer les produits">
-            <button className={productFilter === 'all' ? 'active' : ''} type="button" aria-pressed={productFilter === 'all'} onClick={() => setProductFilter('all')}>Tous</button>
-            <button className={productFilter === 'featured' ? 'active' : ''} type="button" aria-pressed={productFilter === 'featured'} onClick={() => setProductFilter('featured')}>Produits vedettes</button>
-            <button className={productFilter === 'available' ? 'active' : ''} type="button" aria-pressed={productFilter === 'available'} onClick={() => setProductFilter('available')}>Disponibles</button>
-            {productFilter !== 'all' && (
-              <button className="catalog-filter-reset" type="button" onClick={() => setProductFilter('all')}>Effacer le filtre</button>
-            )}
+            <button className={originFilter === 'all' ? 'active' : ''} type="button" aria-pressed={originFilter === 'all'} onClick={() => changeOriginFilter('all')}>Tous</button>
+            <button className={originFilter === 'local' ? 'active' : ''} type="button" aria-pressed={originFilter === 'local'} onClick={() => changeOriginFilter('local')}>Disponible au Sénégal</button>
+            <button className={originFilter === 'import' ? 'active' : ''} type="button" aria-pressed={originFilter === 'import'} onClick={() => changeOriginFilter('import')}>Import Chine</button>
           </div>
 
           {loading ? (
