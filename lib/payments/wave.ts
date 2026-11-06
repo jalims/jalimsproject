@@ -26,6 +26,12 @@ type WaveReturnUrls = {
   errorUrl: string
 }
 
+export type IntegerXofAmountResult = {
+  amount: number
+} | {
+  reason: 'invalid_amount' | 'fractional_xof_amount' | 'unsafe_integer_amount'
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
@@ -98,23 +104,31 @@ async function loadOwnedPendingOrder(request: Request, orderId: string): Promise
   }
 }
 
-function readIntegerXof(order: WaveOrder): number | Response {
-  const amount = Number(order.total_price)
+export function getIntegerXofAmount(totalPrice: number | string): IntegerXofAmountResult {
+  const amount = Number(totalPrice)
   if (!Number.isFinite(amount) || amount <= 0) {
-    console.error('[Wave] Invalid order amount', { orderId: order.id, reason: 'invalid_amount' })
-    return errorResponse('Le montant enregistré sur la commande est invalide.', 500)
+    console.error('[Wave] Invalid order amount', { reason: 'invalid_amount' })
+    return { reason: 'invalid_amount' }
   }
   if (!Number.isSafeInteger(amount)) {
     const hasFraction = !Number.isInteger(amount)
-    console.error('[Wave] Invalid order amount', {
-      orderId: order.id,
-      reason: hasFraction ? 'fractional_xof_amount' : 'unsafe_integer_amount',
-    })
-    return hasFraction
-      ? errorResponse('Le total de cette commande comporte une partie décimale. Le paiement Wave exige un montant entier en FCFA; aucune session n’a été créée.', 422)
-      : errorResponse('Le montant enregistré sur la commande dépasse la limite de sécurité pour un paiement XOF.', 500)
+    const reason = hasFraction ? 'fractional_xof_amount' : 'unsafe_integer_amount'
+    console.error('[Wave] Invalid order amount', { reason })
+    return { reason }
   }
-  return amount
+  return { amount }
+}
+
+function readIntegerXof(order: WaveOrder): number | Response {
+  const result = getIntegerXofAmount(order.total_price)
+  if ('amount' in result) return result.amount
+  if (result.reason === 'fractional_xof_amount') {
+    return errorResponse('Le total de cette commande comporte une partie décimale. Le paiement Wave exige un montant entier en FCFA; aucune session n’a été créée.', 422)
+  }
+  if (result.reason === 'unsafe_integer_amount') {
+    return errorResponse('Le montant enregistré sur la commande dépasse la limite de sécurité pour un paiement XOF.', 500)
+  }
+  return errorResponse('Le montant enregistré sur la commande est invalide.', 500)
 }
 
 async function readOrderId(request: Request): Promise<string | Response> {
