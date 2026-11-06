@@ -234,8 +234,12 @@ export default function VariantCartPage() {
       setCart(null)
     }
 
+    let wavePaymentError: string | null = null
     try {
-      const response = await fetch('/api/payment/create', {
+      const paymentEndpoint = paymentMethod === 'Wave'
+        ? '/api/payment/wave/create'
+        : '/api/payment/create'
+      const response = await fetch(paymentEndpoint, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${sessionData.session.access_token}`,
@@ -245,12 +249,15 @@ export default function VariantCartPage() {
       })
       const payment = await response.json() as { redirect_url?: string; error?: string }
       if (!response.ok || !payment.redirect_url) {
-        throw new Error('Impossible de démarrer le paiement.')
+        wavePaymentError = paymentMethod === 'Wave' ? payment.error ?? null : null
+        throw new Error('Payment startup failed')
       }
       window.location.assign(payment.redirect_url)
     } catch (error) {
       logClientError('Variant payment startup failed', error)
-      setErrorMessage('La commande est créée, mais le paiement n’a pas pu démarrer. Vous pourrez le reprendre depuis vos commandes.')
+      setErrorMessage(wavePaymentError
+        ? `La commande est créée, mais le paiement n’a pas pu démarrer : ${wavePaymentError}`
+        : 'La commande est créée, mais le paiement n’a pas pu démarrer. Vous pourrez le reprendre depuis vos commandes.')
       setSubmitting(false)
     }
   }
@@ -366,7 +373,7 @@ export default function VariantCartPage() {
               <div className="checkout-total"><span>Total ({totalQuantity} unité(s))</span><strong>{total.toLocaleString('fr-FR')} FCFA</strong></div>
               {belowMinimum && <p className="variant-stock-message" role="alert">La quantité totale doit atteindre le minimum de commande : {product.moq}.</p>}
               <button className="order-button checkout-confirm" type="button" onClick={() => void placeOrder()} disabled={submitting || availableCartLines.length === 0 || belowMinimum}>
-                {submitting ? 'Création de la commande...' : 'Confirmer et payer'}
+                {submitting ? 'Création de la commande et du paiement...' : 'Confirmer et payer'}
                 {!submitting && <span aria-hidden="true">→</span>}
               </button>
             </section>

@@ -26,8 +26,12 @@ export default function PayOrderButton({ orderId }: PayOrderButtonProps) {
       return
     }
 
+    let wavePaymentError: string | null = null
     try {
-      const response = await fetch('/api/payment/create', {
+      const paymentEndpoint = paymentMethod === 'Wave'
+        ? '/api/payment/wave/create'
+        : '/api/payment/create'
+      const response = await fetch(paymentEndpoint, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${sessionData.session.access_token}`,
@@ -38,13 +42,14 @@ export default function PayOrderButton({ orderId }: PayOrderButtonProps) {
       const result = await response.json() as { redirect_url?: string; error?: string }
 
       if (!response.ok || !result.redirect_url) {
-        throw new Error('Impossible de démarrer le paiement.')
+        wavePaymentError = paymentMethod === 'Wave' ? result.error ?? null : null
+        throw new Error('Payment startup failed')
       }
 
       window.location.assign(result.redirect_url)
     } catch (error) {
       logClientError('Order payment startup failed', error)
-      setErrorMessage('Impossible de démarrer le paiement. Veuillez réessayer.')
+      setErrorMessage(wavePaymentError ?? 'Impossible de démarrer le paiement. Veuillez réessayer.')
       setLoading(false)
     }
   }
@@ -66,7 +71,7 @@ export default function PayOrderButton({ orderId }: PayOrderButtonProps) {
         {paymentMethod === 'Wave' && <small className="payment-method-note">Nécessite l’application Wave installée sur votre téléphone.</small>}
       </label>
       <button className="order-pay-button" type="button" onClick={startPayment} disabled={loading}>
-        {loading ? 'Connexion à PayTech...' : 'Payer'}
+        {loading ? (paymentMethod === 'Wave' ? 'Ouverture de Wave...' : 'Connexion à PayTech...') : 'Payer'}
       </button>
     </div>
   )

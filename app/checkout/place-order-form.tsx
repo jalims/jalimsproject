@@ -98,6 +98,7 @@ export default function PlaceOrderForm({ productId, origin, quantity, pickupPoin
 
     setCreatedOrderCode(order.jalims_code ?? '')
 
+    let wavePaymentError: string | null = null
     try {
       const { data: sessionData, error: sessionError } = await supabase.auth.getSession()
       if (sessionError || !sessionData.session) {
@@ -125,7 +126,10 @@ export default function PlaceOrderForm({ productId, origin, quantity, pickupPoin
         }
       }
 
-      const response = await fetch('/api/payment/create', {
+      const paymentEndpoint = paymentMethod === 'Wave'
+        ? '/api/payment/wave/create'
+        : '/api/payment/create'
+      const response = await fetch(paymentEndpoint, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${sessionData.session.access_token}`,
@@ -139,13 +143,14 @@ export default function PlaceOrderForm({ productId, origin, quantity, pickupPoin
       const payment = await response.json() as { redirect_url?: string; error?: string }
 
       if (!response.ok || !payment.redirect_url) {
-        throw new Error('Impossible de démarrer le paiement.')
+        wavePaymentError = paymentMethod === 'Wave' ? payment.error ?? null : null
+        throw new Error('Payment startup failed')
       }
 
       window.location.assign(payment.redirect_url)
     } catch (paymentError) {
       logClientError('Payment startup failed', paymentError)
-      setErrorMessage('Impossible de démarrer le paiement. Vous pourrez le reprendre depuis vos commandes.')
+      setErrorMessage(wavePaymentError ?? 'Impossible de démarrer le paiement. Vous pourrez le reprendre depuis vos commandes.')
       setSubmitting(false)
     }
   }
@@ -242,10 +247,12 @@ export default function PlaceOrderForm({ productId, origin, quantity, pickupPoin
         </div>
       )}
       <button className="order-button checkout-confirm" type="submit" disabled={submitting || variantUnavailable || (pickupPoints.length > 0 && !pickupPointId)}>
-        {submitting ? 'Ouverture du paiement...' : 'Confirmer ma commande'}
+        {submitting ? (paymentMethod === 'Wave' ? 'Ouverture de Wave...' : 'Ouverture du paiement...') : 'Confirmer ma commande'}
         {!submitting && <span aria-hidden="true">→</span>}
       </button>
-      <p className="payment-disclaimer">Après confirmation, vous serez redirigé vers PayTech pour finaliser votre paiement par {paymentMethod}.</p>
+      <p className="payment-disclaimer">
+        Après confirmation, vous serez redirigé vers {paymentMethod === 'Wave' ? 'Wave' : 'PayTech'} pour finaliser votre paiement par {paymentMethod}.
+      </p>
     </form>
   )
 }
