@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { FormEvent, useEffect, useRef, useState } from 'react'
 import { supabase } from '../../lib/supabase'
 import { logClientError } from '../../lib/user-facing-errors'
+import { useWaveAvailability } from '../../lib/payments/use-wave-availability'
 import { SENEGAL_REGIONS } from '../../lib/senegal-regions'
 
 type PickupPoint = {
@@ -23,20 +24,22 @@ type PlaceOrderFormProps = {
   hasPublishedTerms: boolean
 }
 
-const paymentMethods = ['Wave', 'Orange Money', 'Free Money', 'Carte Bancaire'] as const
+const paymentMethods = ['Orange Money', 'Free Money', 'Carte Bancaire', 'Wave'] as const
 
 export default function PlaceOrderForm({ productId, origin, quantity, pickupPoints, variantValues, variantUnavailable, hasPublishedTerms }: PlaceOrderFormProps) {
+  const { availability, enabled: waveEnabled } = useWaveAvailability()
   const [authLoading, setAuthLoading] = useState(true)
   const [signedIn, setSignedIn] = useState(false)
   const [pickupPointId, setPickupPointId] = useState(pickupPoints[0]?.id ?? '')
   const [deliveryRegion, setDeliveryRegion] = useState('')
   const [deliveryNeighborhood, setDeliveryNeighborhood] = useState('')
-  const [paymentMethod, setPaymentMethod] = useState<(typeof paymentMethods)[number]>('Wave')
+  const [paymentMethod, setPaymentMethod] = useState<(typeof paymentMethods)[number]>('Orange Money')
   const [submitting, setSubmitting] = useState(false)
   const [errorMessage, setErrorMessage] = useState('')
   const [createdOrderCode, setCreatedOrderCode] = useState('')
   const [termsAccepted, setTermsAccepted] = useState(false)
   const termsRef = useRef<HTMLDivElement>(null)
+  const availablePaymentMethods = paymentMethods.filter((method) => method !== 'Wave' || waveEnabled)
 
   useEffect(() => {
     let active = true
@@ -173,12 +176,16 @@ export default function PlaceOrderForm({ productId, origin, quantity, pickupPoin
     <form className="place-order-form" onSubmit={submitOrder}>
       <label className="pickup-select">
         <span>Moyen de paiement</span>
-        <select value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value as (typeof paymentMethods)[number])}>
-          {paymentMethods.map((method) => (
+        <select
+          value={availablePaymentMethods.includes(paymentMethod) ? paymentMethod : 'Orange Money'}
+          onChange={(event) => setPaymentMethod(event.target.value as (typeof paymentMethods)[number])}
+        >
+          {availablePaymentMethods.map((method) => (
             <option key={method} value={method}>{method}</option>
           ))}
         </select>
         {paymentMethod === 'Wave' && <small className="payment-method-note">Nécessite l’application Wave installée sur votre téléphone.</small>}
+        {availability === 'unavailable' && <small className="payment-method-note" role="status">La disponibilité de Wave n’a pas pu être vérifiée. Wave est masqué; choisissez un autre moyen.</small>}
       </label>
       {origin === 'local' && (
         <section className="local-delivery-address" aria-labelledby="local-delivery-title">

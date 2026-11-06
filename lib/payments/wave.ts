@@ -1,13 +1,9 @@
 import { createHmac, randomUUID } from 'node:crypto'
 import { createSupabaseAdminClient } from '../paytech-admin'
+import { isWaveEnabled, isWaveMockEnabled as waveMockEnabled } from './wave-config'
 
-const waveMockEnabled = process.env.WAVE_MOCK === 'true'
 const orderIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 const waveApiBaseUrl = process.env.WAVE_API_BASE_URL?.trim() || 'https://api.wave.com'
-
-if (waveMockEnabled && process.env.NODE_ENV === 'production') {
-  throw new Error('WAVE_MOCK=true is not allowed when NODE_ENV=production.')
-}
 
 type WaveOrder = {
   id: string
@@ -154,10 +150,14 @@ function getWaveApiEndpoint(): string | null {
 }
 
 export function isWaveMockEnabled() {
-  return waveMockEnabled
+  return waveMockEnabled()
 }
 
 export async function createWavePayment(request: Request) {
+  if (!isWaveEnabled()) {
+    return errorResponse('Wave est temporairement désactivé. Choisissez un autre moyen de paiement.', 503)
+  }
+
   const orderId = await readOrderId(request)
   if (orderId instanceof Response) return orderId
 
@@ -167,7 +167,7 @@ export async function createWavePayment(request: Request) {
   const amount = readIntegerXof(loadedOrder.order)
   if (amount instanceof Response) return amount
 
-  if (waveMockEnabled) {
+  if (waveMockEnabled()) {
     const mockUrl = new URL('/payment/wave/mock', request.url)
     mockUrl.searchParams.set('order_id', loadedOrder.order.id)
     return Response.json({ redirect_url: mockUrl.toString() })
@@ -269,7 +269,7 @@ export async function createWavePayment(request: Request) {
 }
 
 export async function handleMockWavePayment(request: Request) {
-  if (!waveMockEnabled) {
+  if (!waveMockEnabled()) {
     return errorResponse('Le simulateur Wave est désactivé.', 404)
   }
 

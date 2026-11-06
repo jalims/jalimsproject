@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useEffect, useState } from 'react'
 import { supabase } from '../../lib/supabase'
 import { logClientError } from '../../lib/user-facing-errors'
+import { useWaveAvailability } from '../../lib/payments/use-wave-availability'
 import { clearVariantCart, readVariantCart, saveVariantCart, type VariantCart } from '../../lib/variant-cart'
 import ConnectionError from '../ui/connection-error'
 import { VariantCartSkeleton } from '../ui/loading-skeletons'
@@ -34,7 +35,7 @@ type Attribute = {
   attribute_colors: Record<string, string>
 }
 
-const paymentMethods = ['Wave', 'Orange Money', 'Free Money', 'Carte Bancaire'] as const
+const paymentMethods = ['Orange Money', 'Free Money', 'Carte Bancaire', 'Wave'] as const
 
 const attributeLabels: Record<string, string> = {
   color: 'Couleur',
@@ -46,6 +47,7 @@ const attributeLabels: Record<string, string> = {
 }
 
 export default function VariantCartPage() {
+  const { availability, enabled: waveEnabled } = useWaveAvailability()
   const [cart, setCart] = useState<VariantCart | null>(null)
   const [product, setProduct] = useState<Product | null>(null)
   const [variants, setVariants] = useState<Variant[]>([])
@@ -54,7 +56,7 @@ export default function VariantCartPage() {
   const [pickupPointId, setPickupPointId] = useState('')
   const [deliveryRegion, setDeliveryRegion] = useState('')
   const [deliveryNeighborhood, setDeliveryNeighborhood] = useState('')
-  const [paymentMethod, setPaymentMethod] = useState<(typeof paymentMethods)[number]>('Wave')
+  const [paymentMethod, setPaymentMethod] = useState<(typeof paymentMethods)[number]>('Orange Money')
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [errorMessage, setErrorMessage] = useState('')
@@ -134,6 +136,7 @@ export default function VariantCartPage() {
   const totalQuantity = availableCartLines.reduce((sum, line) => sum + line.quantity, 0)
   const hasInvalidStock = availableCartLines.length !== cartLines.length
   const belowMinimum = Boolean(product && totalQuantity < product.moq)
+  const availablePaymentMethods = paymentMethods.filter((method) => method !== 'Wave' || waveEnabled)
 
   function updateCart(nextCart: VariantCart): boolean {
     setCart(nextCart)
@@ -365,10 +368,14 @@ export default function VariantCartPage() {
               )}
               <label className="pickup-select">
                 <span>Moyen de paiement</span>
-                <select value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value as (typeof paymentMethods)[number])}>
-                  {paymentMethods.map((method) => <option key={method} value={method}>{method}</option>)}
+                <select
+                  value={availablePaymentMethods.includes(paymentMethod) ? paymentMethod : 'Orange Money'}
+                  onChange={(event) => setPaymentMethod(event.target.value as (typeof paymentMethods)[number])}
+                >
+                  {availablePaymentMethods.map((method) => <option key={method} value={method}>{method}</option>)}
                 </select>
                 {paymentMethod === 'Wave' && <small className="payment-method-note">Nécessite l’application Wave installée sur votre téléphone.</small>}
+                {availability === 'unavailable' && <small className="payment-method-note" role="status">La disponibilité de Wave n’a pas pu être vérifiée. Wave est masqué; choisissez un autre moyen.</small>}
               </label>
               <div className="checkout-total"><span>Total ({totalQuantity} unité(s))</span><strong>{total.toLocaleString('fr-FR')} FCFA</strong></div>
               {belowMinimum && <p className="variant-stock-message" role="alert">La quantité totale doit atteindre le minimum de commande : {product.moq}.</p>}
