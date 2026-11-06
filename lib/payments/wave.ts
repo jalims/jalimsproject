@@ -41,12 +41,10 @@ function errorResponse(error: string, status: number) {
 }
 
 function getReturnUrls(origin: string, orderId: string): WaveReturnUrls {
-  const successUrl = new URL('/orders', origin)
-  successUrl.searchParams.set('payment', 'wave-return')
+  const successUrl = new URL('/payment/wave/success', origin)
   successUrl.searchParams.set('order_id', orderId)
 
-  const errorUrl = new URL('/orders', origin)
-  errorUrl.searchParams.set('payment', 'wave-error')
+  const errorUrl = new URL('/payment/wave/error', origin)
   errorUrl.searchParams.set('order_id', orderId)
 
   return { successUrl: successUrl.toString(), errorUrl: errorUrl.toString() }
