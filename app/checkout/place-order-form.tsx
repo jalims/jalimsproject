@@ -4,7 +4,6 @@ import Link from 'next/link'
 import { FormEvent, useEffect, useRef, useState } from 'react'
 import { supabase } from '../../lib/supabase'
 import { logClientError } from '../../lib/user-facing-errors'
-import { useWaveAvailability } from '../../lib/payments/use-wave-availability'
 import { SENEGAL_REGIONS } from '../../lib/senegal-regions'
 
 type PickupPoint = {
@@ -24,23 +23,17 @@ type PlaceOrderFormProps = {
   hasPublishedTerms: boolean
 }
 
-const paymentMethods = ['Orange Money', 'Free Money', 'Carte Bancaire', 'Wave'] as const
-
 export default function PlaceOrderForm({ productId, origin, quantity, pickupPoints, variantValues, variantUnavailable, hasPublishedTerms }: PlaceOrderFormProps) {
-  const { availability, enabled: waveEnabled } = useWaveAvailability()
   const [authLoading, setAuthLoading] = useState(true)
   const [signedIn, setSignedIn] = useState(false)
   const [pickupPointId, setPickupPointId] = useState(pickupPoints[0]?.id ?? '')
   const [deliveryRegion, setDeliveryRegion] = useState('')
   const [deliveryNeighborhood, setDeliveryNeighborhood] = useState('')
-  const [paymentMethod, setPaymentMethod] = useState<(typeof paymentMethods)[number]>('Orange Money')
   const [submitting, setSubmitting] = useState(false)
   const [errorMessage, setErrorMessage] = useState('')
   const [createdOrderCode, setCreatedOrderCode] = useState('')
   const [termsAccepted, setTermsAccepted] = useState(false)
   const termsRef = useRef<HTMLDivElement>(null)
-  const availablePaymentMethods = paymentMethods.filter((method) => method !== 'Wave' || waveEnabled)
-
   useEffect(() => {
     let active = true
     void supabase.auth.getUser().then(({ data }) => {
@@ -101,7 +94,6 @@ export default function PlaceOrderForm({ productId, origin, quantity, pickupPoin
 
     setCreatedOrderCode(order.jalims_code ?? '')
 
-    let wavePaymentError: string | null = null
     try {
       const { data: sessionData, error: sessionError } = await supabase.auth.getSession()
       if (sessionError || !sessionData.session) {
@@ -129,31 +121,26 @@ export default function PlaceOrderForm({ productId, origin, quantity, pickupPoin
         }
       }
 
-      const paymentEndpoint = paymentMethod === 'Wave'
-        ? '/api/payment/wave/create'
-        : '/api/payment/create'
-      const response = await fetch(paymentEndpoint, {
+      const response = await fetch('/api/payments/bictorys/create', {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${sessionData.session.access_token}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          order_id: order.order_id,
-          paymentMethod,
-        }),
+        body: JSON.stringify({ order_id: order.order_id }),
       })
       const payment = await response.json() as { redirect_url?: string; error?: string }
 
       if (!response.ok || !payment.redirect_url) {
-        wavePaymentError = paymentMethod === 'Wave' ? payment.error ?? null : null
-        throw new Error('Payment startup failed')
+        throw new Error(payment.error ?? 'Payment startup failed')
       }
 
       window.location.assign(payment.redirect_url)
     } catch (paymentError) {
       logClientError('Payment startup failed', paymentError)
-      setErrorMessage(wavePaymentError ?? 'Impossible de démarrer le paiement. Vous pourrez le reprendre depuis vos commandes.')
+      setErrorMessage(paymentError instanceof Error && paymentError.message !== 'Payment startup failed'
+        ? paymentError.message
+        : 'Impossible de démarrer le paiement. Vous pourrez le reprendre depuis vos commandes.')
       setSubmitting(false)
     }
   }
@@ -174,19 +161,7 @@ export default function PlaceOrderForm({ productId, origin, quantity, pickupPoin
 
   return (
     <form className="place-order-form" onSubmit={submitOrder}>
-      <label className="pickup-select">
-        <span>Moyen de paiement</span>
-        <select
-          value={availablePaymentMethods.includes(paymentMethod) ? paymentMethod : 'Orange Money'}
-          onChange={(event) => setPaymentMethod(event.target.value as (typeof paymentMethods)[number])}
-        >
-          {availablePaymentMethods.map((method) => (
-            <option key={method} value={method}>{method}</option>
-          ))}
-        </select>
-        {paymentMethod === 'Wave' && <small className="payment-method-note">Nécessite l’application Wave installée sur votre téléphone.</small>}
-        {availability === 'unavailable' && <small className="payment-method-note" role="status">La disponibilité de Wave n’a pas pu être vérifiée. Wave est masqué; choisissez un autre moyen.</small>}
-      </label>
+      <p className="payment-disclaimer">Paiement sécurisé par Wave, Orange Money, Free Money ou carte bancaire via Bictorys.</p>
       {origin === 'local' && (
         <section className="local-delivery-address" aria-labelledby="local-delivery-title">
           <h3 id="local-delivery-title">Adresse de livraison</h3>
@@ -254,12 +229,9 @@ export default function PlaceOrderForm({ productId, origin, quantity, pickupPoin
         </div>
       )}
       <button className="order-button checkout-confirm" type="submit" disabled={submitting || variantUnavailable || (origin !== 'local' && pickupPoints.length > 0 && !pickupPointId)}>
-        {submitting ? (paymentMethod === 'Wave' ? 'Ouverture de Wave...' : 'Ouverture du paiement...') : 'Confirmer ma commande'}
+        {submitting ? 'Ouverture du paiement...' : 'Confirmer ma commande'}
         {!submitting && <span aria-hidden="true">→</span>}
       </button>
-      <p className="payment-disclaimer">
-        Après confirmation, vous serez redirigé vers {paymentMethod === 'Wave' ? 'Wave' : 'PayTech'} pour finaliser votre paiement par {paymentMethod}.
-      </p>
     </form>
   )
 }

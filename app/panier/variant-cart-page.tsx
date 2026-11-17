@@ -5,7 +5,6 @@ import Link from 'next/link'
 import { useEffect, useState } from 'react'
 import { supabase } from '../../lib/supabase'
 import { logClientError } from '../../lib/user-facing-errors'
-import { useWaveAvailability } from '../../lib/payments/use-wave-availability'
 import { clearVariantCart, readVariantCart, saveVariantCart, type VariantCart } from '../../lib/variant-cart'
 import ConnectionError from '../ui/connection-error'
 import { VariantCartSkeleton } from '../ui/loading-skeletons'
@@ -35,8 +34,6 @@ type Attribute = {
   attribute_colors: Record<string, string>
 }
 
-const paymentMethods = ['Orange Money', 'Free Money', 'Carte Bancaire', 'Wave'] as const
-
 const attributeLabels: Record<string, string> = {
   color: 'Couleur',
   size: 'Taille',
@@ -47,7 +44,6 @@ const attributeLabels: Record<string, string> = {
 }
 
 export default function VariantCartPage() {
-  const { availability, enabled: waveEnabled } = useWaveAvailability()
   const [cart, setCart] = useState<VariantCart | null>(null)
   const [product, setProduct] = useState<Product | null>(null)
   const [variants, setVariants] = useState<Variant[]>([])
@@ -56,7 +52,6 @@ export default function VariantCartPage() {
   const [pickupPointId, setPickupPointId] = useState('')
   const [deliveryRegion, setDeliveryRegion] = useState('')
   const [deliveryNeighborhood, setDeliveryNeighborhood] = useState('')
-  const [paymentMethod, setPaymentMethod] = useState<(typeof paymentMethods)[number]>('Orange Money')
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [errorMessage, setErrorMessage] = useState('')
@@ -136,7 +131,6 @@ export default function VariantCartPage() {
   const totalQuantity = availableCartLines.reduce((sum, line) => sum + line.quantity, 0)
   const hasInvalidStock = availableCartLines.length !== cartLines.length
   const belowMinimum = Boolean(product && totalQuantity < product.moq)
-  const availablePaymentMethods = paymentMethods.filter((method) => method !== 'Wave' || waveEnabled)
 
   function updateCart(nextCart: VariantCart): boolean {
     setCart(nextCart)
@@ -237,30 +231,24 @@ export default function VariantCartPage() {
       setCart(null)
     }
 
-    let wavePaymentError: string | null = null
     try {
-      const paymentEndpoint = paymentMethod === 'Wave'
-        ? '/api/payment/wave/create'
-        : '/api/payment/create'
-      const response = await fetch(paymentEndpoint, {
+      const response = await fetch('/api/payments/bictorys/create', {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${sessionData.session.access_token}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ order_id: order.order_id, paymentMethod }),
+        body: JSON.stringify({ order_id: order.order_id }),
       })
       const payment = await response.json() as { redirect_url?: string; error?: string }
       if (!response.ok || !payment.redirect_url) {
-        wavePaymentError = paymentMethod === 'Wave' ? payment.error ?? null : null
-        throw new Error('Payment startup failed')
+        throw new Error(payment.error ?? 'Payment startup failed')
       }
       window.location.assign(payment.redirect_url)
     } catch (error) {
       logClientError('Variant payment startup failed', error)
-      setErrorMessage(wavePaymentError
-        ? `La commande est créée, mais le paiement n’a pas pu démarrer : ${wavePaymentError}`
-        : 'La commande est créée, mais le paiement n’a pas pu démarrer. Vous pourrez le reprendre depuis vos commandes.')
+      const detail = error instanceof Error && error.message !== 'Payment startup failed' ? ` : ${error.message}` : ''
+      setErrorMessage(`La commande est créée, mais le paiement n’a pas pu démarrer${detail}.`)
       setSubmitting(false)
     }
   }
@@ -366,17 +354,7 @@ export default function VariantCartPage() {
                   </select>
                 </label>
               )}
-              <label className="pickup-select">
-                <span>Moyen de paiement</span>
-                <select
-                  value={availablePaymentMethods.includes(paymentMethod) ? paymentMethod : 'Orange Money'}
-                  onChange={(event) => setPaymentMethod(event.target.value as (typeof paymentMethods)[number])}
-                >
-                  {availablePaymentMethods.map((method) => <option key={method} value={method}>{method}</option>)}
-                </select>
-                {paymentMethod === 'Wave' && <small className="payment-method-note">Nécessite l’application Wave installée sur votre téléphone.</small>}
-                {availability === 'unavailable' && <small className="payment-method-note" role="status">La disponibilité de Wave n’a pas pu être vérifiée. Wave est masqué; choisissez un autre moyen.</small>}
-              </label>
+              <p className="payment-disclaimer">Paiement sécurisé par Wave, Orange Money, Free Money ou carte bancaire via Bictorys.</p>
               <div className="checkout-total"><span>Total ({totalQuantity} unité(s))</span><strong>{total.toLocaleString('fr-FR')} FCFA</strong></div>
               {belowMinimum && <p className="variant-stock-message" role="alert">La quantité totale doit atteindre le minimum de commande : {product.moq}.</p>}
               <button className="order-button checkout-confirm" type="button" onClick={() => void placeOrder()} disabled={submitting || availableCartLines.length === 0 || belowMinimum}>

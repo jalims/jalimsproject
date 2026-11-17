@@ -26,6 +26,10 @@ function normalizeSenegalPhone(phone: string) {
 }
 
 export async function createPayTechPayment(request: Request) {
+  if (process.env.PAYTECH_ENABLED !== 'true') {
+    return Response.json({ error: 'Le paiement PayTech est désactivé.' }, { status: 503 })
+  }
+
   const apiKey = process.env.PAYTECH_API_KEY
   const apiSecret = process.env.PAYTECH_API_SECRET
   const siteUrl = process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, '')
