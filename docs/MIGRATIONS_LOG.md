@@ -3,6 +3,10 @@
 Règles : une ligne par fichier lancé, jamais relancé deux fois. Avant chaque
 migration : sauvegarde CSV des tables touchées, puis test à blanc (begin; ... rollback;).
 
+## Activité du 2026-11-17
+
+- `supabase/migrations/20261110_bictorys_payments.sql` — Ajoute les références et métadonnées de paiement aux commandes, conserve `confirm_paytech_product_order` comme wrapper et ajoute `confirm_product_order`. **Statut : préparée, non exécutée par l’assistant.** **Relance sans risque** (colonnes et index idempotents, fonctions remplacées; le fournisseur PayTech existant est renseigné sans modifier ses références).
+
 ## Activité du 2026-11-03
 
 - `supabase/migrations/20261109_local_orders_without_pickup_point.sql` — Met à jour `place_order` et `place_variant_bundle_order` pour ignorer tout `pickup_point_id` reçu pour une commande locale et enregistrer `NULL`; les produits importés gardent le comportement actuel. **Statut : préparée, à exécuter.** **Relance sans risque** (remplacement des fonctions, sans modification des données ni changement de signature).
