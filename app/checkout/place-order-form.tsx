@@ -68,7 +68,7 @@ export default function PlaceOrderForm({ productId, origin, quantity, pickupPoin
     const { data, error } = await supabase.rpc('place_order', {
       p_product_id: productId,
       p_quantity: quantity,
-      p_pickup_point_id: pickupPointId || null,
+      p_pickup_point_id: origin === 'local' ? null : pickupPointId || null,
       p_variant_values: variantValues,
       p_delivery_region: deliveryRegion,
       p_delivery_neighborhood: deliveryNeighborhood.trim(),
@@ -211,7 +211,7 @@ export default function PlaceOrderForm({ productId, origin, quantity, pickupPoin
           <p>Votre nom, téléphone et adresse seront transmis au partenaire qui livre votre commande.</p>
         </section>
       )}
-      {pickupPoints.length > 0 ? (
+      {origin !== 'local' && pickupPoints.length > 0 ? (
         <label className="pickup-select">
           <span>Point de retrait</span>
           <select value={pickupPointId} onChange={(event) => setPickupPointId(event.target.value)} required>
@@ -220,9 +220,9 @@ export default function PlaceOrderForm({ productId, origin, quantity, pickupPoin
             ))}
           </select>
         </label>
-      ) : (
+      ) : origin !== 'local' ? (
         <p className="pickup-pending">Le point de retrait sera confirmé par Jalims avant le paiement.</p>
-      )}
+      ) : null}
       {variantUnavailable && <p className="variant-stock-message" role="alert">La quantité demandée dépasse le stock disponible pour cette variante. Retournez à la fiche produit.</p>}
       {hasPublishedTerms && (
         <>
@@ -253,7 +253,7 @@ export default function PlaceOrderForm({ productId, origin, quantity, pickupPoin
           {createdOrderCode && <Link href="/orders">Reprendre le paiement dans Mes commandes</Link>}
         </div>
       )}
-      <button className="order-button checkout-confirm" type="submit" disabled={submitting || variantUnavailable || (pickupPoints.length > 0 && !pickupPointId)}>
+      <button className="order-button checkout-confirm" type="submit" disabled={submitting || variantUnavailable || (origin !== 'local' && pickupPoints.length > 0 && !pickupPointId)}>
         {submitting ? (paymentMethod === 'Wave' ? 'Ouverture de Wave...' : 'Ouverture du paiement...') : 'Confirmer ma commande'}
         {!submitting && <span aria-hidden="true">→</span>}
       </button>

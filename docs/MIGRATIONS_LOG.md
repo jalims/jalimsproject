@@ -3,6 +3,10 @@
 Règles : une ligne par fichier lancé, jamais relancé deux fois. Avant chaque
 migration : sauvegarde CSV des tables touchées, puis test à blanc (begin; ... rollback;).
 
+## Activité du 2026-11-03
+
+- `supabase/migrations/20261109_local_orders_without_pickup_point.sql` — Met à jour `place_order` et `place_variant_bundle_order` pour ignorer tout `pickup_point_id` reçu pour une commande locale et enregistrer `NULL`; les produits importés gardent le comportement actuel. **Statut : préparée, à exécuter.** **Relance sans risque** (remplacement des fonctions, sans modification des données ni changement de signature).
+
 ## Activité du 2026-11-02
 
 - `supabase/migrations/20261105_product_origins.sql` — Ajoute à `products` les colonnes `origin` (défaut `import`), `local_stock`, `city`, `delivery_delay` et `stock_updated_at`, ainsi que les contraintes limitant l’origine à `local`/`import` et le stock à une valeur positive ou nulle. **Statut : exécutée manuellement dans Supabase SQL Editor.** **Relance : idempotente** (`ADD COLUMN IF NOT EXISTS`, contraintes vérifiées avant création et mise à jour limitée aux valeurs nulles).
@@ -29,7 +33,7 @@ migration : sauvegarde CSV des tables touchées, puis test à blanc (begin; ... 
 | 20261013_order_messages.sql | 12/10/2026 | OK | journal des messages |
 | 20261014_order_ready_for_pickup_status.sql | 12/10/2026 | OK | statut prête_a_retirer et fonction de confirmation du paiement |
 | 20261015_order_message_default_delay.sql | à confirmer | à confirmer | colonne delai_estime_par_defaut |
-| 20261108_local_order_partners.sql | 2026-11-02 | préparée, à exécuter | Relançable sans risque |
+| 20261108_local_order_partners.sql | 2026-11-02 | pexécuter | Relançable sans risque |
 
 ## À faire plus tard
 - orders_status_messages_check est encore NOT VALID. Lancer :

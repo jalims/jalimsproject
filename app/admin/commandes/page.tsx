@@ -651,15 +651,16 @@ export default function AdminOrdersPage() {
                     {order.origin === 'local' && (
                       <>
                         <span className="order-delivery-admin-details">
-                          Adresse de livraison : {order.delivery_region || 'Région à confirmer'} · {order.delivery_neighborhood || 'Quartier à confirmer'}
-                        </span>
-                        <span className="order-delivery-admin-details">
                           Client : {order.customer_name || 'Nom non renseigné'} · Téléphone : {order.customer_phone || 'Non renseigné'}
                         </span>
                       </>
                     )}
                     {(order.variant_id || order.variant_lines.length > 0) && isPaidOrder(order) && !order.variant_stock_committed && <span className="variant-stock-warning">Paiement tardif : vérifier le stock des variantes de cette commande.</span>}
-                    <span>{order.pickup_points ? `${order.pickup_points.name}, ${order.pickup_points.city}` : 'Point de retrait à confirmer'}</span>
+                    {order.origin === 'local' ? (
+                      <span>Adresse de livraison : {order.delivery_region || 'Région à confirmer'} · {order.delivery_neighborhood || 'Quartier à confirmer'}</span>
+                    ) : (
+                      <span>{order.pickup_points ? `${order.pickup_points.name}, ${order.pickup_points.city}` : 'Point de retrait à confirmer'}</span>
+                    )}
                   </div>
                   <b className="admin-order-total">{Number(order.total_price).toLocaleString('fr-FR')} FCFA</b>
                   <label className="admin-order-status">

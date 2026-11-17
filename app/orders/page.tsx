@@ -243,9 +243,6 @@ function OrdersContent() {
                           <>
                             <span className="order-origin-badge">Disponible au Sénégal</span>
                             <span className="order-origin-details">{line.city || 'Ville à confirmer'} · livraison {line.delivery_delay || 'à confirmer'}</span>
-                            {order.delivery_region && order.delivery_neighborhood && (
-                              <span className="order-origin-details">Adresse de livraison : {order.delivery_region} · {order.delivery_neighborhood}</span>
-                            )}
                           </>
                         )}
                         {order.status !== 'pending_payment' && order.status !== 'cancelled' && (
@@ -259,9 +256,6 @@ function OrdersContent() {
                           <>
                             <span className="order-origin-badge">Disponible au Sénégal</span>
                             <span className="order-origin-details">{order.city || 'Ville à confirmer'} · livraison {order.delivery_delay || 'à confirmer'}</span>
-                            {order.delivery_region && order.delivery_neighborhood && (
-                              <span className="order-origin-details">Adresse de livraison : {order.delivery_region} · {order.delivery_neighborhood}</span>
-                            )}
                           </>
                         )}
                         {order.status !== 'pending_payment' && order.status !== 'cancelled' && (
@@ -270,7 +264,11 @@ function OrdersContent() {
                       </>
                     )}
                     {(order.variant_id || order.variant_lines.length > 0) && !['pending_payment', 'cancelled'].includes(order.status) && !order.variant_stock_committed && <span className="variant-stock-warning">Notre équipe confirme la disponibilité de certaines variantes.</span>}
-                    {order.pickup_points && <span>Retrait : {order.pickup_points.name}, {order.pickup_points.city}</span>}
+                    {order.origin === 'local' ? (
+                      <span>Adresse de livraison : {order.delivery_region || 'Région à confirmer'} · {order.delivery_neighborhood || 'Quartier à confirmer'}</span>
+                    ) : order.pickup_points ? (
+                      <span>Retrait : {order.pickup_points.name}, {order.pickup_points.city}</span>
+                    ) : null}
                   </div>
                   <b className="order-total">{Number(order.total_price).toLocaleString('fr-FR')} FCFA</b>
                 </div>

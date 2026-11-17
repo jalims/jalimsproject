@@ -198,7 +198,7 @@ export default function VariantCartPage() {
     const { data, error } = await supabase.rpc('place_variant_bundle_order', {
       p_product_id: product.id,
       p_lines: availableCartLines.map((line) => ({ variant_id: line.variant.id, quantity: line.quantity })),
-      p_pickup_point_id: pickupPointId || null,
+      p_pickup_point_id: product.origin === 'local' ? null : pickupPointId || null,
       p_delivery_region: deliveryRegion,
       p_delivery_neighborhood: deliveryNeighborhood.trim(),
     })
@@ -357,7 +357,7 @@ export default function VariantCartPage() {
                   <p>Votre nom, téléphone et adresse seront transmis au partenaire qui livre votre commande.</p>
                 </section>
               )}
-              {pickupPoints.length > 0 && (
+              {product.origin !== 'local' && pickupPoints.length > 0 && (
                 <label className="pickup-select">
                   <span>Point de retrait</span>
                   <select value={pickupPointId} onChange={(event) => setPickupPointId(event.target.value)}>
