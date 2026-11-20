@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { authorizeJalimsAdminRequest } from '../../../../lib/admin-route-auth'
 import { importOrderStatusOptions, localOrderStatusOptions } from '../../../../lib/order-tracking'
-import { createSupabaseAdminClient } from '../../../../lib/paytech-admin'
+import { createSupabaseAdminClient } from '../../../../lib/supabase-admin'
 
 const importStatuses = new Set<string>(importOrderStatusOptions.map(([status]) => status))
 const localStatuses = new Set<string>(localOrderStatusOptions.map(([status]) => status))

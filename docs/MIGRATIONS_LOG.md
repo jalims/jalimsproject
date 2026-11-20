@@ -5,7 +5,11 @@ migration : sauvegarde CSV des tables touchées, puis test à blanc (begin; ... 
 
 ## Activité du 2026-11-17
 
-- `supabase/migrations/20261110_bictorys_payments.sql` — Ajoute les références et métadonnées de paiement aux commandes, conserve `confirm_paytech_product_order` comme wrapper et ajoute `confirm_product_order`. **Statut : préparée, non exécutée par l’assistant.** **Relance sans risque** (colonnes et index idempotents, fonctions remplacées; le fournisseur PayTech existant est renseigné sans modifier ses références).
+- `supabase/migrations/20261110_bictorys_payments.sql` — Ajoute les références et métadonnées de paiement aux commandes, conserve temporairement le wrapper de compatibilité historique et ajoute `confirm_product_order`. **Statut : exécutée manuellement dans Supabase selon confirmation du 2026-11-20 ; non vérifiée à distance.**
+
+## Activité du 2026-11-20
+
+- `supabase/migrations/20261120_remove_legacy_payment_providers.sql` — Préparée pour supprimer les colonnes/index de paiement PayTech et le wrapper SQL devenu inutilisé, sans supprimer les anciennes valeurs de `payment_provider`. **Statut : préparée, non exécutée.** Vérifier l’historique Supabase et sauvegarder les références PayTech avant toute exécution.
 
 ## Activité du 2026-11-03
 

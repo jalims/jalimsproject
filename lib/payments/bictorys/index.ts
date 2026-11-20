@@ -1,7 +1,7 @@
-import { createSupabaseAdminClient } from '../../paytech-admin'
+import { randomUUID } from 'node:crypto'
+import { createSupabaseAdminClient } from '../../supabase-admin'
 
 const orderIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
-const defaultBaseUrl = 'https://api.test.bictorys.com'
 
 type JsonRecord = Record<string, unknown>
 
@@ -29,7 +29,10 @@ function normalizeSenegalPhone(phone: string) {
 
 function getApiEndpoint() {
   try {
-    const baseUrl = new URL(process.env.BICTORYS_BASE_URL?.trim() || defaultBaseUrl)
+    const configuredBaseUrl = process.env.BICTORYS_BASE_URL?.trim()
+    if (!configuredBaseUrl) return null
+
+    const baseUrl = new URL(configuredBaseUrl)
     if (baseUrl.protocol !== 'https:' || baseUrl.username || baseUrl.password) return null
     return `${baseUrl.toString().replace(/\/+$/, '')}/pay/v1/charges`
   } catch {
@@ -59,7 +62,7 @@ export async function createBictorysPayment(request: Request) {
   }
   if (!endpoint) {
     console.error('[Bictorys] Invalid API base URL configuration')
-    return errorResponse('Configuration de l’URL de l’API Bictorys invalide.', 500)
+    return errorResponse('Configuration de l’URL de l’API Bictorys manquante ou invalide.', 500)
   }
   if (!siteOrigin) {
     return errorResponse('Configuration de l’adresse du site manquante ou invalide.', 500)
@@ -97,7 +100,7 @@ export async function createBictorysPayment(request: Request) {
 
   const { data: order, error: orderError } = await supabase
     .from('orders')
-    .select('id, user_id, total_price, status')
+    .select('id, user_id, total_price, status, payment_reference')
     .eq('id', body.order_id)
     .eq('user_id', authData.user.id)
     .maybeSingle()
@@ -115,7 +118,6 @@ export async function createBictorysPayment(request: Request) {
   if (order.status !== 'pending_payment') {
     return errorResponse('Cette commande n’est plus en attente de paiement.', 409)
   }
-
   const amount = Number(order.total_price)
   if (!Number.isSafeInteger(amount) || amount <= 0) {
     return errorResponse('Le montant enregistré sur la commande doit être un entier XOF valide.', 500)
@@ -150,6 +152,30 @@ export async function createBictorysPayment(request: Request) {
   const errorUrl = new URL('/payment/bictorys/error', siteOrigin)
   errorUrl.searchParams.set('order_id', order.id)
 
+  const attemptReference = `pending:bictorys:${randomUUID()}`
+  let claimQuery = supabase
+    .from('orders')
+    .update({ payment_reference: attemptReference })
+    .eq('id', order.id)
+    .eq('status', 'pending_payment')
+  claimQuery = order.payment_reference === null
+    ? claimQuery.is('payment_reference', null)
+    : claimQuery.eq('payment_reference', order.payment_reference)
+  const { data: claimedOrder, error: claimError } = await claimQuery
+    .select('id')
+    .maybeSingle()
+
+  if (claimError) {
+    console.error('[Bictorys] Could not reserve payment attempt', {
+      orderId: order.id,
+      databaseCode: claimError.code,
+    })
+    return errorResponse('Impossible de réserver la tentative de paiement.', 500)
+  }
+  if (!claimedOrder) {
+    return errorResponse('Une autre tentative de paiement est en cours. Actualisez vos commandes avant de réessayer.', 409)
+  }
+
   let response: Response
   try {
     response = await fetch(endpoint, {
@@ -179,7 +205,7 @@ export async function createBictorysPayment(request: Request) {
       orderId: order.id,
       errorName: error instanceof Error ? error.name : 'unknown',
     })
-    return errorResponse('Bictorys est momentanément inaccessible. Votre commande reste en attente; vous pouvez réessayer.', 502)
+    return errorResponse('Vérifiez qu’aucun débit n’a été effectué avant de réessayer depuis Mes commandes.', 502)
   }
 
   if (!response.ok) {
@@ -187,7 +213,7 @@ export async function createBictorysPayment(request: Request) {
       orderId: order.id,
       status: response.status,
     })
-    return errorResponse('Bictorys n’a pas pu démarrer le paiement. Votre commande reste en attente; vous pouvez réessayer.', 502)
+    return errorResponse('Vérifiez qu’aucun débit n’a été effectué avant de réessayer depuis Mes commandes.', 502)
   }
 
   let charge: unknown
@@ -198,7 +224,7 @@ export async function createBictorysPayment(request: Request) {
       orderId: order.id,
       reason: 'invalid_json',
     })
-    return errorResponse('La réponse de Bictorys est invalide. Votre commande reste en attente; vous pouvez réessayer.', 502)
+    return errorResponse('Vérifiez qu’aucun débit n’a été effectué avant de réessayer depuis Mes commandes.', 502)
   }
 
   const link = isRecord(charge) ? charge.link : undefined
@@ -208,21 +234,21 @@ export async function createBictorysPayment(request: Request) {
       orderId: order.id,
       reason: 'missing_link',
     })
-    return errorResponse('Bictorys n’a pas renvoyé le lien de paiement (champ link manquant). Votre commande reste en attente.', 502)
+    return errorResponse('Bictorys n’a pas renvoyé le lien. Vérifiez qu’aucun débit n’a été effectué avant de réessayer.', 502)
   }
   if (typeof chargeId !== 'string' || !chargeId.trim()) {
     console.error('[Bictorys] Invalid charge response', {
       orderId: order.id,
       reason: 'missing_charge_id',
     })
-    return errorResponse('Bictorys n’a pas renvoyé l’identifiant de paiement (champ chargeId manquant). Votre commande reste en attente.', 502)
+    return errorResponse('Bictorys n’a pas renvoyé la référence du paiement. Vérifiez qu’aucun débit n’a été effectué avant de réessayer.', 502)
   }
 
   let redirectUrl: URL
   try {
     redirectUrl = new URL(link.trim())
   } catch {
-    return errorResponse('Bictorys a renvoyé un lien de paiement invalide.', 502)
+    return errorResponse('Bictorys a renvoyé un lien invalide. Vérifiez qu’aucun débit n’a été effectué avant de réessayer.', 502)
   }
   if (
     redirectUrl.protocol !== 'https:'
@@ -230,7 +256,7 @@ export async function createBictorysPayment(request: Request) {
     || redirectUrl.password
     || (redirectUrl.hostname !== 'bictorys.com' && !redirectUrl.hostname.endsWith('.bictorys.com'))
   ) {
-    return errorResponse('Bictorys a renvoyé un lien de paiement non sécurisé ou invalide.', 502)
+    return errorResponse('Bictorys a renvoyé un lien non sécurisé ou invalide. Vérifiez qu’aucun débit n’a été effectué avant de réessayer.', 502)
   }
 
   const { data: updatedOrder, error: updateError } = await supabase
@@ -238,6 +264,7 @@ export async function createBictorysPayment(request: Request) {
     .update({ payment_reference: chargeId.trim() })
     .eq('id', order.id)
     .eq('status', 'pending_payment')
+    .eq('payment_reference', attemptReference)
     .select('id')
     .maybeSingle()
 

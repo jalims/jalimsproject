@@ -1,7 +1,7 @@
 import { createClient } from '@supabase/supabase-js'
 import { NextResponse } from 'next/server'
 import { hasJalimsAdminAccess } from '../../../../lib/admin-access'
-import { createSupabaseAdminClient } from '../../../../lib/paytech-admin'
+import { createSupabaseAdminClient } from '../../../../lib/supabase-admin'
 
 export const maxDuration = 120
 

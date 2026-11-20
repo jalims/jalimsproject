@@ -67,43 +67,48 @@ Si la migration de profils avait déjà été exécutée avant l’ajout de la r
 
 ## 7. Vérifier tables et RPC
 
-Les migrations doivent rendre disponibles les tables `products`, `product_images`, `profiles`, `favorites`, `orders`, `pickup_points` et la fonction RPC `place_order`. Les commandes sont initialement créées en `pending_payment`, avec un total calculé par PostgreSQL et une référence `JAL-...`. Aucun paiement Wave ou Orange Money n’est prétendu ni prélevé tant qu’un prestataire n’est pas configuré.
+Les migrations doivent rendre disponibles les tables `products`, `product_images`, `profiles`, `favorites`, `orders`, `pickup_points` et la fonction RPC `place_order`. Les commandes sont initialement créées en `pending_payment`, avec un total calculé par PostgreSQL et une référence `JAL-...`. Le paiement est traité par le checkout Bictorys ; le navigateur ne confirme jamais lui-même une commande.
 
-Si l’API renvoie encore une colonne ou fonction absente après la migration, rechargez le cache PostgREST. Ne désactivez pas RLS pour contourner l’erreur.
+Si l’API renvoie encore une colonne ou fonction absente après une migration, rechargez le cache PostgREST. Ne désactivez pas RLS pour contourner l’erreur.
 
-## 8. Activer les paiements PayTech en test
+## 8. Configurer les paiements Bictorys
 
-Dans le SQL Editor, exécutez `supabase/migrations/20261001_paytech_payments.sql`, puis rechargez le cache de schéma. Cette migration ajoute `orders.paytech_token`; la référence PayTech réutilise `orders.jalims_code`. Le bouton **Confirmer ma commande** crée la commande puis lance immédiatement le paiement; si le paiement ne démarre pas, le client peut le reprendre dans **Mes commandes**.
+Avant toute migration, vérifiez l’historique Supabase et les sauvegardes. La migration Bictorys `supabase/migrations/20261110_bictorys_payments.sql` ajoute les références et métadonnées de paiement aux commandes ainsi que la fonction serveur de confirmation. Ne la relancez pas si elle est déjà appliquée.
 
-Ajoutez ces variables à `.env.local` et aux variables d’environnement Vercel, puis redéployez :
+Configurez les variables suivantes dans l’environnement serveur local et dans Vercel :
 
 ```text
-PAYTECH_API_KEY=...
-PAYTECH_API_SECRET=...
+BICTORYS_API_KEY=...
+BICTORYS_BASE_URL=https://api.test.bictorys.com
+BICTORYS_WEBHOOK_SECRET=...
 NEXT_PUBLIC_SITE_URL=https://jalims.com
 SUPABASE_SERVICE_ROLE_KEY=...
 ANALYTICS_VISITOR_SECRET=...
 ```
 
-Récupérez `SUPABASE_SERVICE_ROLE_KEY` dans les paramètres API du projet Supabase. Cette clé contourne RLS et doit rester une variable serveur secrète : ne la préfixez jamais avec `NEXT_PUBLIC_` et ne l’exposez pas au navigateur. Les routes paiement authentifient le client et vérifient sa propriété de la commande avant toute création de paiement; l’IPN met à jour la commande uniquement après validation HMAC-SHA256.
+Pour les tests, utilisez l’URL `https://api.test.bictorys.com` et une clé API de test. Pour la production, utilisez `https://api.bictorys.com`, la clé API live et le webhook configuré en mode live. Ne mélangez jamais les clés des deux environnements.
+
+Dans le tableau de bord Bictorys, configurez l’URL HTTPS `https://jalims.com/api/payments/bictorys/webhook` et le même secret que `BICTORYS_WEBHOOK_SECRET`. Bictorys transmet ce secret dans l’en-tête `X-Secret-Key`. Le webhook valide la transaction ; l’URL de retour du navigateur sert uniquement à afficher le statut enregistré.
+
+Une commande en attente peut relancer le paiement ; un verrou atomique empêche les demandes simultanées. Un nouvel essai peut toutefois laisser l’ancien lien Bictorys actif : le client doit utiliser le lien le plus récent et vérifier qu’aucun débit précédent n’a été effectué avant de réessayer.
+
+Le client doit avoir un nom complet, un numéro sénégalais valide et une adresse e-mail. `SUPABASE_SERVICE_ROLE_KEY` contourne RLS : gardez-la côté serveur uniquement, sans préfixe `NEXT_PUBLIC_`. L’envoi de l’e-mail de confirmation dépend aussi des modèles/réglages de messages et de `RESEND_API_KEY`.
 
 Générez `ANALYTICS_VISITOR_SECRET` avec au moins 32 octets aléatoires (par exemple `node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"`), puis ajoutez la même valeur à `.env.local` et aux variables d’environnement serveur de Vercel. Cette clé signe les cookies pseudonymes Analytics ; ne la préfixez pas par `NEXT_PUBLIC_` et ne la communiquez pas au navigateur.
 
 Les statistiques Analytics servent à observer des tendances générales : les événements sont envoyés par le navigateur et peuvent être incomplets, approximatifs ou manipulés. Les ajouts au panier sont des indicateurs déclaratifs, pas des commandes confirmées ; seules les commandes payées représentent des commandes. Les résultats sont agrégés par produit et ne permettent pas une attribution individuelle fiable. Les recherches sont filtrées pour réduire la collecte probable de données personnelles, sans garantie de les exclure toutes.
 
-Les paiements sont envoyés avec `env=test` et les moyens Orange Money, Wave et Free Money. L’IPN envoyé à PayTech est `https://jalims.com/api/payment/ipn`; il est indépendant de `NEXT_PUBLIC_SITE_URL` et ce domaine ne doit pas rediriger cette URL. PayTech indique qu’en test le montant débité est aléatoire (100 à 150 FCFA) et que le sandbox est réservé aux tests internes; ne l’utilisez pas pour des transactions publiques. Le retour du navigateur ne confirme pas le paiement : seul l’IPN valide le statut.
-
 ## 9. Attributs et variantes produit
 
 Dans le SQL Editor, exécutez `supabase/migrations/20261002_product_variants.sql`, puis rechargez le cache PostgREST. Cette migration ajoute le catalogue extensible d’attributs, les attributs/valeurs activés par produit, les combinaisons avec stock et ajustement de prix, ainsi qu’un instantané des choix et l’état de réservation sur les commandes.
 
-Exécutez ensuite `supabase/migrations/20261003_paytech_ref_and_variant_json_fix.sql`. Elle attribue une référence PayTech unique à chaque tentative, conserve le lien IPN avec la commande et remplace les fonctions variantes pour compter les clés JSONB avec `jsonb_object_keys()`. Cette seconde migration est obligatoire sur un projet où `20261002_product_variants.sql` a déjà été exécutée.
+Exécutez ensuite les migrations de variantes dans l’ordre chronologique. Les anciennes migrations de paiement restent dans le dépôt pour préserver l’historique d’installation ; elles ne sont plus les routes de paiement actives.
 
 Exécutez enfin `supabase/migrations/20261004_variant_optional_stock.sql` pour permettre un stock `NULL`, traité comme illimité, et mettre à jour les RPC de réservation/commande. Un chiffre saisi reste suivi normalement. Les stocks existants, y compris les zéros, ne sont pas modifiés; pour rendre une combinaison illimitée, ouvrez le produit dans l’admin, effacez son champ Stock, puis enregistrez.
 
 Exécutez ensuite `supabase/migrations/20261005_variant_cart_and_colors.sql`. Elle ajoute les codes hex par valeur Couleur et les lignes de commande nécessaires pour regrouper plusieurs variantes d’un même produit dans un seul paiement. Le panier Jalims ne mélange volontairement pas plusieurs produits dans une commande.
 
-La migration active `pg_cron` et planifie chaque minute l’annulation des commandes de variantes dont le paiement n’est pas confirmé sous 30 minutes. L’annulation, par IPN ou expiration, restitue le stock une seule fois. Une confirmation PayTech tardive tente de réserver à nouveau la variante; si son stock est insuffisant, la commande reste payée mais un avertissement apparaît dans l’administration et l’historique client afin que Jalims traite le cas sans perdre la notification de paiement.
+La migration active `pg_cron` et planifie chaque minute l’annulation des commandes de variantes dont le paiement n’est pas confirmé sous 30 minutes. L’annulation ou l’expiration restitue le stock une seule fois. Une confirmation de paiement tardive tente de réserver à nouveau la variante ; si son stock est insuffisant, la commande reste payée mais un avertissement apparaît dans l’administration et l’historique client afin que Jalims traite le cas sans perdre la notification de paiement.
 
 Les produits sans attribut actif continuent d’utiliser `products.stock_status` (`available`, `preorder`, `out_of_stock`); aucune quantité globale n’est ajoutée. Les commandes existantes gardent un instantané de variante vide et restent lisibles.
 

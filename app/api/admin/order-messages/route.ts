@@ -7,7 +7,7 @@ import {
   prepareOrderWhatsApp,
   sendOrderEmail,
 } from '../../../../lib/order-message-service'
-import { createSupabaseAdminClient } from '../../../../lib/paytech-admin'
+import { createSupabaseAdminClient } from '../../../../lib/supabase-admin'
 import {
   isAllowedOrderMessageSender,
   isOrderMessageTemplateKey,

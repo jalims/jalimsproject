@@ -10,7 +10,7 @@ import {
   type OrderMessageVariables,
   type OrderMessageVariantLine,
 } from './order-messages'
-import { createSupabaseAdminClient } from './paytech-admin'
+import { createSupabaseAdminClient } from './supabase-admin'
 
 type MessageSource = 'automatic' | 'manual'
 

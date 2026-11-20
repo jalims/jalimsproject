@@ -1,4 +1,4 @@
-import { createSupabaseAdminClient } from '../../../lib/paytech-admin'
+import { createSupabaseAdminClient } from '../../../lib/supabase-admin'
 import { NextResponse, type NextRequest } from 'next/server'
 
 const visitorCookieName = 'jalims_visitor'

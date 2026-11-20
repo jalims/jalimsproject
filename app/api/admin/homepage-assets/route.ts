@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { NextResponse } from 'next/server'
 import { authorizeJalimsAdminRequest } from '../../../../lib/admin-route-auth'
-import { createSupabaseAdminClient } from '../../../../lib/paytech-admin'
+import { createSupabaseAdminClient } from '../../../../lib/supabase-admin'
 
 const maximumImageSize = 2 * 1024 * 1024
 const allowedSlots = ['hero-desktop', 'hero-mobile', 'process'] as const

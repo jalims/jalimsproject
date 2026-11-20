@@ -12,7 +12,7 @@ export const importOrderStatusOptions = [
 
 export const localOrderStatusOptions = [
   ['pending_payment', 'En attente de paiement'],
-  ['payé', 'Commande reçue'],
+  ['payé', 'Payée — commande reçue'],
   ['commandé_fournisseur', 'Stock confirmé'],
   ['chez_transitaire', 'En préparation'],
   ['en_transit', 'En livraison'],

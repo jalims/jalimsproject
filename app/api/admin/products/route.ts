@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { authorizeJalimsAdminRequest } from '../../../../lib/admin-route-auth'
-import { createSupabaseAdminClient } from '../../../../lib/paytech-admin'
+import { createSupabaseAdminClient } from '../../../../lib/supabase-admin'
 
 type ProductInput = {
   name: string

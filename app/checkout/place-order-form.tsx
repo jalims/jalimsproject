@@ -225,7 +225,7 @@ export default function PlaceOrderForm({ productId, origin, quantity, pickupPoin
           {createdOrderCode
             ? `Commande ${createdOrderCode} enregistrée, mais le paiement n’a pas pu démarrer : ${errorMessage}`
             : errorMessage}
-          {createdOrderCode && <Link href="/orders">Reprendre le paiement dans Mes commandes</Link>}
+          {createdOrderCode && <Link href="/orders">Voir mes commandes</Link>}
         </div>
       )}
       <button className="order-button checkout-confirm" type="submit" disabled={submitting || variantUnavailable || (origin !== 'local' && pickupPoints.length > 0 && !pickupPointId)}>

@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { authorizeJalimsAdminRequest } from '../../../../lib/admin-route-auth'
 import { loadAdminOrderDeliveryDetails } from '../../../../lib/admin-order-delivery-details'
 import { localOrderStatusOptions } from '../../../../lib/order-tracking'
-import { createSupabaseAdminClient } from '../../../../lib/paytech-admin'
+import { createSupabaseAdminClient } from '../../../../lib/supabase-admin'
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 const paidStatuses = new Set<string>(localOrderStatusOptions

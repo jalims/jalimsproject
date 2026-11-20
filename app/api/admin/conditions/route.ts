@@ -3,7 +3,7 @@ import { revalidatePath } from 'next/cache'
 import { NextResponse } from 'next/server'
 import { hasJalimsAdminAccess } from '../../../../lib/admin-access'
 import type { LegalPageVersion } from '../../../../lib/legal-page-types'
-import { createSupabaseAdminClient } from '../../../../lib/paytech-admin'
+import { createSupabaseAdminClient } from '../../../../lib/supabase-admin'
 
 const MAX_TITLE_LENGTH = 160
 const MAX_BODY_LENGTH = 50_000

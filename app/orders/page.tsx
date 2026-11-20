@@ -166,6 +166,66 @@ function OrdersContent() {
     }
   }, [retryCount])
 
+  useEffect(() => {
+    const pendingOrderIds = orders
+      .filter((order) => order.status === 'pending_payment')
+      .map((order) => order.id)
+    if (!signedIn || pendingOrderIds.length === 0) return
+
+    let active = true
+    let pollTimer: ReturnType<typeof setTimeout> | undefined
+    const deadline = Date.now() + 30_000
+
+    async function refreshPendingStatuses() {
+      if (!active || Date.now() >= deadline) return
+
+      try {
+        const { data, error } = await supabase
+          .from('orders')
+          .select('id, status, variant_stock_committed')
+          .in('id', pendingOrderIds)
+        if (error) throw error
+        if (!active) return
+
+        const latestOrders = new Map((data ?? []).map((order) => [order.id, order]))
+        setOrders((currentOrders) => {
+          let changed = false
+          const nextOrders = currentOrders.map((order) => {
+            const latest = latestOrders.get(order.id)
+            if (
+              !latest
+              || (latest.status === order.status
+                && latest.variant_stock_committed === order.variant_stock_committed)
+            ) {
+              return order
+            }
+
+            changed = true
+            return {
+              ...order,
+              status: latest.status,
+              variant_stock_committed: latest.variant_stock_committed,
+            }
+          })
+          return changed ? nextOrders : currentOrders
+        })
+      } catch (error) {
+        if (!active) return
+        logClientError('Pending order status refresh failed', error)
+      }
+
+      if (active && Date.now() < deadline) {
+        pollTimer = setTimeout(() => void refreshPendingStatuses(), 3_000)
+      }
+    }
+
+    pollTimer = setTimeout(() => void refreshPendingStatuses(), 3_000)
+    return () => {
+      active = false
+      if (pollTimer) clearTimeout(pollTimer)
+    }
+  }, [orders, signedIn])
+
   return (
     <main className="orders-page">
       <div className="orders-shell">
@@ -184,7 +244,7 @@ function OrdersContent() {
 
         {paymentResult === 'return' && (
           <div className="order-created-banner" role="status">
-            <strong>Retour de PayTech reçu</strong>
+            <strong>Retour de paiement reçu</strong>
             <span>La confirmation du paiement est en cours. Le statut sera mis à jour après vérification.</span>
           </div>
         )}
@@ -276,7 +336,7 @@ function OrdersContent() {
                   <span>Passée le {new Date(order.created_at).toLocaleDateString('fr-FR')}</span>
                   <span>
                     {order.status === 'pending_payment'
-                      ? 'Paiement sécurisé via Orange Money, Wave ou Free Money.'
+                      ? 'Paiement sécurisé par Orange Money, Wave ou Free Money via Bictorys.'
                       : order.status === 'cancelled'
                         ? 'Le suivi de cette commande est terminé.'
                         : order.origin === 'local'

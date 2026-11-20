@@ -6,7 +6,7 @@ import {
   validateHomepageDesignContent,
 } from '../../../../lib/homepage-content'
 import { authorizeJalimsAdminRequest } from '../../../../lib/admin-route-auth'
-import { createSupabaseAdminClient } from '../../../../lib/paytech-admin'
+import { createSupabaseAdminClient } from '../../../../lib/supabase-admin'
 
 export async function GET(request: Request) {
   const authorization = await authorizeJalimsAdminRequest(request, 'Homepage settings')

@@ -1,6 +1,6 @@
 import { timingSafeEqual } from 'node:crypto'
 import { after } from 'next/server'
-import { createSupabaseAdminClient } from '../../../../../lib/paytech-admin'
+import { createSupabaseAdminClient } from '../../../../../lib/supabase-admin'
 import { sendAutomaticOrderConfirmation } from '../../../../../lib/order-message-service'
 
 type JsonRecord = Record<string, unknown>
@@ -166,7 +166,7 @@ export async function POST(request: Request) {
   }
 
   const expectedAmount = Number(order.total_price)
-  if (!Number.isFinite(expectedAmount) || expectedAmount <= 0 || amount < expectedAmount) {
+  if (!Number.isFinite(expectedAmount) || expectedAmount <= 0 || amount !== expectedAmount) {
     console.error('[Bictorys webhook] Payment amount mismatch; order not confirmed', {
       orderId: order.id,
       expectedAmount: Number.isFinite(expectedAmount) ? expectedAmount : null,
@@ -174,14 +174,6 @@ export async function POST(request: Request) {
       currency: payment.currency,
     })
     return acknowledge()
-  }
-  if (amount > expectedAmount) {
-    console.info('[Bictorys webhook] Payment amount exceeds order total', {
-      orderId: order.id,
-      orderAmount: expectedAmount,
-      receivedAmount: amount,
-      difference: amount - expectedAmount,
-    })
   }
 
   let merchantFees = order.merchant_fees

@@ -2,7 +2,7 @@ import { createClient, type User } from '@supabase/supabase-js'
 import { NextResponse } from 'next/server'
 import { hasJalimsAdminAccess } from '../../../../lib/admin-access'
 import { normalizeSenegalPhone } from '../../../../lib/order-messages'
-import { createSupabaseAdminClient } from '../../../../lib/paytech-admin'
+import { createSupabaseAdminClient } from '../../../../lib/supabase-admin'
 
 const paidStatuses = new Set([
   'payé',

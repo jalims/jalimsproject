@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import { createClient } from '@supabase/supabase-js'
 import { NextResponse } from 'next/server'
-import { createSupabaseAdminClient } from '../../../../lib/paytech-admin'
+import { createSupabaseAdminClient } from '../../../../lib/supabase-admin'
 
 function jsonError(message: string, status: number) {
   return NextResponse.json({ error: message }, { status })

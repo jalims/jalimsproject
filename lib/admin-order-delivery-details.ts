@@ -1,4 +1,4 @@
-import { createSupabaseAdminClient } from './paytech-admin'
+import { createSupabaseAdminClient } from './supabase-admin'
 
 type AdminSupabaseClient = ReturnType<typeof createSupabaseAdminClient>
 
