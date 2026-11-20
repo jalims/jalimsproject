@@ -334,17 +334,17 @@ function OrdersContent() {
                 </div>
                 <div className="order-card-footer">
                   <span>Passée le {new Date(order.created_at).toLocaleDateString('fr-FR')}</span>
-                  <span>
-                    {order.status === 'pending_payment'
-                      ? 'Paiement sécurisé par Orange Money, Wave ou Free Money via Bictorys.'
-                      : order.status === 'cancelled'
+                  {order.status !== 'pending_payment' && (
+                    <span>
+                      {order.status === 'cancelled'
                         ? 'Le suivi de cette commande est terminé.'
                         : order.origin === 'local'
                           ? 'Le suivi et le délai indiqués concernent la disponibilité locale de cet article.'
-                        : order.status === 'prête_a_retirer'
-                          ? 'Présentez le code de retrait et une pièce d’identité au point de retrait.'
-                          : 'Le statut sera actualisé au fil de l’acheminement.'}
-                  </span>
+                          : order.status === 'prête_a_retirer'
+                            ? 'Présentez le code de retrait et une pièce d’identité au point de retrait.'
+                            : 'Le statut sera actualisé au fil de l’acheminement.'}
+                    </span>
+                  )}
                 </div>
                 {order.status === 'pending_payment' && (
                   <PayOrderButton orderId={order.id} />
