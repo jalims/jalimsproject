@@ -656,21 +656,77 @@ export default function AdminOrdersPage() {
               const pending = pendingStatus?.orderId === order.id ? pendingStatus : null
               const composing = composerOrderId === order.id
               const partnerFeedback = partnerNotificationFeedback?.orderId === order.id ? partnerNotificationFeedback : null
+              const productLabel = order.products?.name ?? 'Produit Jalims'
+              const productHref = order.product_id && order.products ? `/products/${encodeURIComponent(order.product_id)}` : null
               return (
                 <article className="admin-order-row admin-order-message-row" key={order.id}>
-                  <div className="order-product-thumb">{order.products?.image_url && <Image src={order.products.image_url} alt="" fill sizes="58px" unoptimized />}</div>
+                  {productHref ? (
+                    <Link
+                      className="order-product-thumb"
+                      href={productHref}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      aria-label={`Ouvrir la page du produit ${productLabel} dans un nouvel onglet`}
+                      onClick={(event) => event.stopPropagation()}
+                    >
+                      {order.products?.image_url && <Image src={order.products.image_url} alt="" fill sizes="58px" unoptimized />}
+                    </Link>
+                  ) : (
+                    <div className="order-product-thumb">{order.products?.image_url && <Image src={order.products.image_url} alt="" fill sizes="58px" unoptimized />}</div>
+                  )}
                   <div className="admin-order-main">
-                    <strong>{order.products?.name ?? 'Produit Jalims'}</strong>
+                    <strong>
+                      {productHref ? (
+                        <Link
+                          href={productHref}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          aria-label={`Ouvrir la page du produit ${productLabel} dans un nouvel onglet`}
+                          onClick={(event) => event.stopPropagation()}
+                        >
+                          {productLabel}
+                        </Link>
+                      ) : productLabel}
+                    </strong>
                     <span>{order.jalims_code} · {order.quantity} unité{order.quantity === 1 ? '' : 's'}</span>
                     {order.origin === 'local' && order.variant_lines.length === 0 && (
                       <span className="order-origin-admin-details">Disponible au Sénégal · {order.city || 'Ville à confirmer'} · livraison {order.delivery_delay || 'à confirmer'}</span>
                     )}
-                    {order.variant_lines.length > 0 ? order.variant_lines.map((line) => (
-                      <span key={line.id}>
-                        {Object.entries(line.attribute_values).map(([key, value]) => `${attributeLabels[key] ?? key.replaceAll('_', ' ')} : ${value}`).join(' · ')} · {line.quantity} × {Number(line.unit_price).toLocaleString('fr-FR')} FCFA
-                        {line.origin === 'local' ? ` · Disponible au Sénégal · ${line.city || 'Ville à confirmer'} · livraison ${line.delivery_delay || 'à confirmer'}` : ''}
-                      </span>
-                    )) : Object.entries(order.variant_values ?? {}).map(([key, value]) => <span key={key}>{attributeLabels[key] ?? key.replaceAll('_', ' ')} : {value}</span>)}
+                    {order.variant_lines.length > 0 ? order.variant_lines.map((line) => {
+                      const lineText = `${Object.entries(line.attribute_values).map(([key, value]) => `${attributeLabels[key] ?? key.replaceAll('_', ' ')} : ${value}`).join(' · ')} · ${line.quantity} × ${Number(line.unit_price).toLocaleString('fr-FR')} FCFA${line.origin === 'local' ? ` · Disponible au Sénégal · ${line.city || 'Ville à confirmer'} · livraison ${line.delivery_delay || 'à confirmer'}` : ''}`
+                      return (
+                        <span key={line.id}>
+                          {productHref ? (
+                            <Link
+                              href={productHref}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              aria-label={`Ouvrir la page du produit ${productLabel} dans un nouvel onglet`}
+                              onClick={(event) => event.stopPropagation()}
+                            >
+                              {lineText}
+                            </Link>
+                          ) : lineText}
+                        </span>
+                      )
+                    }) : Object.entries(order.variant_values ?? {}).map(([key, value]) => {
+                      const valueText = `${attributeLabels[key] ?? key.replaceAll('_', ' ')} : ${value}`
+                      return (
+                        <span key={key}>
+                          {productHref ? (
+                            <Link
+                              href={productHref}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              aria-label={`Ouvrir la page du produit ${productLabel} dans un nouvel onglet`}
+                              onClick={(event) => event.stopPropagation()}
+                            >
+                              {valueText}
+                            </Link>
+                          ) : valueText}
+                        </span>
+                      )
+                    })}
                     {order.origin === 'local' && (
                       <>
                         <span className="order-delivery-admin-details">
