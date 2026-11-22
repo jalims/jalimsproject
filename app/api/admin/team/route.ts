@@ -254,6 +254,9 @@ export async function PATCH(request: Request) {
     if (nextRole !== undefined && userId === authorization.user.id) {
       return forbidden('Vous ne pouvez pas modifier votre propre rôle.')
     }
+    if (nextActive === false && userId === authorization.user.id) {
+      return forbidden('Vous ne pouvez pas désactiver votre propre compte.')
+    }
 
     if (authorization.role === 'admin') {
       if (nextRole !== undefined) {
