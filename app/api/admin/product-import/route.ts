@@ -1,7 +1,5 @@
-import { createClient } from '@supabase/supabase-js'
 import { NextResponse } from 'next/server'
-import { hasJalimsAdminAccess } from '../../../../lib/admin-access'
-import { createSupabaseAdminClient } from '../../../../lib/supabase-admin'
+import { ADMIN_AND_OWNER_ROLES, requireRole, type AdminServiceClient } from '../../../../lib/admin-staff'
 
 export const maxDuration = 120
 
@@ -52,33 +50,6 @@ function getDatabaseErrorMessage(error: { code?: string; message?: string; detai
     ?? 'La base de données a refusé cette opération. Vérifiez les informations puis réessayez.'
 }
 
-async function authorize(request: Request) {
-  const authorization = request.headers.get('authorization')
-  const accessToken = authorization?.match(/^Bearer\s+(.+)$/i)?.[1]
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-
-  if (!accessToken) return { response: jsonError('Connectez-vous avec le compte administrateur pour continuer.', 401) }
-  if (!supabaseUrl || !anonKey) {
-    console.error('[Product import] Supabase public environment is not configured')
-    return { response: jsonError('Le service d’import n’est pas configuré correctement.', 500) }
-  }
-
-  const authClient = createClient(supabaseUrl, anonKey, {
-    auth: { autoRefreshToken: false, persistSession: false },
-  })
-  const { data, error } = await authClient.auth.getUser(accessToken)
-
-  if (error) {
-    console.error('[Product import] Admin authentication failed', error.message)
-    return { response: jsonError('Votre session n’a pas pu être vérifiée. Reconnectez-vous puis réessayez.', 401) }
-  }
-  if (!hasJalimsAdminAccess(data.user)) {
-    return { response: jsonError('Ce compte ne dispose pas des droits administrateur.', 403) }
-  }
-
-  return { user: data.user }
-}
 
 function isValidImportInput(value: unknown): value is ImportInput {
   if (typeof value !== 'object' || value === null) return false
@@ -202,7 +173,7 @@ async function generateFrenchText(sourceName: string, category: string): Promise
   return { name: generated.name.trim(), description: generated.description.trim() }
 }
 
-async function importProduct(body: Record<string, unknown>) {
+async function importProduct(body: Record<string, unknown>, serviceClient: AdminServiceClient) {
   const row = body.row
   const testMode = body.testMode === true
   const submittedSku = typeof row === 'object' && row !== null ? Reflect.get(row, 'sku') : undefined
@@ -224,14 +195,6 @@ async function importProduct(body: Record<string, unknown>) {
   const generated = testMode
     ? { name: `[À rédiger] ${row.sourceName.trim()}`, description: `[À rédiger] ${row.sourceName.trim()}` }
     : await generateFrenchText(row.sourceName.trim(), row.category.trim())
-
-  let serviceClient: ReturnType<typeof createSupabaseAdminClient>
-  try {
-    serviceClient = createSupabaseAdminClient()
-  } catch (error) {
-    console.error('[Product import] Service Supabase configuration failed', error)
-    return jsonError('Le service sécurisé de base de données n’est pas configuré.', 500)
-  }
 
   const { data, error } = await serviceClient.rpc('import_product_from_source', {
     p_sku: sku,
@@ -276,7 +239,7 @@ async function importProduct(body: Record<string, unknown>) {
   })
 }
 
-async function registerImages(body: Record<string, unknown>) {
+async function registerImages(body: Record<string, unknown>, serviceClient: AdminServiceClient) {
   const sku = typeof body.sku === 'string' ? body.sku.trim().toUpperCase() : ''
   const filenames = body.filenames
   if (body.testMode === true && !sku.startsWith('TEST')) {
@@ -299,14 +262,6 @@ async function registerImages(body: Record<string, unknown>) {
     ))
   ) {
     return jsonError('Le SKU ou la liste de photos est invalide. Utilisez uniquement des fichiers JPG, PNG ou WebP.', 400)
-  }
-
-  let serviceClient: ReturnType<typeof createSupabaseAdminClient>
-  try {
-    serviceClient = createSupabaseAdminClient()
-  } catch (error) {
-    console.error('[Product import] Service Supabase configuration failed', error)
-    return jsonError('Le service sécurisé de base de données n’est pas configuré.', 500)
   }
 
   const { data: productCost, error: lookupError } = await serviceClient
@@ -385,15 +340,15 @@ async function registerImages(body: Record<string, unknown>) {
 }
 
 export async function GET(request: Request) {
-  const auth = await authorize(request)
-  if ('response' in auth) return auth.response
+  const authorization = await requireRole(request, ADMIN_AND_OWNER_ROLES, 'Product import')
+  if ('response' in authorization) return authorization.response
 
   return NextResponse.json({ anthropicConfigured: Boolean(process.env.ANTHROPIC_API_KEY) })
 }
 
 export async function POST(request: Request) {
-  const auth = await authorize(request)
-  if ('response' in auth) return auth.response
+  const authorization = await requireRole(request, ADMIN_AND_OWNER_ROLES, 'Product import')
+  if ('response' in authorization) return authorization.response
 
   let body: unknown
   try {
@@ -406,8 +361,8 @@ export async function POST(request: Request) {
 
   const payload = body as Record<string, unknown>
   try {
-    if (payload.action === 'import') return await importProduct(payload)
-    if (payload.action === 'register-images') return await registerImages(payload)
+    if (payload.action === 'import') return await importProduct(payload, authorization.supabase)
+    if (payload.action === 'register-images') return await registerImages(payload, authorization.supabase)
     return jsonError('Cette opération d’import n’est pas reconnue.', 400)
   } catch (error) {
     const message = error instanceof Error ? error.message : ''

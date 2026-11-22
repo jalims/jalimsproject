@@ -1,12 +1,11 @@
 import { NextResponse } from 'next/server'
 import { loadAdminOrderDeliveryDetails } from '../../../../lib/admin-order-delivery-details'
-import { authorizeJalimsAdminRequest } from '../../../../lib/admin-route-auth'
-import { createSupabaseAdminClient } from '../../../../lib/supabase-admin'
+import { ORDER_TEAM_ROLES, requireRole } from '../../../../lib/admin-staff'
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
 export async function POST(request: Request) {
-  const authorization = await authorizeJalimsAdminRequest(request, 'Admin order delivery details')
+  const authorization = await requireRole(request, ORDER_TEAM_ROLES, 'Admin order delivery details')
   if ('response' in authorization) return authorization.response
 
   let body: unknown
@@ -30,8 +29,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    const supabase = createSupabaseAdminClient()
-    const result = await loadAdminOrderDeliveryDetails(supabase, orderIds)
+    const result = await loadAdminOrderDeliveryDetails(authorization.supabase, orderIds)
     if (result.error) {
       console.error('[Admin order delivery details] Lookup failed', result.error.message)
       return NextResponse.json({ error: 'Impossible de charger les coordonnées de livraison.' }, { status: 500 })

@@ -5,16 +5,14 @@ import {
   validateHomepageContent,
   validateHomepageDesignContent,
 } from '../../../../lib/homepage-content'
-import { authorizeJalimsAdminRequest } from '../../../../lib/admin-route-auth'
-import { createSupabaseAdminClient } from '../../../../lib/supabase-admin'
+import { ADMIN_AND_OWNER_ROLES, requireRole } from '../../../../lib/admin-staff'
 
 export async function GET(request: Request) {
-  const authorization = await authorizeJalimsAdminRequest(request, 'Homepage settings')
+  const authorization = await requireRole(request, ADMIN_AND_OWNER_ROLES, 'Homepage settings')
   if ('response' in authorization) return authorization.response
 
   try {
-    const supabase = createSupabaseAdminClient()
-    const { data, error } = await supabase
+    const { data, error } = await authorization.supabase
       .from('homepage_content')
       .select('*')
       .eq('id', 1)
@@ -36,7 +34,7 @@ export async function GET(request: Request) {
 }
 
 export async function PUT(request: Request) {
-  const authorization = await authorizeJalimsAdminRequest(request, 'Homepage settings')
+  const authorization = await requireRole(request, ADMIN_AND_OWNER_ROLES, 'Homepage settings')
   if ('response' in authorization) return authorization.response
 
   let body: unknown
@@ -59,8 +57,7 @@ export async function PUT(request: Request) {
   }
 
   try {
-    const supabase = createSupabaseAdminClient()
-    const { error } = await supabase
+    const { error } = await authorization.supabase
       .from('homepage_content')
       .upsert({ ...content, id: 1, design_content: designContent, updated_at: new Date().toISOString() }, { onConflict: 'id' })
 

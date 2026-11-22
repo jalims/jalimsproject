@@ -1,13 +1,12 @@
 import { NextResponse } from 'next/server'
-import { authorizeJalimsAdminRequest } from '../../../../lib/admin-route-auth'
 import { importOrderStatusOptions, localOrderStatusOptions } from '../../../../lib/order-tracking'
-import { createSupabaseAdminClient } from '../../../../lib/supabase-admin'
+import { ORDER_TEAM_ROLES, requireRole } from '../../../../lib/admin-staff'
 
 const importStatuses = new Set<string>(importOrderStatusOptions.map(([status]) => status))
 const localStatuses = new Set<string>(localOrderStatusOptions.map(([status]) => status))
 
 export async function PATCH(request: Request) {
-  const authorization = await authorizeJalimsAdminRequest(request, 'Admin order status')
+  const authorization = await requireRole(request, ORDER_TEAM_ROLES, 'Admin order status')
   if ('response' in authorization) return authorization.response
 
   let body: unknown
@@ -31,7 +30,7 @@ export async function PATCH(request: Request) {
   }
 
   try {
-    const supabase = createSupabaseAdminClient()
+    const supabase = authorization.supabase
     const { data: order, error: orderError } = await supabase
       .from('orders')
       .select('id, origin')

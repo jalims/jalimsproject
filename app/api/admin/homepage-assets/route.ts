@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { NextResponse } from 'next/server'
-import { authorizeJalimsAdminRequest } from '../../../../lib/admin-route-auth'
-import { createSupabaseAdminClient } from '../../../../lib/supabase-admin'
+import { ADMIN_AND_OWNER_ROLES, requireRole } from '../../../../lib/admin-staff'
 
 const maximumImageSize = 2 * 1024 * 1024
 const allowedSlots = ['hero-desktop', 'hero-mobile', 'process'] as const
@@ -29,7 +28,7 @@ function isHomepageAssetPath(path: unknown): path is string {
 }
 
 export async function POST(request: Request) {
-  const authorization = await authorizeJalimsAdminRequest(request, 'Homepage assets')
+  const authorization = await requireRole(request, ADMIN_AND_OWNER_ROLES, 'Homepage assets')
   if ('response' in authorization) return authorization.response
 
   let formData: FormData
@@ -55,8 +54,7 @@ export async function POST(request: Request) {
 
   const path = `home/${slot}/${randomUUID()}.${extension}`
   try {
-    const supabase = createSupabaseAdminClient()
-    const { error } = await supabase.storage
+    const { error } = await authorization.supabase.storage
       .from('site-assets')
       .upload(path, Buffer.from(bytes), { contentType: file.type, upsert: false })
 
@@ -73,7 +71,7 @@ export async function POST(request: Request) {
 }
 
 export async function DELETE(request: Request) {
-  const authorization = await authorizeJalimsAdminRequest(request, 'Homepage assets')
+  const authorization = await requireRole(request, ADMIN_AND_OWNER_ROLES, 'Homepage assets')
   if ('response' in authorization) return authorization.response
 
   let body: unknown
@@ -92,8 +90,7 @@ export async function DELETE(request: Request) {
   if (paths.length === 0) return NextResponse.json({ success: true })
 
   try {
-    const supabase = createSupabaseAdminClient()
-    const { error } = await supabase.storage.from('site-assets').remove(paths)
+    const { error } = await authorization.supabase.storage.from('site-assets').remove(paths)
     if (error) {
       console.error('[Homepage assets] Delete failed', error.message)
       return NextResponse.json({ error: 'Une ancienne image n’a pas pu être supprimée.' }, { status: 500 })

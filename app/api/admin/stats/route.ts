@@ -1,7 +1,5 @@
-import { createClient } from '@supabase/supabase-js'
 import { NextResponse } from 'next/server'
-import { hasJalimsAdminAccess } from '../../../../lib/admin-access'
-import { createSupabaseAdminClient } from '../../../../lib/supabase-admin'
+import { ADMIN_AND_OWNER_ROLES, requireRole } from '../../../../lib/admin-staff'
 
 const periods = new Set(['7', '30', '90', 'all'])
 
@@ -9,36 +7,8 @@ function jsonError(message: string, status: number) {
   return NextResponse.json({ error: message }, { status })
 }
 
-async function authorizeAdmin(request: Request) {
-  const accessToken = request.headers.get('authorization')?.match(/^Bearer\s+(.+)$/i)?.[1]
-  if (!accessToken) {
-    return { response: jsonError('Connectez-vous avec le compte administrateur pour continuer.', 401) }
-  }
-
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-  if (!supabaseUrl || !anonKey) {
-    console.error('[Admin stats] Supabase public environment is not configured')
-    return { response: jsonError('Le service de statistiques n’est pas configuré correctement.', 500) }
-  }
-
-  const authClient = createClient(supabaseUrl, anonKey, {
-    auth: { autoRefreshToken: false, persistSession: false },
-  })
-  const { data, error } = await authClient.auth.getUser(accessToken)
-  if (error) {
-    console.error('[Admin stats] Admin authentication failed')
-    return { response: jsonError('Votre session n’a pas pu être vérifiée. Reconnectez-vous puis réessayez.', 401) }
-  }
-  if (!hasJalimsAdminAccess(data.user)) {
-    return { response: jsonError('Ce compte ne dispose pas des droits administrateur.', 403) }
-  }
-
-  return { user: data.user }
-}
-
 export async function GET(request: Request) {
-  const authorization = await authorizeAdmin(request)
+  const authorization = await requireRole(request, ADMIN_AND_OWNER_ROLES, 'Admin stats')
   if ('response' in authorization) return authorization.response
 
   const period = new URL(request.url).searchParams.get('period') ?? '30'
@@ -47,7 +17,7 @@ export async function GET(request: Request) {
   }
 
   try {
-    const supabase = createSupabaseAdminClient()
+    const supabase = authorization.supabase
     const [
       { data: overview, error: overviewError },
       { data: salesByDay, error: salesError },

@@ -7,7 +7,11 @@ export type StaffRole = 'owner' | 'admin' | 'order_manager'
 
 export const ALL_STAFF_ROLES: StaffRole[] = ['owner', 'admin', 'order_manager']
 
-type AdminServiceClient = ReturnType<typeof createSupabaseAdminClient>
+export const ADMIN_AND_OWNER_ROLES: StaffRole[] = ['owner', 'admin']
+
+export const ORDER_TEAM_ROLES: StaffRole[] = ['owner', 'admin', 'order_manager']
+
+export type AdminServiceClient = ReturnType<typeof createSupabaseAdminClient>
 
 type StaffRoleRow = {
   role: StaffRole

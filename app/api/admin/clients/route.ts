@@ -1,8 +1,7 @@
-import { createClient, type User } from '@supabase/supabase-js'
+import type { User } from '@supabase/supabase-js'
 import { NextResponse } from 'next/server'
-import { hasJalimsAdminAccess } from '../../../../lib/admin-access'
+import { ADMIN_AND_OWNER_ROLES, requireRole, type AdminServiceClient } from '../../../../lib/admin-staff'
 import { normalizeSenegalPhone } from '../../../../lib/order-messages'
-import { createSupabaseAdminClient } from '../../../../lib/supabase-admin'
 
 const paidStatuses = new Set([
   'payé',
@@ -31,33 +30,6 @@ function jsonError(message: string, status: number) {
   return NextResponse.json({ error: message }, { status })
 }
 
-async function authorizeAdmin(request: Request) {
-  const accessToken = request.headers.get('authorization')?.match(/^Bearer\s+(.+)$/i)?.[1]
-  if (!accessToken) {
-    return { response: jsonError('Connectez-vous avec le compte administrateur pour continuer.', 401) }
-  }
-
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-  if (!supabaseUrl || !anonKey) {
-    console.error('[Admin clients] Supabase public environment is not configured')
-    return { response: jsonError('Le service clients n’est pas configuré correctement.', 500) }
-  }
-
-  const authClient = createClient(supabaseUrl, anonKey, {
-    auth: { autoRefreshToken: false, persistSession: false },
-  })
-  const { data, error } = await authClient.auth.getUser(accessToken)
-  if (error) {
-    console.error('[Admin clients] Admin authentication failed')
-    return { response: jsonError('Votre session n’a pas pu être vérifiée. Reconnectez-vous puis réessayez.', 401) }
-  }
-  if (!hasJalimsAdminAccess(data.user)) {
-    return { response: jsonError('Ce compte ne dispose pas des droits administrateur.', 403) }
-  }
-
-  return { user: data.user }
-}
 
 function metadataText(user: User, key: string) {
   const value = user.user_metadata?.[key]
@@ -72,7 +44,7 @@ function matchesSearch(client: ClientRow, query: string) {
 }
 
 async function loadClients(
-  supabase: ReturnType<typeof createSupabaseAdminClient>,
+  supabase: AdminServiceClient,
   search: string,
   withoutOrder: boolean,
   requestedPage: number,
@@ -170,7 +142,7 @@ function clientsCsv(clients: ClientRow[]) {
 }
 
 export async function GET(request: Request) {
-  const authorization = await authorizeAdmin(request)
+  const authorization = await requireRole(request, ADMIN_AND_OWNER_ROLES, 'Admin clients')
   if ('response' in authorization) return authorization.response
 
   const params = new URL(request.url).searchParams
@@ -183,7 +155,7 @@ export async function GET(request: Request) {
   const exportAll = params.get('export') === 'csv'
 
   try {
-    const supabase = createSupabaseAdminClient()
+    const supabase = authorization.supabase
     const clients = await loadClients(supabase, search, withoutOrder, pageValue, exportAll)
     if (exportAll) {
       const filename = `jalims-clients-${new Date().toISOString().slice(0, 10)}.csv`

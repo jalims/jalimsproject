@@ -1,13 +1,11 @@
-import { createClient } from '@supabase/supabase-js'
 import { NextResponse } from 'next/server'
-import { hasJalimsAdminAccess } from '../../../../lib/admin-access'
 import {
   OrderMessageError,
   prepareOrderMessage,
   prepareOrderWhatsApp,
   sendOrderEmail,
 } from '../../../../lib/order-message-service'
-import { createSupabaseAdminClient } from '../../../../lib/supabase-admin'
+import { ORDER_TEAM_ROLES, requireRole } from '../../../../lib/admin-staff'
 import {
   isAllowedOrderMessageSender,
   isOrderMessageTemplateKey,
@@ -30,40 +28,13 @@ function jsonError(message: string, status: number) {
   return NextResponse.json({ error: message }, { status })
 }
 
-async function authorizeAdmin(request: Request) {
-  const accessToken = request.headers.get('authorization')?.match(/^Bearer\s+(.+)$/i)?.[1]
-  if (!accessToken) {
-    return { response: jsonError('Connectez-vous avec le compte administrateur pour continuer.', 401) }
-  }
-
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-  if (!supabaseUrl || !anonKey) {
-    console.error('[Order messages] Supabase public environment is not configured')
-    return { response: jsonError('Le service de messages n’est pas configuré correctement.', 500) }
-  }
-
-  const authClient = createClient(supabaseUrl, anonKey, {
-    auth: { autoRefreshToken: false, persistSession: false },
-  })
-  const { data, error } = await authClient.auth.getUser(accessToken)
-  if (error) {
-    console.error('[Order messages] Admin authentication failed', error.message)
-    return { response: jsonError('Votre session n’a pas pu être vérifiée. Reconnectez-vous puis réessayez.', 401) }
-  }
-  if (!hasJalimsAdminAccess(data.user)) {
-    return { response: jsonError('Ce compte ne dispose pas des droits administrateur.', 403) }
-  }
-
-  return { user: data.user }
-}
 
 export async function GET(request: Request) {
-  const authorization = await authorizeAdmin(request)
+  const authorization = await requireRole(request, ORDER_TEAM_ROLES, 'Order messages')
   if ('response' in authorization) return authorization.response
 
   try {
-    const supabase = createSupabaseAdminClient()
+    const supabase = authorization.supabase
     const [{ data: templates, error: templatesError }, { data: settings, error: settingsError }] = await Promise.all([
       supabase.from('order_message_templates')
         .select('template_key, name, subject, body, active')
@@ -92,7 +63,7 @@ export async function GET(request: Request) {
 }
 
 export async function PUT(request: Request) {
-  const authorization = await authorizeAdmin(request)
+  const authorization = await requireRole(request, ORDER_TEAM_ROLES, 'Order messages')
   if ('response' in authorization) return authorization.response
 
   let body: unknown
@@ -190,7 +161,7 @@ export async function PUT(request: Request) {
   }
 
   try {
-    const supabase = createSupabaseAdminClient()
+    const supabase = authorization.supabase
     const { error: settingsError } = await supabase.from('order_message_settings').upsert({
       id: 1,
       ...settings,
@@ -218,7 +189,7 @@ export async function PUT(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const authorization = await authorizeAdmin(request)
+  const authorization = await requireRole(request, ORDER_TEAM_ROLES, 'Order messages')
   if ('response' in authorization) return authorization.response
 
   let body: unknown

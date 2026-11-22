@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server'
-import { authorizeJalimsAdminRequest } from '../../../../lib/admin-route-auth'
-import { createSupabaseAdminClient } from '../../../../lib/supabase-admin'
+import { ADMIN_AND_OWNER_ROLES, requireRole } from '../../../../lib/admin-staff'
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 const internationalPhonePattern = /^[1-9][0-9]{7,14}$/
@@ -36,11 +35,11 @@ function validatePartner(value: unknown, includeActive: boolean): PartnerInput |
 }
 
 export async function GET(request: Request) {
-  const authorization = await authorizeJalimsAdminRequest(request, 'Admin partners')
+  const authorization = await requireRole(request, ADMIN_AND_OWNER_ROLES, 'Admin partners')
   if ('response' in authorization) return authorization.response
 
   try {
-    const supabase = createSupabaseAdminClient()
+    const supabase = authorization.supabase
     const { data, error } = await supabase
       .from('partners')
       .select('id, name, whatsapp_phone, city, active, created_at')
@@ -57,7 +56,7 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const authorization = await authorizeJalimsAdminRequest(request, 'Admin partners')
+  const authorization = await requireRole(request, ADMIN_AND_OWNER_ROLES, 'Admin partners')
   if ('response' in authorization) return authorization.response
 
   let body: unknown
@@ -76,7 +75,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    const supabase = createSupabaseAdminClient()
+    const supabase = authorization.supabase
     const { data, error } = await supabase
       .from('partners')
       .insert(partner)
@@ -94,7 +93,7 @@ export async function POST(request: Request) {
 }
 
 export async function PATCH(request: Request) {
-  const authorization = await authorizeJalimsAdminRequest(request, 'Admin partners')
+  const authorization = await requireRole(request, ADMIN_AND_OWNER_ROLES, 'Admin partners')
   if ('response' in authorization) return authorization.response
 
   let body: unknown
@@ -115,7 +114,7 @@ export async function PATCH(request: Request) {
   }
 
   try {
-    const supabase = createSupabaseAdminClient()
+    const supabase = authorization.supabase
     const { data, error } = await supabase
       .from('partners')
       .update(partner)
