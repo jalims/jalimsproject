@@ -725,6 +725,7 @@ export default function AdminPage() {
           <Link className="admin-nav-item current" href="/admin"><span className="admin-nav-icon" aria-hidden="true">▦</span> Produits</Link>
           <Link className="admin-nav-item" href="/admin/importer"><span className="admin-nav-icon" aria-hidden="true">↑</span> Importer des produits</Link>
           <Link className="admin-nav-item" href="/admin/commandes"><span className="admin-nav-icon" aria-hidden="true">↗</span> Commandes</Link>
+          {(staffRole === 'owner' || staffRole === 'admin') && <Link className="admin-nav-item" href="/admin/equipe"><span className="admin-nav-icon" aria-hidden="true">⚙</span> Équipe</Link>}
           <Link className="admin-nav-item" href="/admin/partenaires"><span className="admin-nav-icon" aria-hidden="true">⌖</span> Partenaires</Link>
           <Link className="admin-nav-item" href="/admin/clients"><span className="admin-nav-icon" aria-hidden="true">♙</span> Clients</Link>
           <Link className="admin-nav-item" href="/admin/statistiques"><span className="admin-nav-icon" aria-hidden="true">▤</span> Statistiques</Link>

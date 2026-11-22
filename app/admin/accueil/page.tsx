@@ -288,6 +288,7 @@ export default function AdminHomepageSettingsPage() {
         <nav className="admin-shortcuts" aria-label="Outils d’administration">
           <Link className="admin-nav-item" href="/admin"><span className="admin-nav-icon" aria-hidden="true">▦</span> Produits</Link>
           <Link className="admin-nav-item" href="/admin/commandes"><span className="admin-nav-icon" aria-hidden="true">↗</span> Commandes</Link>
+          {(role === 'owner' || role === 'admin') && <Link className="admin-nav-item" href="/admin/equipe"><span className="admin-nav-icon" aria-hidden="true">⚙</span> Équipe</Link>}
           <Link className="admin-nav-item" href="/admin/clients"><span className="admin-nav-icon" aria-hidden="true">♙</span> Clients</Link>
           <Link className="admin-nav-item" href="/admin/statistiques"><span className="admin-nav-icon" aria-hidden="true">▤</span> Statistiques</Link>
           <Link className="admin-nav-item" href="/admin/messages"><span className="admin-nav-icon" aria-hidden="true">✉</span> Messages</Link>

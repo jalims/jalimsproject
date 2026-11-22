@@ -157,6 +157,7 @@ export default function AdminPartnersPage() {
         <nav className="admin-shortcuts" aria-label="Outils d’administration">
           <Link className="admin-nav-item" href="/admin">Produits</Link>
           <Link className="admin-nav-item" href="/admin/commandes">Commandes</Link>
+          {(role === 'owner' || role === 'admin') && <Link className="admin-nav-item" href="/admin/equipe">Équipe</Link>}
           <Link className="admin-nav-item current" href="/admin/partenaires">Partenaires</Link>
           <Link className="admin-nav-item" href="/admin/retraits">Points de retrait</Link>
         </nav>

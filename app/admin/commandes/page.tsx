@@ -632,6 +632,7 @@ export default function AdminOrdersPage() {
         <nav className="admin-shortcuts" aria-label="Outils d’administration">
           <Link className="admin-nav-item" href="/admin">Produits</Link>
           <Link className="admin-nav-item current" href="/admin/commandes">Commandes</Link>
+          {(staffRole === 'owner' || staffRole === 'admin') && <Link className="admin-nav-item" href="/admin/equipe">Équipe</Link>}
           <Link className="admin-nav-item" href="/admin/partenaires">Partenaires</Link>
           <Link className="admin-nav-item" href="/admin/clients">Clients</Link>
           <Link className="admin-nav-item" href="/admin/statistiques">Statistiques</Link>
