@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { useEffect, useState } from 'react'
 import { supabase } from '../../lib/supabase'
-import { hasJalimsAdminAccess } from '../../lib/admin-access'
+import { getStaffRoleForUser, type StaffRole } from '../../lib/admin-staff-client'
 import { logClientError } from '../../lib/user-facing-errors'
 
 export default function AccountPage() {
@@ -12,7 +12,7 @@ export default function AccountPage() {
   const [email, setEmail] = useState('')
   const [fullName, setFullName] = useState('')
   const [phone, setPhone] = useState('')
-  const [isAdmin, setIsAdmin] = useState(false)
+  const [staffRole, setStaffRole] = useState<StaffRole | null>(null)
   const [message, setMessage] = useState('')
   const [saving, setSaving] = useState(false)
 
@@ -23,16 +23,18 @@ export default function AccountPage() {
       const user = data.user
       setEmail(user?.email ?? '')
       setUserId(user?.id ?? '')
-      setIsAdmin(hasJalimsAdminAccess(user))
       if (user) {
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('full_name, phone')
-          .eq('id', user.id)
-          .maybeSingle()
+        const [profileResult, role] = await Promise.all([
+          supabase.from('profiles').select('full_name, phone').eq('id', user.id).maybeSingle(),
+          getStaffRoleForUser(user),
+        ])
         if (!active) return
+        const profile = profileResult.data
         setFullName(profile?.full_name ?? String(user.user_metadata?.full_name ?? ''))
         setPhone(profile?.phone ?? String(user.user_metadata?.phone ?? ''))
+        setStaffRole(role)
+      } else {
+        setStaffRole(null)
       }
       setLoading(false)
     })
@@ -99,10 +101,10 @@ export default function AccountPage() {
               </label>
               <button className="account-save-profile" type="submit" disabled={saving}>{saving ? 'Enregistrement...' : 'Enregistrer mon profil'}</button>
             </form>
-            {isAdmin && (
+            {staffRole && (
               <>
-                <p className="account-role-status is-admin">Accès administrateur activé</p>
-                <Link className="account-admin-link" href="/admin">Accéder à l’administration →</Link>
+                <p className="account-role-status is-admin">Accès à l’administration activé</p>
+                <Link className="account-admin-link" href={staffRole === 'order_manager' ? '/admin/commandes' : '/admin'}>Administration →</Link>
               </>
             )}
             <div className="account-shortcuts">
