@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { ImagePlus, RotateCcw, Save, Trash2 } from 'lucide-react'
-import { hasJalimsAdminAccess } from '../../../lib/admin-access'
+import { canAccessAdminPath, getStaffRoleForUser, type StaffRole } from '../../../lib/admin-staff-client'
 import { logClientError } from '../../../lib/user-facing-errors'
 import {
   defaultHomepageContent,
@@ -96,7 +96,8 @@ async function compressImage(file: File) {
 
 export default function AdminHomepageSettingsPage() {
   const [checking, setChecking] = useState(true)
-  const [authorized, setAuthorized] = useState(false)
+  const [hasSession, setHasSession] = useState(false)
+  const [role, setRole] = useState<StaffRole | null>(null)
   const [content, setContent] = useState<HomepageContent>(defaultHomepageContent)
   const [designContent, setDesignContent] = useState<HomepageDesignContent>(defaultHomepageDesignContent)
   const [saving, setSaving] = useState(false)
@@ -112,12 +113,22 @@ export default function AdminHomepageSettingsPage() {
     async function loadSettings() {
       const { data: userData, error: authError } = await supabase.auth.getUser()
       if (!active) return
-      if (authError || !hasJalimsAdminAccess(userData.user)) {
+      if (authError || !userData.user) {
+        setHasSession(false)
+        setRole(null)
         setChecking(false)
         return
       }
 
-      setAuthorized(true)
+      setHasSession(true)
+      const staffRole = await getStaffRoleForUser(userData.user)
+      if (!active) return
+      setRole(staffRole)
+      if (!canAccessAdminPath(staffRole, '/admin/accueil')) {
+        setChecking(false)
+        return
+      }
+
       try {
         const accessToken = await getAccessToken()
         const response = await fetch('/api/admin/homepage-content', {
@@ -246,13 +257,23 @@ export default function AdminHomepageSettingsPage() {
   }
 
   if (checking) return <main className="admin-page"><div className="admin-state">Vérification de l’accès...</div></main>
-  if (!authorized) {
+  if (!hasSession) {
     return (
       <main className="admin-page"><section className="admin-access-state">
         <p className="eyebrow">JALIMS · ADMINISTRATION</p>
         <h1>Accès réservé</h1>
-        <p>Seul le compte administrateur Jalims peut modifier les textes de la boutique.</p>
+        <p>Connectez-vous avec un compte autorisé pour modifier l’accueil.</p>
         <Link className="admin-primary-link" href="/login?next=%2Fadmin%2Faccueil">Se connecter</Link>
+      </section></main>
+    )
+  }
+  if (!canAccessAdminPath(role, '/admin/accueil')) {
+    return (
+      <main className="admin-page"><section className="admin-access-state">
+        <p className="eyebrow">JALIMS · ADMINISTRATION</p>
+        <h1>Accès refusé</h1>
+        <p>Votre rôle ne permet pas d’accéder à cette page.</p>
+        {role === 'order_manager' && <Link className="admin-primary-link" href="/admin/commandes">Aller aux commandes</Link>}
       </section></main>
     )
   }

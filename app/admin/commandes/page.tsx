@@ -3,7 +3,7 @@
 import Image from 'next/image'
 import Link from 'next/link'
 import { useEffect, useState } from 'react'
-import { hasJalimsAdminAccess } from '../../../lib/admin-access'
+import { canAccessAdminPath, getStaffRoleForUser, type StaffRole } from '../../../lib/admin-staff-client'
 import { isOrderMessageTemplateKey, ORDER_MESSAGE_TEMPLATE_KEYS, type OrderMessageTemplateKey } from '../../../lib/order-messages'
 import { importOrderStatusOptions, localOrderStatusOptions } from '../../../lib/order-tracking'
 import { logClientError } from '../../../lib/user-facing-errors'
@@ -171,6 +171,8 @@ async function updateOrderStatus(orderId: string, status: string) {
 export default function AdminOrdersPage() {
   const [checking, setChecking] = useState(true)
   const [authorized, setAuthorized] = useState(false)
+  const [hasSession, setHasSession] = useState(false)
+  const [staffRole, setStaffRole] = useState<StaffRole | null>(null)
   const [orders, setOrders] = useState<AdminOrder[]>([])
   const [messageLogs, setMessageLogs] = useState<MessageLog[]>([])
   const [errorMessage, setErrorMessage] = useState('')
@@ -202,7 +204,19 @@ export default function AdminOrdersPage() {
     async function load() {
       const { data: userData, error: authError } = await supabase.auth.getUser()
       if (!active) return
-      if (authError || !hasJalimsAdminAccess(userData.user)) {
+      if (authError || !userData.user) {
+        setHasSession(false)
+        setStaffRole(null)
+        setAuthorized(false)
+        setChecking(false)
+        return
+      }
+      setHasSession(true)
+      const role = await getStaffRoleForUser(userData.user)
+      if (!active) return
+      setStaffRole(role)
+      if (!canAccessAdminPath(role, '/admin/commandes')) {
+        setAuthorized(false)
         setChecking(false)
         return
       }
@@ -590,12 +604,20 @@ export default function AdminOrdersPage() {
   }
 
   if (checking) return <main className="admin-page"><div className="admin-state">Vérification de l’accès...</div></main>
-  if (!authorized) {
+  if (!hasSession) {
     return (
       <main className="admin-page"><section className="admin-access-state">
         <p className="eyebrow">JALIMS · ADMINISTRATION</p><h1>Accès réservé</h1>
-        <p>Connectez-vous avec un compte administrateur pour gérer les commandes.</p>
+        <p>Connectez-vous avec un compte autorisé pour gérer les commandes.</p>
         <Link className="admin-primary-link" href="/login?next=%2Fadmin%2Fcommandes">Se connecter</Link>
+      </section></main>
+    )
+  }
+  if (!authorized) {
+    return (
+      <main className="admin-page"><section className="admin-access-state">
+        <p className="eyebrow">JALIMS · ADMINISTRATION</p><h1>Accès refusé</h1>
+        <p>Votre rôle ne permet pas d’accéder à cette page.</p>
       </section></main>
     )
   }
@@ -670,7 +692,7 @@ export default function AdminOrdersPage() {
                     </select>
                   </label>
 
-                  {order.origin === 'local' && partnerNotificationStatuses.has(order.status) && (
+                  {staffRole !== 'order_manager' && order.origin === 'local' && partnerNotificationStatuses.has(order.status) && (
                     <div className="partner-notification-actions">
                       {order.partner_notified_at && (
                         <span>

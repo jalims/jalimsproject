@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { useEffect, useState } from 'react'
-import { hasJalimsAdminAccess } from '../../../lib/admin-access'
+import { canAccessAdminPath, getStaffRoleForUser, type StaffRole } from '../../../lib/admin-staff-client'
 import { LegalPageBody } from '../../../lib/legal-page-body'
 import type { LegalPageVersion } from '../../../lib/legal-page-types'
 import { supabase } from '../../../lib/supabase'
@@ -34,7 +34,8 @@ function formatPublicationDate(value: string | null) {
 
 export default function AdminConditionsPage() {
   const [checking, setChecking] = useState(true)
-  const [authorized, setAuthorized] = useState(false)
+  const [hasSession, setHasSession] = useState(false)
+  const [role, setRole] = useState<StaffRole | null>(null)
   const [title, setTitle] = useState('')
   const [body, setBody] = useState('')
   const [draft, setDraft] = useState<LegalPageVersion | null>(null)
@@ -48,11 +49,20 @@ export default function AdminConditionsPage() {
     async function load() {
       const { data: userData, error: authError } = await supabase.auth.getUser()
       if (!active) return
-      if (authError || !hasJalimsAdminAccess(userData.user)) {
+      if (authError || !userData.user) {
+        setHasSession(false)
+        setRole(null)
         setChecking(false)
         return
       }
-      setAuthorized(true)
+      setHasSession(true)
+      const staffRole = await getStaffRoleForUser(userData.user)
+      if (!active) return
+      setRole(staffRole)
+      if (!canAccessAdminPath(staffRole, '/admin/conditions')) {
+        setChecking(false)
+        return
+      }
 
       const { data: sessionData, error: sessionError } = await supabase.auth.getSession()
       if (sessionError || !sessionData.session?.access_token) {
@@ -155,13 +165,23 @@ export default function AdminConditionsPage() {
   )
 
   if (checking) return <main className="admin-page"><div className="admin-state">Vérification de l’accès...</div></main>
-  if (!authorized) {
+  if (!hasSession) {
     return (
       <main className="admin-page"><section className="admin-access-state">
         <p className="eyebrow">JALIMS · ADMINISTRATION</p>
         <h1>Accès réservé</h1>
-        <p>Connectez-vous avec le compte administrateur Jalims pour modifier les conditions.</p>
+        <p>Connectez-vous avec un compte autorisé pour modifier les conditions.</p>
         <Link className="admin-primary-link" href="/login?next=%2Fadmin%2Fconditions">Se connecter</Link>
+      </section></main>
+    )
+  }
+  if (!canAccessAdminPath(role, '/admin/conditions')) {
+    return (
+      <main className="admin-page"><section className="admin-access-state">
+        <p className="eyebrow">JALIMS · ADMINISTRATION</p>
+        <h1>Accès refusé</h1>
+        <p>Votre rôle ne permet pas d’accéder à cette page.</p>
+        {role === 'order_manager' && <Link className="admin-primary-link" href="/admin/commandes">Aller aux commandes</Link>}
       </section></main>
     )
   }
