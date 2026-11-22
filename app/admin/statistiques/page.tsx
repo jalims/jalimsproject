@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { useEffect, useState } from 'react'
+import { canAccessAdminPath, getStaffRoleForUser, type StaffRole } from '../../../lib/admin-staff-client'
 import { supabase } from '../../../lib/supabase'
 
 type Overview = {
@@ -161,6 +162,9 @@ function AnalyticsSearchTable({ title, rows, empty }: { title: string; rows: Sea
 }
 
 export default function AdminStatisticsPage() {
+  const [checking, setChecking] = useState(true)
+  const [hasSession, setHasSession] = useState(false)
+  const [role, setRole] = useState<StaffRole | null>(null)
   const [period, setPeriod] = useState('30')
   const [stats, setStats] = useState<StatsPayload | null>(null)
   const [analytics, setAnalytics] = useState<AnalyticsPayload | null>(null)
@@ -170,6 +174,27 @@ export default function AdminStatisticsPage() {
   const [analyticsError, setAnalyticsError] = useState('')
 
   useEffect(() => {
+    let active = true
+    void supabase.auth.getUser().then(async ({ data, error }) => {
+      if (!active) return
+      if (error || !data.user) {
+        setHasSession(false)
+        setRole(null)
+      } else {
+        setHasSession(true)
+        const staffRole = await getStaffRoleForUser(data.user)
+        if (!active) return
+        setRole(staffRole)
+      }
+      if (active) setChecking(false)
+    })
+    return () => { active = false }
+  }, [])
+
+  const allowed = canAccessAdminPath(role, '/admin/statistiques')
+
+  useEffect(() => {
+    if (checking || !allowed) return
     const controller = new AbortController()
     async function loadStats() {
       setLoading(true)
@@ -200,9 +225,10 @@ export default function AdminStatisticsPage() {
 
     void loadStats()
     return () => controller.abort()
-  }, [period])
+  }, [allowed, checking, period])
 
   useEffect(() => {
+    if (checking || !allowed) return
     const controller = new AbortController()
     async function loadAnalytics() {
       setAnalyticsLoading(true)
@@ -233,7 +259,7 @@ export default function AdminStatisticsPage() {
 
     void loadAnalytics()
     return () => controller.abort()
-  }, [period])
+  }, [allowed, checking, period])
 
   const overview = stats?.overview
   const cards = overview ? [
@@ -245,6 +271,28 @@ export default function AdminStatisticsPage() {
     { label: 'À traiter', value: overview.orders_to_process.toLocaleString('fr-FR'), note: 'Commandes au statut « Payé »' },
     { label: 'Paniers non payés', value: overview.unpaid_carts_over_one_hour.toLocaleString('fr-FR'), note: 'En attente depuis plus d’une heure' },
   ] : []
+
+  if (checking) return <main className="admin-page"><div className="admin-state">Vérification de l’accès...</div></main>
+  if (!hasSession) {
+    return (
+      <main className="admin-page"><section className="admin-access-state">
+        <p className="eyebrow">JALIMS · ADMINISTRATION</p>
+        <h1>Accès réservé</h1>
+        <p>Connectez-vous avec un compte autorisé pour consulter les statistiques.</p>
+        <Link className="admin-primary-link" href="/login?next=%2Fadmin%2Fstatistiques">Se connecter</Link>
+      </section></main>
+    )
+  }
+  if (!allowed) {
+    return (
+      <main className="admin-page"><section className="admin-access-state">
+        <p className="eyebrow">JALIMS · ADMINISTRATION</p>
+        <h1>Accès refusé</h1>
+        <p>Votre rôle ne permet pas d’accéder à cette page.</p>
+        {role === 'order_manager' && <Link className="admin-primary-link" href="/admin/commandes">Aller aux commandes</Link>}
+      </section></main>
+    )
+  }
 
   return (
     <main className="admin-page">
@@ -265,6 +313,7 @@ export default function AdminStatisticsPage() {
         <nav className="admin-shortcuts" aria-label="Outils d’administration">
           <Link className="admin-nav-item" href="/admin"><span className="admin-nav-icon" aria-hidden="true">▦</span> Produits</Link>
           <Link className="admin-nav-item" href="/admin/commandes"><span className="admin-nav-icon" aria-hidden="true">↗</span> Commandes</Link>
+          {(role === 'owner' || role === 'admin') && <Link className="admin-nav-item" href="/admin/equipe"><span className="admin-nav-icon" aria-hidden="true">⚙</span> Équipe</Link>}
           <Link className="admin-nav-item" href="/admin/clients"><span className="admin-nav-icon" aria-hidden="true">♙</span> Clients</Link>
           <Link className="admin-nav-item current" href="/admin/statistiques"><span className="admin-nav-icon" aria-hidden="true">▤</span> Statistiques</Link>
           <Link className="admin-nav-item" href="/admin/accueil"><span className="admin-nav-icon" aria-hidden="true">T</span> Textes accueil</Link>

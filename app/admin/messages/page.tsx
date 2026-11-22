@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { useEffect, useState, type FormEvent } from 'react'
-import { hasJalimsAdminAccess } from '../../../lib/admin-access'
+import { canAccessAdminPath, getStaffRoleForUser, type StaffRole } from '../../../lib/admin-staff-client'
 import {
   ORDER_MESSAGE_SAMPLE_VARIABLES,
   ORDER_MESSAGE_TEMPLATE_KEYS,
@@ -70,7 +70,8 @@ function getPreview(template: TemplateEditor) {
 
 export default function AdminMessagesPage() {
   const [checking, setChecking] = useState(true)
-  const [authorized, setAuthorized] = useState(false)
+  const [hasSession, setHasSession] = useState(false)
+  const [role, setRole] = useState<StaffRole | null>(null)
   const [templates, setTemplates] = useState<TemplateEditor[]>([])
   const [settings, setSettings] = useState<MessageSettings>(defaultSettings)
   const [saving, setSaving] = useState(false)
@@ -81,11 +82,20 @@ export default function AdminMessagesPage() {
     async function load() {
       const { data: userData, error: authError } = await supabase.auth.getUser()
       if (!active) return
-      if (authError || !hasJalimsAdminAccess(userData.user)) {
+      if (authError || !userData.user) {
+        setHasSession(false)
+        setRole(null)
         setChecking(false)
         return
       }
-      setAuthorized(true)
+      setHasSession(true)
+      const staffRole = await getStaffRoleForUser(userData.user)
+      if (!active) return
+      setRole(staffRole)
+      if (!canAccessAdminPath(staffRole, '/admin/messages')) {
+        setChecking(false)
+        return
+      }
 
       const { data: sessionData, error: sessionError } = await supabase.auth.getSession()
       if (sessionError || !sessionData.session?.access_token) {
@@ -167,12 +177,21 @@ export default function AdminMessagesPage() {
   }
 
   if (checking) return <main className="admin-page"><div className="admin-state">Vérification de l’accès...</div></main>
-  if (!authorized) {
+  if (!hasSession) {
     return (
       <main className="admin-page"><section className="admin-access-state">
         <p className="eyebrow">JALIMS · ADMINISTRATION</p><h1>Accès réservé</h1>
-        <p>Connectez-vous avec le compte administrateur Jalims pour gérer les messages.</p>
+        <p>Connectez-vous avec un compte autorisé pour gérer les messages.</p>
         <Link className="admin-primary-link" href="/login?next=%2Fadmin%2Fmessages">Se connecter</Link>
+      </section></main>
+    )
+  }
+  if (!canAccessAdminPath(role, '/admin/messages')) {
+    return (
+      <main className="admin-page"><section className="admin-access-state">
+        <p className="eyebrow">JALIMS · ADMINISTRATION</p><h1>Accès refusé</h1>
+        <p>Votre rôle ne permet pas d’accéder à cette page.</p>
+        {role === 'order_manager' && <Link className="admin-primary-link" href="/admin/commandes">Aller aux commandes</Link>}
       </section></main>
     )
   }
@@ -187,6 +206,7 @@ export default function AdminMessagesPage() {
         <nav className="admin-shortcuts" aria-label="Outils d’administration">
           <Link className="admin-nav-item" href="/admin">Produits</Link>
           <Link className="admin-nav-item" href="/admin/commandes">Commandes</Link>
+          {(role === 'owner' || role === 'admin') && <Link className="admin-nav-item" href="/admin/equipe">Équipe</Link>}
           <Link className="admin-nav-item current" href="/admin/messages">Messages</Link>
           <Link className="admin-nav-item" href="/admin/retraits">Points de retrait</Link>
           <Link className="admin-nav-item" href="/admin/accueil">Textes accueil</Link>

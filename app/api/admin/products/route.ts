@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server'
-import { authorizeJalimsAdminRequest } from '../../../../lib/admin-route-auth'
-import { createSupabaseAdminClient } from '../../../../lib/supabase-admin'
+import { ADMIN_AND_OWNER_ROLES, requireRole, type AdminServiceClient } from '../../../../lib/admin-staff'
 
 type ProductInput = {
   name: string
@@ -118,7 +117,7 @@ function validateProduct(value: unknown): ProductInput | null {
 }
 
 async function validateActivePartner(
-  supabase: ReturnType<typeof createSupabaseAdminClient>,
+  supabase: AdminServiceClient,
   product: ProductInput,
 ) {
   if (!product.partner_id) return { valid: true, failed: false }
@@ -148,7 +147,7 @@ function getId(value: unknown) {
 }
 
 export async function POST(request: Request) {
-  const authorization = await authorizeJalimsAdminRequest(request, 'Admin products')
+  const authorization = await requireRole(request, ADMIN_AND_OWNER_ROLES, 'Admin products')
   if ('response' in authorization) return authorization.response
 
   const body = await readJson(request)
@@ -158,7 +157,7 @@ export async function POST(request: Request) {
   if (!id || !product) return NextResponse.json({ error: 'Vérifiez les informations du produit, son origine et son partenaire.' }, { status: 400 })
 
   try {
-    const supabase = createSupabaseAdminClient()
+    const supabase = authorization.supabase
     const partnerValidation = await validateActivePartner(supabase, product)
     if (partnerValidation.failed) {
       return NextResponse.json({ error: 'Impossible de vérifier le partenaire sélectionné.' }, { status: 500 })
@@ -186,7 +185,7 @@ export async function POST(request: Request) {
 }
 
 export async function PUT(request: Request) {
-  const authorization = await authorizeJalimsAdminRequest(request, 'Admin products')
+  const authorization = await requireRole(request, ADMIN_AND_OWNER_ROLES, 'Admin products')
   if ('response' in authorization) return authorization.response
 
   const body = await readJson(request)
@@ -196,7 +195,7 @@ export async function PUT(request: Request) {
   if (!id || !product) return NextResponse.json({ error: 'Vérifiez les informations du produit, son origine et son partenaire.' }, { status: 400 })
 
   try {
-    const supabase = createSupabaseAdminClient()
+    const supabase = authorization.supabase
     const partnerValidation = await validateActivePartner(supabase, product)
     if (partnerValidation.failed) {
       return NextResponse.json({ error: 'Impossible de vérifier le partenaire sélectionné.' }, { status: 500 })
@@ -228,7 +227,7 @@ export async function PUT(request: Request) {
 }
 
 export async function PATCH(request: Request) {
-  const authorization = await authorizeJalimsAdminRequest(request, 'Admin products')
+  const authorization = await requireRole(request, ADMIN_AND_OWNER_ROLES, 'Admin products')
   if ('response' in authorization) return authorization.response
 
   const body = await readJson(request)
@@ -249,7 +248,7 @@ export async function PATCH(request: Request) {
   }
 
   try {
-    const supabase = createSupabaseAdminClient()
+    const supabase = authorization.supabase
     let query = supabase.from('products').update(update).eq('id', id)
     if (body.action === 'confirm-stock') query = query.eq('origin', 'local')
     const { data, error } = await query.select('id').maybeSingle()
@@ -268,7 +267,7 @@ export async function PATCH(request: Request) {
 }
 
 export async function DELETE(request: Request) {
-  const authorization = await authorizeJalimsAdminRequest(request, 'Admin products')
+  const authorization = await requireRole(request, ADMIN_AND_OWNER_ROLES, 'Admin products')
   if ('response' in authorization) return authorization.response
 
   const body = await readJson(request)
@@ -276,7 +275,7 @@ export async function DELETE(request: Request) {
   if (!id) return NextResponse.json({ error: 'Le produit demandé est invalide.' }, { status: 400 })
 
   try {
-    const supabase = createSupabaseAdminClient()
+    const supabase = authorization.supabase
     const { error } = await supabase.from('products').delete().eq('id', id)
     if (error) {
       console.error('[Admin products] Delete failed', error.message)

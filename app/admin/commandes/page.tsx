@@ -3,7 +3,7 @@
 import Image from 'next/image'
 import Link from 'next/link'
 import { useEffect, useState } from 'react'
-import { hasJalimsAdminAccess } from '../../../lib/admin-access'
+import { canAccessAdminPath, getStaffRoleForUser, type StaffRole } from '../../../lib/admin-staff-client'
 import { isOrderMessageTemplateKey, ORDER_MESSAGE_TEMPLATE_KEYS, type OrderMessageTemplateKey } from '../../../lib/order-messages'
 import { importOrderStatusOptions, localOrderStatusOptions } from '../../../lib/order-tracking'
 import { logClientError } from '../../../lib/user-facing-errors'
@@ -171,6 +171,8 @@ async function updateOrderStatus(orderId: string, status: string) {
 export default function AdminOrdersPage() {
   const [checking, setChecking] = useState(true)
   const [authorized, setAuthorized] = useState(false)
+  const [hasSession, setHasSession] = useState(false)
+  const [staffRole, setStaffRole] = useState<StaffRole | null>(null)
   const [orders, setOrders] = useState<AdminOrder[]>([])
   const [messageLogs, setMessageLogs] = useState<MessageLog[]>([])
   const [errorMessage, setErrorMessage] = useState('')
@@ -202,7 +204,19 @@ export default function AdminOrdersPage() {
     async function load() {
       const { data: userData, error: authError } = await supabase.auth.getUser()
       if (!active) return
-      if (authError || !hasJalimsAdminAccess(userData.user)) {
+      if (authError || !userData.user) {
+        setHasSession(false)
+        setStaffRole(null)
+        setAuthorized(false)
+        setChecking(false)
+        return
+      }
+      setHasSession(true)
+      const role = await getStaffRoleForUser(userData.user)
+      if (!active) return
+      setStaffRole(role)
+      if (!canAccessAdminPath(role, '/admin/commandes')) {
+        setAuthorized(false)
         setChecking(false)
         return
       }
@@ -590,12 +604,20 @@ export default function AdminOrdersPage() {
   }
 
   if (checking) return <main className="admin-page"><div className="admin-state">Vérification de l’accès...</div></main>
-  if (!authorized) {
+  if (!hasSession) {
     return (
       <main className="admin-page"><section className="admin-access-state">
         <p className="eyebrow">JALIMS · ADMINISTRATION</p><h1>Accès réservé</h1>
-        <p>Connectez-vous avec un compte administrateur pour gérer les commandes.</p>
+        <p>Connectez-vous avec un compte autorisé pour gérer les commandes.</p>
         <Link className="admin-primary-link" href="/login?next=%2Fadmin%2Fcommandes">Se connecter</Link>
+      </section></main>
+    )
+  }
+  if (!authorized) {
+    return (
+      <main className="admin-page"><section className="admin-access-state">
+        <p className="eyebrow">JALIMS · ADMINISTRATION</p><h1>Accès refusé</h1>
+        <p>Votre rôle ne permet pas d’accéder à cette page.</p>
       </section></main>
     )
   }
@@ -610,6 +632,7 @@ export default function AdminOrdersPage() {
         <nav className="admin-shortcuts" aria-label="Outils d’administration">
           <Link className="admin-nav-item" href="/admin">Produits</Link>
           <Link className="admin-nav-item current" href="/admin/commandes">Commandes</Link>
+          {(staffRole === 'owner' || staffRole === 'admin') && <Link className="admin-nav-item" href="/admin/equipe">Équipe</Link>}
           <Link className="admin-nav-item" href="/admin/partenaires">Partenaires</Link>
           <Link className="admin-nav-item" href="/admin/clients">Clients</Link>
           <Link className="admin-nav-item" href="/admin/statistiques">Statistiques</Link>
@@ -633,21 +656,77 @@ export default function AdminOrdersPage() {
               const pending = pendingStatus?.orderId === order.id ? pendingStatus : null
               const composing = composerOrderId === order.id
               const partnerFeedback = partnerNotificationFeedback?.orderId === order.id ? partnerNotificationFeedback : null
+              const productLabel = order.products?.name ?? 'Produit Jalims'
+              const productHref = order.product_id && order.products ? `/products/${encodeURIComponent(order.product_id)}` : null
               return (
                 <article className="admin-order-row admin-order-message-row" key={order.id}>
-                  <div className="order-product-thumb">{order.products?.image_url && <Image src={order.products.image_url} alt="" fill sizes="58px" unoptimized />}</div>
+                  {productHref ? (
+                    <Link
+                      className="order-product-thumb"
+                      href={productHref}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      aria-label={`Ouvrir la page du produit ${productLabel} dans un nouvel onglet`}
+                      onClick={(event) => event.stopPropagation()}
+                    >
+                      {order.products?.image_url && <Image src={order.products.image_url} alt="" fill sizes="58px" unoptimized />}
+                    </Link>
+                  ) : (
+                    <div className="order-product-thumb">{order.products?.image_url && <Image src={order.products.image_url} alt="" fill sizes="58px" unoptimized />}</div>
+                  )}
                   <div className="admin-order-main">
-                    <strong>{order.products?.name ?? 'Produit Jalims'}</strong>
+                    <strong>
+                      {productHref ? (
+                        <Link
+                          href={productHref}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          aria-label={`Ouvrir la page du produit ${productLabel} dans un nouvel onglet`}
+                          onClick={(event) => event.stopPropagation()}
+                        >
+                          {productLabel}
+                        </Link>
+                      ) : productLabel}
+                    </strong>
                     <span>{order.jalims_code} · {order.quantity} unité{order.quantity === 1 ? '' : 's'}</span>
                     {order.origin === 'local' && order.variant_lines.length === 0 && (
                       <span className="order-origin-admin-details">Disponible au Sénégal · {order.city || 'Ville à confirmer'} · livraison {order.delivery_delay || 'à confirmer'}</span>
                     )}
-                    {order.variant_lines.length > 0 ? order.variant_lines.map((line) => (
-                      <span key={line.id}>
-                        {Object.entries(line.attribute_values).map(([key, value]) => `${attributeLabels[key] ?? key.replaceAll('_', ' ')} : ${value}`).join(' · ')} · {line.quantity} × {Number(line.unit_price).toLocaleString('fr-FR')} FCFA
-                        {line.origin === 'local' ? ` · Disponible au Sénégal · ${line.city || 'Ville à confirmer'} · livraison ${line.delivery_delay || 'à confirmer'}` : ''}
-                      </span>
-                    )) : Object.entries(order.variant_values ?? {}).map(([key, value]) => <span key={key}>{attributeLabels[key] ?? key.replaceAll('_', ' ')} : {value}</span>)}
+                    {order.variant_lines.length > 0 ? order.variant_lines.map((line) => {
+                      const lineText = `${Object.entries(line.attribute_values).map(([key, value]) => `${attributeLabels[key] ?? key.replaceAll('_', ' ')} : ${value}`).join(' · ')} · ${line.quantity} × ${Number(line.unit_price).toLocaleString('fr-FR')} FCFA${line.origin === 'local' ? ` · Disponible au Sénégal · ${line.city || 'Ville à confirmer'} · livraison ${line.delivery_delay || 'à confirmer'}` : ''}`
+                      return (
+                        <span key={line.id}>
+                          {productHref ? (
+                            <Link
+                              href={productHref}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              aria-label={`Ouvrir la page du produit ${productLabel} dans un nouvel onglet`}
+                              onClick={(event) => event.stopPropagation()}
+                            >
+                              {lineText}
+                            </Link>
+                          ) : lineText}
+                        </span>
+                      )
+                    }) : Object.entries(order.variant_values ?? {}).map(([key, value]) => {
+                      const valueText = `${attributeLabels[key] ?? key.replaceAll('_', ' ')} : ${value}`
+                      return (
+                        <span key={key}>
+                          {productHref ? (
+                            <Link
+                              href={productHref}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              aria-label={`Ouvrir la page du produit ${productLabel} dans un nouvel onglet`}
+                              onClick={(event) => event.stopPropagation()}
+                            >
+                              {valueText}
+                            </Link>
+                          ) : valueText}
+                        </span>
+                      )
+                    })}
                     {order.origin === 'local' && (
                       <>
                         <span className="order-delivery-admin-details">
@@ -670,7 +749,7 @@ export default function AdminOrdersPage() {
                     </select>
                   </label>
 
-                  {order.origin === 'local' && partnerNotificationStatuses.has(order.status) && (
+                  {staffRole !== 'order_manager' && order.origin === 'local' && partnerNotificationStatuses.has(order.status) && (
                     <div className="partner-notification-actions">
                       {order.partner_notified_at && (
                         <span>

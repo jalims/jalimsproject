@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { ChangeEvent, DragEvent, useEffect, useMemo, useState } from 'react'
 import { supabase } from '../../../lib/supabase'
-import { hasJalimsAdminAccess } from '../../../lib/admin-access'
+import { canAccessAdminPath, getStaffRoleForUser, type StaffRole } from '../../../lib/admin-staff-client'
 import { logClientError } from '../../../lib/user-facing-errors'
 
 const MAX_IMAGE_SIZE = 6 * 1024 * 1024
@@ -62,7 +62,7 @@ type ImportResponse = {
   error?: string
 }
 
-type AccessState = 'checking' | 'signed-out' | 'not-admin' | 'ready' | 'error'
+type AccessState = 'checking' | 'signed-out' | 'not-admin' | 'denied' | 'ready' | 'error'
 
 const requiredHeaders = [
   'sku',
@@ -337,6 +337,7 @@ function csvCell(value: string | number) {
 export default function ProductImportPage() {
   const [access, setAccess] = useState<AccessState>('checking')
   const [adminEmail, setAdminEmail] = useState('')
+  const [staffRole, setStaffRole] = useState<StaffRole | null>(null)
   const [spreadsheetName, setSpreadsheetName] = useState('')
   const [spreadsheetReady, setSpreadsheetReady] = useState(false)
   const [photoArchiveName, setPhotoArchiveName] = useState('')
@@ -362,12 +363,16 @@ export default function ProductImportPage() {
         setAccess(error?.name === 'AuthSessionMissingError' || !data.user ? 'signed-out' : 'error')
         return
       }
-      if (!hasJalimsAdminAccess(data.user)) {
-        setAccess('not-admin')
+
+      setAdminEmail(data.user.email ?? '')
+      const role = await getStaffRoleForUser(data.user)
+      if (!mounted) return
+      setStaffRole(role)
+      if (!canAccessAdminPath(role, '/admin/importer')) {
+        setAccess(role ? 'denied' : 'not-admin')
         return
       }
 
-      setAdminEmail(data.user.email ?? '')
       setAccess('ready')
       const { data: sessionData, error: sessionError } = await supabase.auth.getSession()
       if (sessionError || !sessionData.session) {
@@ -821,16 +826,19 @@ export default function ProductImportPage() {
   if (access === 'checking') return <main className="product-import-page"><p>Vérification de l’accès administrateur…</p></main>
   if (access !== 'ready') {
     const message = access === 'signed-out'
-      ? 'Connectez-vous avec le compte administrateur pour accéder à l’import.'
-      : access === 'not-admin'
-        ? 'Ce compte ne dispose pas des droits administrateur.'
-        : 'Impossible de vérifier votre accès administrateur.'
+      ? 'Connectez-vous avec un compte autorisé pour accéder à l’import.'
+      : access === 'denied'
+        ? 'Votre rôle ne permet pas d’accéder à cette page.'
+        : access === 'not-admin'
+          ? 'Ce compte ne dispose pas des droits nécessaires.'
+          : 'Impossible de vérifier votre accès administrateur.'
     return (
       <main className="product-import-page">
         <section className="product-import-card">
-          <h1>Importer des produits</h1>
+          <h1>{access === 'denied' ? 'Accès refusé' : 'Importer des produits'}</h1>
           <p role="alert">{message}</p>
-          <Link href="/login?next=%2Fadmin%2Fimporter">Se connecter</Link>
+          {access === 'signed-out' && <Link href="/login?next=%2Fadmin%2Fimporter">Se connecter</Link>}
+          {access === 'denied' && staffRole === 'order_manager' && <Link href="/admin/commandes">Aller aux commandes</Link>}
         </section>
       </main>
     )

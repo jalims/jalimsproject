@@ -142,11 +142,6 @@ export async function createBictorysPayment(request: Request) {
     return errorResponse('Ajoutez un numéro sénégalais valide au format +221XXXXXXXXX dans votre profil.', 400)
   }
 
-  const email = authData.user.email?.trim()
-  if (!email) {
-    return errorResponse('Une adresse e-mail est nécessaire pour démarrer le paiement.', 400)
-  }
-
   const successUrl = new URL('/payment/bictorys/success', siteOrigin)
   successUrl.searchParams.set('order_id', order.id)
   const errorUrl = new URL('/payment/bictorys/error', siteOrigin)
@@ -193,7 +188,6 @@ export async function createBictorysPayment(request: Request) {
         customerObject: {
           name,
           phone,
-          email,
           country: 'SN',
         },
       }),

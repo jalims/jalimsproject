@@ -1,8 +1,7 @@
 import { NextResponse } from 'next/server'
-import { authorizeJalimsAdminRequest } from '../../../../lib/admin-route-auth'
 import { loadAdminOrderDeliveryDetails } from '../../../../lib/admin-order-delivery-details'
+import { ADMIN_AND_OWNER_ROLES, requireRole } from '../../../../lib/admin-staff'
 import { localOrderStatusOptions } from '../../../../lib/order-tracking'
-import { createSupabaseAdminClient } from '../../../../lib/supabase-admin'
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 const paidStatuses = new Set<string>(localOrderStatusOptions
@@ -25,7 +24,7 @@ function formatVariant(values: Record<string, string>) {
 }
 
 export async function POST(request: Request) {
-  const authorization = await authorizeJalimsAdminRequest(request, 'Admin partner notification')
+  const authorization = await requireRole(request, ADMIN_AND_OWNER_ROLES, 'Admin partner notification')
   if ('response' in authorization) return authorization.response
 
   let body: unknown
@@ -47,7 +46,7 @@ export async function POST(request: Request) {
   const resend = body.resend === true
 
   try {
-    const supabase = createSupabaseAdminClient()
+    const supabase = authorization.supabase
     const { data: order, error: orderError } = await supabase
       .from('orders')
       .select('id, user_id, product_id, jalims_code, quantity, variant_id, variant_values, origin, delivery_delay, delivery_region, delivery_neighborhood, status, partner_id, partner_notified_at')

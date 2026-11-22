@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { FormEvent, useEffect, useState } from 'react'
 import { supabase } from '../../../lib/supabase'
-import { hasJalimsAdminAccess } from '../../../lib/admin-access'
+import { canAccessAdminPath, getStaffRoleForUser, type StaffRole } from '../../../lib/admin-staff-client'
 import { logClientError } from '../../../lib/user-facing-errors'
 
 type PickupPoint = {
@@ -17,8 +17,9 @@ type PickupPoint = {
 const emptyForm = { name: '', address: '', city: 'Dakar', active: true }
 
 export default function AdminPickupPointsPage() {
-  const [authorized, setAuthorized] = useState(false)
   const [checking, setChecking] = useState(true)
+  const [hasSession, setHasSession] = useState(false)
+  const [role, setRole] = useState<StaffRole | null>(null)
   const [points, setPoints] = useState<PickupPoint[]>([])
   const [form, setForm] = useState(emptyForm)
   const [editingId, setEditingId] = useState('')
@@ -37,10 +38,18 @@ export default function AdminPickupPointsPage() {
     let active = true
     void supabase.auth.getUser().then(async ({ data, error }) => {
       if (!active) return
-      const admin = !error && hasJalimsAdminAccess(data.user)
-      setAuthorized(admin)
+      if (error || !data.user) {
+        setHasSession(false)
+        setRole(null)
+        setChecking(false)
+        return
+      }
+      setHasSession(true)
+      const staffRole = await getStaffRoleForUser(data.user)
+      if (!active) return
+      setRole(staffRole)
       setChecking(false)
-      if (admin) await loadPoints()
+      if (canAccessAdminPath(staffRole, '/admin/retraits')) await loadPoints()
     })
     return () => {
       active = false
@@ -76,7 +85,18 @@ export default function AdminPickupPointsPage() {
   }
 
   if (checking) return <main className="admin-page"><div className="admin-state">Vérification de l’accès...</div></main>
-  if (!authorized) return <main className="admin-page"><section className="admin-access-state"><h1>Accès réservé</h1><p>Connectez-vous avec un compte administrateur.</p><Link className="admin-primary-link" href="/login?next=%2Fadmin%2Fretraits">Se connecter</Link></section></main>
+  if (!hasSession) return <main className="admin-page"><section className="admin-access-state"><h1>Accès réservé</h1><p>Connectez-vous avec un compte autorisé.</p><Link className="admin-primary-link" href="/login?next=%2Fadmin%2Fretraits">Se connecter</Link></section></main>
+  if (!canAccessAdminPath(role, '/admin/retraits')) {
+    return (
+      <main className="admin-page">
+        <section className="admin-access-state">
+          <h1>Accès refusé</h1>
+          <p>Votre rôle ne permet pas d’accéder à cette page.</p>
+          {role === 'order_manager' && <Link className="admin-primary-link" href="/admin/commandes">Aller aux commandes</Link>}
+        </section>
+      </main>
+    )
+  }
 
   return (
     <main className="admin-page">

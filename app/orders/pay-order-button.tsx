@@ -51,7 +51,7 @@ export default function PayOrderButton({ orderId }: PayOrderButtonProps) {
   return (
     <div className="order-pay-actions">
       {errorMessage && <p className="order-pay-error" role="alert">{errorMessage}</p>}
-      <p className="payment-disclaimer">Paiement sécurisé par Wave, Orange Money, Free Money ou carte bancaire via Bictorys.</p>
+      <p className="payment-disclaimer">Paiement sécurisé par Wave, Orange Money ou Free Money.</p>
       <button className="order-pay-button" type="button" onClick={startPayment} disabled={loading}>
         {loading ? 'Ouverture du paiement...' : 'Payer'}
       </button>

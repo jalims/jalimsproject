@@ -18,14 +18,45 @@ export default function ResetPasswordPage() {
 
   useEffect(() => {
     let active = true
-    void supabase.auth.getSession().then(({ data, error }) => {
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (!active) return
+      if (session && (event === 'PASSWORD_RECOVERY' || event === 'SIGNED_IN' || event === 'INITIAL_SESSION')) {
+        setValidRecovery(true)
+        setChecking(false)
+      }
+    })
+
+    async function resolveSession() {
+      try {
+        const url = new URL(window.location.href)
+        const code = url.searchParams.get('code')
+        if (code) {
+          const { error } = await supabase.auth.exchangeCodeForSession(code)
+          if (error) logClientError('Password reset code exchange failed', error)
+          else {
+            url.searchParams.delete('code')
+            window.history.replaceState({}, document.title, `${url.pathname}${url.search}${url.hash}`)
+          }
+        }
+      } catch (error) {
+        logClientError('Password reset URL handling failed', error)
+      }
+
+      const { data, error } = await supabase.auth.getSession()
       if (!active) return
       if (error) logClientError('Password recovery session check failed', error)
-      setValidRecovery(!error && Boolean(data.session))
+      if (!error && data.session) {
+        setValidRecovery(true)
+      }
       setChecking(false)
-    })
+    }
+
+    void resolveSession()
+
     return () => {
       active = false
+      subscription.unsubscribe()
     }
   }, [])
 

@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { Search } from 'lucide-react'
 import { FormEvent, useEffect, useState } from 'react'
 import { supabase } from '../../lib/supabase'
-import { hasJalimsAdminAccess } from '../../lib/admin-access'
+import { canAccessAdminPath, getStaffRoleForUser, type StaffRole } from '../../lib/admin-staff-client'
 import { isLocalStockWarning } from '../../lib/product-origin'
 import { getAuthErrorMessage, logClientError } from '../../lib/user-facing-errors'
 import QuantityInput from '../ui/quantity-input'
@@ -30,7 +30,7 @@ type Product = {
   partner_id: string | null
 }
 
-type AccessState = 'checking' | 'signed-out' | 'not-admin' | 'auth-error' | 'ready'
+type AccessState = 'checking' | 'signed-out' | 'not-admin' | 'denied' | 'auth-error' | 'ready'
 type PartnerOption = { id: string; name: string; city: string; active: boolean }
 type AttributeDefinition = {
   attribute_key: string
@@ -142,6 +142,7 @@ async function removeCreatedProduct(productId: string) {
 export default function AdminPage() {
   const [access, setAccess] = useState<AccessState>('checking')
   const [adminEmail, setAdminEmail] = useState('')
+  const [staffRole, setStaffRole] = useState<StaffRole | null>(null)
   const [authError, setAuthError] = useState('')
   const [products, setProducts] = useState<Product[]>([])
   const [partnerOptions, setPartnerOptions] = useState<PartnerOption[]>([])
@@ -250,9 +251,12 @@ export default function AdminPage() {
       }
 
       setAdminEmail(data.user.email ?? '')
+      const role = await getStaffRoleForUser(data.user)
+      if (!mounted) return
+      setStaffRole(role)
 
-      if (!hasJalimsAdminAccess(data.user)) {
-        setAccess('not-admin')
+      if (!canAccessAdminPath(role, '/admin')) {
+        setAccess(role ? 'denied' : 'not-admin')
         return
       }
 
@@ -353,7 +357,9 @@ export default function AdminPage() {
     }
 
     const { data: refreshedAuth, error: refreshError } = await supabase.auth.refreshSession()
-    if (refreshError || !hasJalimsAdminAccess(refreshedAuth.session?.user)) {
+    const refreshedUser = refreshedAuth.session?.user
+    const refreshedRole = refreshedUser ? await getStaffRoleForUser(refreshedUser) : null
+    if (refreshError || !canAccessAdminPath(refreshedRole, '/admin')) {
       if (refreshError) logClientError('Admin access refresh failed', refreshError)
       setFeedback({
         kind: 'error',
@@ -664,16 +670,21 @@ export default function AdminPage() {
               ? 'Connexion requise'
               : access === 'auth-error'
                 ? 'Connexion momentanément indisponible'
-                : 'Accès réservé'}
+                : access === 'denied'
+                  ? 'Accès refusé'
+                  : 'Accès réservé'}
           </h1>
           <p>
             {access === 'signed-out'
-              ? 'Connectez-vous avec un compte administrateur pour gérer le catalogue.'
+              ? 'Connectez-vous avec un compte autorisé pour gérer le catalogue.'
               : access === 'auth-error'
                 ? authError
-                : 'Ce compte ne dispose pas du rôle administrateur.'}
+                : access === 'denied'
+                  ? 'Votre rôle ne permet pas d’accéder à cette page.'
+                  : 'Ce compte ne dispose pas du rôle administrateur.'}
           </p>
-          <Link className="admin-primary-link" href="/login?next=%2Fadmin">Se connecter</Link>
+          {access === 'signed-out' && <Link className="admin-primary-link" href="/login?next=%2Fadmin">Se connecter</Link>}
+          {access === 'denied' && staffRole === 'order_manager' && <Link className="admin-primary-link" href="/admin/commandes">Aller aux commandes</Link>}
           <Link className="admin-secondary-link" href="/">Retour au catalogue</Link>
         </section>
       </main>
@@ -714,6 +725,7 @@ export default function AdminPage() {
           <Link className="admin-nav-item current" href="/admin"><span className="admin-nav-icon" aria-hidden="true">▦</span> Produits</Link>
           <Link className="admin-nav-item" href="/admin/importer"><span className="admin-nav-icon" aria-hidden="true">↑</span> Importer des produits</Link>
           <Link className="admin-nav-item" href="/admin/commandes"><span className="admin-nav-icon" aria-hidden="true">↗</span> Commandes</Link>
+          {(staffRole === 'owner' || staffRole === 'admin') && <Link className="admin-nav-item" href="/admin/equipe"><span className="admin-nav-icon" aria-hidden="true">⚙</span> Équipe</Link>}
           <Link className="admin-nav-item" href="/admin/partenaires"><span className="admin-nav-icon" aria-hidden="true">⌖</span> Partenaires</Link>
           <Link className="admin-nav-item" href="/admin/clients"><span className="admin-nav-icon" aria-hidden="true">♙</span> Clients</Link>
           <Link className="admin-nav-item" href="/admin/statistiques"><span className="admin-nav-icon" aria-hidden="true">▤</span> Statistiques</Link>

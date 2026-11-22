@@ -9,11 +9,11 @@ migration : sauvegarde CSV des tables touchées, puis test à blanc (begin; ... 
 
 ## Activité du 2026-11-20
 
-- `supabase/migrations/20261120_remove_legacy_payment_providers.sql` — Préparée pour supprimer les colonnes/index de paiement PayTech et le wrapper SQL devenu inutilisé, sans supprimer les anciennes valeurs de `payment_provider`. **Statut : préparée, non exécutée.** Vérifier l’historique Supabase et sauvegarder les références PayTech avant toute exécution.
+- `supabase/migrations/20261120_remove_legacy_payment_providers.sql` — Supprime les colonnes/index de paiement PayTech et le wrapper SQL devenu inutilisé, sans supprimer les anciennes valeurs de `payment_provider`. **Statut : exécutée manuellement dans Supabase selon confirmation utilisateur du 2026-11-20 ; non vérifiée à distance.**
 
 ## Activité du 2026-11-03
 
-- `supabase/migrations/20261109_local_orders_without_pickup_point.sql` — Met à jour `place_order` et `place_variant_bundle_order` pour ignorer tout `pickup_point_id` reçu pour une commande locale et enregistrer `NULL`; les produits importés gardent le comportement actuel. **Statut : préparée, à exécuter.** **Relance sans risque** (remplacement des fonctions, sans modification des données ni changement de signature).
+- `supabase/migrations/20261109_local_orders_without_pickup_point.sql` — Met à jour `place_order` et `place_variant_bundle_order` pour ignorer tout `pickup_point_id` reçu pour une commande locale et enregistrer `NULL`; les produits importés gardent le comportement actuel. **Statut : exécutée manuellement dans Supabase selon confirmation utilisateur du 2026-11-20 ; non vérifiée à distance.** **Relance sans risque** (remplacement des fonctions, sans modification des données ni changement de signature).
 
 ## Activité du 2026-11-02
 

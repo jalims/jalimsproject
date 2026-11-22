@@ -1,9 +1,7 @@
-import { createClient } from '@supabase/supabase-js'
 import { revalidatePath } from 'next/cache'
 import { NextResponse } from 'next/server'
-import { hasJalimsAdminAccess } from '../../../../lib/admin-access'
+import { ADMIN_AND_OWNER_ROLES, requireRole } from '../../../../lib/admin-staff'
 import type { LegalPageVersion } from '../../../../lib/legal-page-types'
-import { createSupabaseAdminClient } from '../../../../lib/supabase-admin'
 
 const MAX_TITLE_LENGTH = 160
 const MAX_BODY_LENGTH = 50_000
@@ -13,33 +11,6 @@ function jsonError(message: string, status: number) {
   return NextResponse.json({ error: message }, { status })
 }
 
-async function authorizeAdmin(request: Request) {
-  const accessToken = request.headers.get('authorization')?.match(/^Bearer\s+(.+)$/i)?.[1]
-  if (!accessToken) {
-    return { response: jsonError('Connectez-vous avec le compte administrateur pour continuer.', 401) }
-  }
-
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-  if (!supabaseUrl || !anonKey) {
-    console.error('[Legal pages] La configuration publique de Supabase est manquante.')
-    return { response: jsonError('Le service des conditions n’est pas configuré correctement.', 500) }
-  }
-
-  const authClient = createClient(supabaseUrl, anonKey, {
-    auth: { autoRefreshToken: false, persistSession: false },
-  })
-  const { data, error } = await authClient.auth.getUser(accessToken)
-  if (error) {
-    console.error('[Legal pages] Vérification administrateur impossible.', { errorName: error.name })
-    return { response: jsonError('Votre session n’a pas pu être vérifiée. Reconnectez-vous puis réessayez.', 401) }
-  }
-  if (!hasJalimsAdminAccess(data.user)) {
-    return { response: jsonError('Ce compte ne dispose pas des droits administrateur.', 403) }
-  }
-
-  return { user: data.user }
-}
 
 async function readEditorPayload(request: Request) {
   let body: unknown
@@ -77,11 +48,11 @@ function findPublicationIssues(body: string) {
 }
 
 export async function GET(request: Request) {
-  const authorization = await authorizeAdmin(request)
+  const authorization = await requireRole(request, ADMIN_AND_OWNER_ROLES, 'Legal pages')
   if ('response' in authorization) return authorization.response
 
   try {
-    const supabase = createSupabaseAdminClient()
+    const supabase = authorization.supabase
     const { data, error } = await supabase
       .from('legal_page_versions')
       .select(pageColumns)
@@ -105,14 +76,14 @@ export async function GET(request: Request) {
 }
 
 export async function PUT(request: Request) {
-  const authorization = await authorizeAdmin(request)
+  const authorization = await requireRole(request, ADMIN_AND_OWNER_ROLES, 'Legal pages')
   if ('response' in authorization) return authorization.response
 
   const payload = await readEditorPayload(request)
   if ('response' in payload) return payload.response
 
   try {
-    const supabase = createSupabaseAdminClient()
+    const supabase = authorization.supabase
     const { data: currentDraft, error: draftError } = await supabase
       .from('legal_page_versions')
       .select('id')
@@ -177,7 +148,7 @@ export async function PUT(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const authorization = await authorizeAdmin(request)
+  const authorization = await requireRole(request, ADMIN_AND_OWNER_ROLES, 'Legal pages')
   if ('response' in authorization) return authorization.response
 
   const payload = await readEditorPayload(request)
@@ -192,7 +163,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    const supabase = createSupabaseAdminClient()
+    const supabase = authorization.supabase
     const publishedAt = new Date().toISOString()
     const { data: currentDraft, error: draftError } = await supabase
       .from('legal_page_versions')

@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { useEffect, useState } from 'react'
+import { canAccessAdminPath, getStaffRoleForUser, type StaffRole } from '../../../lib/admin-staff-client'
 import { normalizeSenegalPhone } from '../../../lib/order-messages'
 import { supabase } from '../../../lib/supabase'
 
@@ -48,6 +49,9 @@ function Skeletons() {
 }
 
 export default function AdminClientsPage() {
+  const [checking, setChecking] = useState(true)
+  const [hasSession, setHasSession] = useState(false)
+  const [role, setRole] = useState<StaffRole | null>(null)
   const [search, setSearch] = useState('')
   const [withoutOrder, setWithoutOrder] = useState(false)
   const [page, setPage] = useState(1)
@@ -59,6 +63,27 @@ export default function AdminClientsPage() {
   const [exporting, setExporting] = useState(false)
 
   useEffect(() => {
+    let active = true
+    void supabase.auth.getUser().then(async ({ data, error }) => {
+      if (!active) return
+      if (error || !data.user) {
+        setHasSession(false)
+        setRole(null)
+      } else {
+        setHasSession(true)
+        const staffRole = await getStaffRoleForUser(data.user)
+        if (!active) return
+        setRole(staffRole)
+      }
+      if (active) setChecking(false)
+    })
+    return () => { active = false }
+  }, [])
+
+  const allowed = canAccessAdminPath(role, '/admin/clients')
+
+  useEffect(() => {
+    if (checking || !allowed) return
     const controller = new AbortController()
     const timer = window.setTimeout(() => {
       async function loadClients() {
@@ -67,7 +92,7 @@ export default function AdminClientsPage() {
         const { data, error } = await supabase.auth.getSession()
         if (error || !data.session?.access_token) {
           setClients([])
-          setErrorMessage('Connectez-vous avec le compte administrateur pour consulter les clients.')
+          setErrorMessage('Votre session a expiré. Reconnectez-vous puis réessayez.')
           setLoading(false)
           return
         }
@@ -101,7 +126,7 @@ export default function AdminClientsPage() {
       window.clearTimeout(timer)
       controller.abort()
     }
-  }, [page, search, withoutOrder])
+  }, [allowed, checking, page, search, withoutOrder])
 
   async function exportCsv() {
     setExporting(true)
@@ -137,6 +162,28 @@ export default function AdminClientsPage() {
     }
   }
 
+  if (checking) return <main className="admin-page"><div className="admin-state">Vérification de l’accès...</div></main>
+  if (!hasSession) {
+    return (
+      <main className="admin-page"><section className="admin-access-state">
+        <p className="eyebrow">JALIMS · ADMINISTRATION</p>
+        <h1>Accès réservé</h1>
+        <p>Connectez-vous avec un compte autorisé pour consulter les clients.</p>
+        <Link className="admin-primary-link" href="/login?next=%2Fadmin%2Fclients">Se connecter</Link>
+      </section></main>
+    )
+  }
+  if (!allowed) {
+    return (
+      <main className="admin-page"><section className="admin-access-state">
+        <p className="eyebrow">JALIMS · ADMINISTRATION</p>
+        <h1>Accès refusé</h1>
+        <p>Votre rôle ne permet pas d’accéder à cette page.</p>
+        {role === 'order_manager' && <Link className="admin-primary-link" href="/admin/commandes">Aller aux commandes</Link>}
+      </section></main>
+    )
+  }
+
   return (
     <main className="admin-page">
       <div className="admin-shell">
@@ -153,6 +200,7 @@ export default function AdminClientsPage() {
         <nav className="admin-shortcuts" aria-label="Outils d’administration">
           <Link className="admin-nav-item" href="/admin"><span className="admin-nav-icon" aria-hidden="true">▦</span> Produits</Link>
           <Link className="admin-nav-item" href="/admin/commandes"><span className="admin-nav-icon" aria-hidden="true">↗</span> Commandes</Link>
+          {(role === 'owner' || role === 'admin') && <Link className="admin-nav-item" href="/admin/equipe"><span className="admin-nav-icon" aria-hidden="true">⚙</span> Équipe</Link>}
           <Link className="admin-nav-item current" href="/admin/clients"><span className="admin-nav-icon" aria-hidden="true">♙</span> Clients</Link>
           <Link className="admin-nav-item" href="/admin/statistiques"><span className="admin-nav-icon" aria-hidden="true">▤</span> Statistiques</Link>
           <Link className="admin-nav-item" href="/admin/accueil"><span className="admin-nav-icon" aria-hidden="true">T</span> Textes accueil</Link>
