@@ -1,4 +1,5 @@
 ﻿import { NextResponse } from 'next/server'
+import { actorEmailFromUser, writeAdminAuditLog } from '../../../../lib/admin-audit'
 import { ADMIN_AND_OWNER_ROLES, requireRole, type AdminServiceClient, type StaffRole } from '../../../../lib/admin-staff'
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
@@ -146,6 +147,19 @@ export async function POST(request: Request) {
         console.error('[Admin team] Staff role update failed', updateError.message)
         return NextResponse.json({ error: 'Le rôle n’a pas pu être attribué à ce compte.' }, { status: 500 })
       }
+      await writeAdminAuditLog(supabase, {
+        actorUserId: authorization.user.id,
+        actorEmail: actorEmailFromUser(authorization.user),
+        action: !existing.active || existing.role !== role ? 'team_member_added' : 'team_member_added',
+        targetType: 'staff_role',
+        targetId: user.id,
+        details: {
+          role,
+          previousRole: existing.role,
+          previouslyActive: Boolean(existing.active),
+          invited,
+        },
+      })
     } else {
       const { error: insertError } = await supabase
         .from('staff_roles')
@@ -154,6 +168,14 @@ export async function POST(request: Request) {
         console.error('[Admin team] Staff role insert failed', insertError.message)
         return NextResponse.json({ error: 'Le rôle n’a pas pu être attribué à ce compte.' }, { status: 500 })
       }
+      await writeAdminAuditLog(supabase, {
+        actorUserId: authorization.user.id,
+        actorEmail: actorEmailFromUser(authorization.user),
+        action: 'team_member_added',
+        targetType: 'staff_role',
+        targetId: user.id,
+        details: { role, invited },
+      })
     }
 
     return NextResponse.json({
@@ -261,6 +283,35 @@ export async function PATCH(request: Request) {
         : 'La modification du membre a échoué.'
       const status = /dernier propriétaire actif|last active owner/i.test(updateError.message) ? 409 : 500
       return NextResponse.json({ error: message }, { status })
+    }
+
+    if (updates.active === false) {
+      await writeAdminAuditLog(supabase, {
+        actorUserId: authorization.user.id,
+        actorEmail: actorEmailFromUser(authorization.user),
+        action: 'team_member_deactivated',
+        targetType: 'staff_role',
+        targetId: userId,
+        details: { role: targetRole },
+      })
+    } else if (updates.role && updates.role !== targetRole) {
+      await writeAdminAuditLog(supabase, {
+        actorUserId: authorization.user.id,
+        actorEmail: actorEmailFromUser(authorization.user),
+        action: 'team_member_role_changed',
+        targetType: 'staff_role',
+        targetId: userId,
+        details: { previousRole: targetRole, newRole: updates.role },
+      })
+    } else if (updates.active === true && !targetActive) {
+      await writeAdminAuditLog(supabase, {
+        actorUserId: authorization.user.id,
+        actorEmail: actorEmailFromUser(authorization.user),
+        action: 'team_member_activated',
+        targetType: 'staff_role',
+        targetId: userId,
+        details: { role: updates.role ?? targetRole },
+      })
     }
 
     return NextResponse.json({ success: true, message: 'Membre mis à jour.' })

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { importOrderStatusOptions, localOrderStatusOptions } from '../../../../lib/order-tracking'
 import { ORDER_TEAM_ROLES, requireRole } from '../../../../lib/admin-staff'
+import { actorEmailFromUser, writeAdminAuditLog } from '../../../../lib/admin-audit'
 
 const importStatuses = new Set<string>(importOrderStatusOptions.map(([status]) => status))
 const localStatuses = new Set<string>(localOrderStatusOptions.map(([status]) => status))
@@ -33,7 +34,7 @@ export async function PATCH(request: Request) {
     const supabase = authorization.supabase
     const { data: order, error: orderError } = await supabase
       .from('orders')
-      .select('id, origin')
+      .select('id, origin, status')
       .eq('id', orderId)
       .maybeSingle()
 
@@ -48,6 +49,7 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ error: 'Ce statut ne correspond pas au parcours de cette commande.' }, { status: 400 })
     }
 
+    const previousStatus = typeof order.status === 'string' ? order.status : null
     const { data: updatedOrder, error: updateError } = await supabase
       .from('orders')
       .update({ status })
@@ -61,6 +63,15 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ error: 'Le statut de la commande n’a pas pu être modifié.' }, { status: 500 })
     }
     if (!updatedOrder) return NextResponse.json({ error: 'La commande a changé. Rechargez la page puis réessayez.' }, { status: 409 })
+
+    await writeAdminAuditLog(supabase, {
+      actorUserId: authorization.user.id,
+      actorEmail: actorEmailFromUser(authorization.user),
+      action: 'order_status_changed',
+      targetType: 'order',
+      targetId: orderId,
+      details: { previousStatus, newStatus: status },
+    })
 
     return NextResponse.json({ success: true })
   } catch (error) {
