@@ -123,6 +123,10 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Le compte n’a pas pu être créé ou retrouvé.' }, { status: 500 })
     }
 
+    if (user.id === authorization.user.id) {
+      return forbidden('Vous ne pouvez pas modifier votre propre rôle.')
+    }
+
     const { data: existing, error: existingError } = await supabase
       .from('staff_roles')
       .select('user_id, role, active')
