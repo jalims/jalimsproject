@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { Suspense, useDeferredValue, useEffect, useRef, useState, type FormEvent } from 'react'
 import Image from 'next/image'
@@ -28,6 +28,7 @@ import {
   HomepageTopBand,
 } from './ui/homepage-redesign-sections'
 import { trackSearch } from '../lib/analytics'
+import ProductRequestCta from './ui/product-request-cta'
 
 type Product = {
   id: string | number
@@ -486,33 +487,29 @@ function HomeContent() {
           ) : loadError ? (
             <ConnectionError onRetry={() => setRetryCount((count) => count + 1)} />
           ) : visibleProducts.length === 0 ? (
-            <div className="catalog-state empty-state">
-              <span className="empty-mark" aria-hidden="true">⌕</span>
-              <strong>{deferredSearch.trim() ? `Aucun produit trouvé pour « ${deferredSearch.trim()} »` : 'Aucun produit trouvé'}</strong>
-              {deferredSearch.trim() ? (
-                <>
-                  <span>Vérifiez l’orthographe ou essayez un mot plus court.</span>
-                  <a href="#categories-title">Voir les catégories</a>
-                </>
-              ) : (
-                <span>Essayez un autre mot ou choisissez une autre catégorie.</span>
-              )}
+            <div className="catalog-empty-wrap">
+              <ProductRequestCta variant="empty" initialSearchQuery={deferredSearch.trim()} />
             </div>
           ) : (
-            <div className="product-grid">
-              {visibleProducts.map((product) => {
-                const productKey = String(product.id)
-                return (
-                  <HomepageProductCard
-                    key={productKey}
-                    product={product}
-                    quantity={quantities[productKey] ?? String(product.moq ?? 1)}
-                    onQuantityChange={(value) => setQuantities((current) => ({ ...current, [productKey]: value }))}
-                    onQuantityStep={(delta) => changeQuantity(productKey, delta)}
-                  />
-                )
-              })}
-            </div>
+            <>
+              <div className="product-grid">
+                {visibleProducts.map((product) => {
+                  const productKey = String(product.id)
+                  return (
+                    <HomepageProductCard
+                      key={productKey}
+                      product={product}
+                      quantity={quantities[productKey] ?? String(product.moq ?? 1)}
+                      onQuantityChange={(value) => setQuantities((current) => ({ ...current, [productKey]: value }))}
+                      onQuantityStep={(delta) => changeQuantity(productKey, delta)}
+                    />
+                  )
+                })}
+              </div>
+              {visibleProducts.length < 4 && (
+                <ProductRequestCta variant="few-results" initialSearchQuery={deferredSearch.trim()} />
+              )}
+            </>
           )}
         </section>
         <footer className="market-footer">
@@ -542,6 +539,7 @@ function HomeContent() {
             </section>
           </div>
           <div className="market-footer-bottom">
+            <a href="/produit-introuvable" style={{ color: '#FE6E00', fontWeight: 600 }}>Produit introuvable ?</a>
             <span>© {new Date().getFullYear()} Jalims</span>
             <span>Fait pour les commerçants du Sénégal</span>
             <Link className="legal-footer-link" href="/conditions">Conditions générales</Link>
@@ -559,3 +557,5 @@ export default function Home() {
     </Suspense>
   )
 }
+
+
