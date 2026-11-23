@@ -8,6 +8,7 @@ import { MessageCircle, Search } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { logClientError } from '../lib/user-facing-errors'
 import { hasFreshLocalStock } from '../lib/product-origin'
+import { DEFAULT_APP_PRICING_SETTINGS, getDisplayedUnitPrice, normalizeAppPricingSettings, type AppPricingSettings } from '../lib/imported-product-pricing'
 import FavoriteButton from './ui/favorite-button'
 import QuantityInput from './ui/quantity-input'
 import ConnectionError from './ui/connection-error'
@@ -40,11 +41,15 @@ type Product = {
   stock_status: string
   active: boolean
   featured: boolean
-  origin: string
+  origin: 'local' | 'import'
   local_stock: number | null
   city: string | null
   delivery_delay: string | null
   stock_updated_at: string | null
+  import_base_price?: number | null
+  import_base_currency?: 'FCFA' | 'CNY' | null
+  import_weight_kg?: number | null
+  import_other_fees_fcfa?: number | null
 }
 
 type OriginFilter = 'all' | 'local' | 'import'
@@ -104,11 +109,13 @@ function HomepageProductCard({
   quantity,
   onQuantityChange,
   onQuantityStep,
+  appSettings,
 }: {
   product: Product
   quantity: string
   onQuantityChange: (value: string) => void
   onQuantityStep: (delta: number) => void
+  appSettings: AppPricingSettings
 }) {
   const productKey = String(product.id)
   const minimumQuantity = product.moq ?? 1
@@ -135,7 +142,7 @@ function HomepageProductCard({
           deliveryDelay={product.delivery_delay}
           stockUpdatedAt={product.stock_updated_at}
         />
-        <p className="product-price">{Number(product.price).toLocaleString('fr-FR')} <span>FCFA</span></p>
+        <p className="product-price">{getDisplayedUnitPrice(product, appSettings).toLocaleString('fr-FR')} <span>FCFA</span></p>
         <div className="product-actions">
           <div className="quantity-control" aria-label={`Quantité de ${product.name}`}>
             <button type="button" aria-label="Diminuer la quantité" onClick={() => onQuantityStep(-1)}>−</button>
@@ -172,6 +179,7 @@ function HomeContent() {
   const [activeCategory, setActiveCategory] = useState('')
   const [quantities, setQuantities] = useState<Record<string, string>>({})
   const [headerHidden, setHeaderHidden] = useState(false)
+  const [appSettings, setAppSettings] = useState<AppPricingSettings>(DEFAULT_APP_PRICING_SETTINGS)
   const previousScrollY = useRef(0)
   const searchInputRef = useRef<HTMLInputElement>(null)
   const resultsRef = useRef<HTMLElement>(null)
@@ -186,15 +194,18 @@ function HomeContent() {
       setLoadError('')
 
       try {
-        const [{ data, error }, { data: contentData }] = await Promise.all([
+        const [{ data, error }, { data: contentData }, { data: settingsData }] = await Promise.all([
           supabase
             .from('products')
-            .select('id, name, price, image_url, category, moq, stock_status, active, featured, origin, local_stock, city, delivery_delay, stock_updated_at')
+            .select('id, name, price, image_url, category, moq, stock_status, active, featured, origin, local_stock, city, delivery_delay, stock_updated_at, import_base_price, import_base_currency, import_weight_kg, import_other_fees_fcfa')
             .eq('active', true),
           supabase.from('homepage_content').select('*').eq('id', 1).maybeSingle(),
+          supabase.from('app_settings').select('transport_price_per_kg_fcfa, commission_percent, customs_percent, cny_to_fcfa_rate').eq('id', 1).maybeSingle(),
         ])
 
         if (cancelled) return
+
+        if (settingsData) setAppSettings(normalizeAppPricingSettings(settingsData as any))
 
         if (contentData) {
           setHomepageContent({ ...defaultHomepageContent, ...contentData })
@@ -408,6 +419,7 @@ function HomeContent() {
                     quantity={quantities[productKey] ?? String(product.moq ?? 1)}
                     onQuantityChange={(value) => setQuantities((current) => ({ ...current, [productKey]: value }))}
                     onQuantityStep={(delta) => changeQuantity(productKey, delta)}
+                    appSettings={appSettings}
                   />
                 )
               })}
@@ -502,6 +514,7 @@ function HomeContent() {
                       quantity={quantities[productKey] ?? String(product.moq ?? 1)}
                       onQuantityChange={(value) => setQuantities((current) => ({ ...current, [productKey]: value }))}
                       onQuantityStep={(delta) => changeQuantity(productKey, delta)}
+                      appSettings={appSettings}
                     />
                   )
                 })}

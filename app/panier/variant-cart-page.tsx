@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useEffect, useState } from 'react'
 import { supabase } from '../../lib/supabase'
 import { logClientError } from '../../lib/user-facing-errors'
+import { getDisplayedUnitPrice, normalizeAppPricingSettings, type AppPricingSettings } from '../../lib/imported-product-pricing'
 import { clearVariantCart, readVariantCart, saveVariantCart, type VariantCart } from '../../lib/variant-cart'
 import ConnectionError from '../ui/connection-error'
 import { VariantCartSkeleton } from '../ui/loading-skeletons'
@@ -18,6 +19,10 @@ type Product = {
   image_url: string | null
   moq: number
   origin: 'local' | 'import'
+  import_base_price?: number | null
+  import_base_currency?: 'FCFA' | 'CNY' | null
+  import_weight_kg?: number | null
+  import_other_fees_fcfa?: number | null
 }
 
 type Variant = {
@@ -52,6 +57,7 @@ export default function VariantCartPage() {
   const [pickupPointId, setPickupPointId] = useState('')
   const [deliveryRegion, setDeliveryRegion] = useState('')
   const [deliveryNeighborhood, setDeliveryNeighborhood] = useState('')
+  const [appSettings, setAppSettings] = useState<AppPricingSettings>(normalizeAppPricingSettings(null))
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [errorMessage, setErrorMessage] = useState('')
@@ -74,11 +80,12 @@ export default function VariantCartPage() {
           return
         }
 
-        const [{ data: loadedProduct, error: productError }, { data: loadedVariants, error: variantsError }, { data: loadedAttributes, error: attributesError }, { data: loadedPickupPoints, error: pickupPointsError }] = await Promise.all([
-          supabase.from('products').select('id, name, price, image_url, moq, active, origin').eq('id', savedCart.productId).eq('active', true).maybeSingle(),
+        const [{ data: loadedProduct, error: productError }, { data: loadedVariants, error: variantsError }, { data: loadedAttributes, error: attributesError }, { data: loadedPickupPoints, error: pickupPointsError }, { data: settingsData }] = await Promise.all([
+          supabase.from('products').select('id, name, price, image_url, moq, active, origin, import_base_price, import_base_currency, import_weight_kg, import_other_fees_fcfa').eq('id', savedCart.productId).eq('active', true).maybeSingle(),
           supabase.from('product_variants').select('id, product_id, attribute_values, stock, price_adjustment').in('id', savedCart.lines.map((line) => line.variantId)).eq('active', true),
           supabase.from('product_attributes').select('attribute_key, attribute_colors').eq('product_id', savedCart.productId).order('sort_order'),
           supabase.from('pickup_points').select('id, name, city').eq('active', true).order('city'),
+          supabase.from('app_settings').select('transport_price_per_kg_fcfa, commission_percent, customs_percent, cny_to_fcfa_rate').eq('id', 1).maybeSingle(),
         ])
 
         if (!active) return
@@ -105,6 +112,7 @@ export default function VariantCartPage() {
           attribute_colors: (attribute.attribute_colors ?? {}) as Record<string, string>,
         })) as Attribute[])
         setPickupPoints(loadedPickupPoints ?? [])
+        setAppSettings(normalizeAppPricingSettings(settingsData as any))
         setLoading(false)
       } catch (error) {
         if (!active) return
@@ -124,7 +132,7 @@ export default function VariantCartPage() {
   const variantById = new Map(variants.map((variant) => [variant.id, variant]))
   const cartLines = (cart?.lines ?? []).flatMap((line) => {
     const variant = variantById.get(line.variantId)
-    return variant ? [{ ...line, variant, unitPrice: Number(product?.price ?? 0) + Number(variant.price_adjustment ?? 0) }] : []
+    return variant ? [{ ...line, variant, unitPrice: getDisplayedUnitPrice(product as any, appSettings, Number(variant.price_adjustment ?? 0)) }] : []
   })
   const availableCartLines = cartLines.filter((line) => line.variant.stock === null || line.quantity <= line.variant.stock)
   const total = availableCartLines.reduce((sum, line) => sum + line.unitPrice * line.quantity, 0)

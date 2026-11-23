@@ -17,6 +17,10 @@ type ProductInput = {
   city: string | null
   delivery_delay: string | null
   partner_id: string | null
+  import_base_price: number | null
+  import_base_currency: 'FCFA' | 'CNY' | null
+  import_weight_kg: number | null
+  import_other_fees_fcfa: number
 }
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
@@ -28,6 +32,16 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isNullableText(value: unknown, maximumLength: number): value is string | null {
   return value === null || (typeof value === 'string' && value.length <= maximumLength)
+}
+
+function toNullableNumber(value: unknown) {
+  if (value === null || value === undefined || value === '') return null
+  if (typeof value === 'number') return Number.isFinite(value) ? value : Number.NaN
+  if (typeof value === 'string') {
+    const n = Number(value)
+    return Number.isFinite(n) ? n : Number.NaN
+  }
+  return Number.NaN
 }
 
 function validateProduct(value: unknown): ProductInput | null {
@@ -49,6 +63,10 @@ function validateProduct(value: unknown): ProductInput | null {
     city,
     delivery_delay,
     partner_id,
+    import_base_price,
+    import_base_currency,
+    import_weight_kg,
+    import_other_fees_fcfa,
   } = value
 
   if (
@@ -94,8 +112,27 @@ function validateProduct(value: unknown): ProductInput | null {
       city: city.trim(),
       delivery_delay: delivery_delay.trim(),
       partner_id,
+      import_base_price: null,
+      import_base_currency: null,
+      import_weight_kg: null,
+      import_other_fees_fcfa: 0,
     }
   }
+
+  const basePrice = toNullableNumber(import_base_price)
+  const weightKg = toNullableNumber(import_weight_kg)
+  const otherFeesValue = toNullableNumber(import_other_fees_fcfa)
+  const otherFees = otherFeesValue == null ? 0 : otherFeesValue
+  const currency = import_base_currency === null || import_base_currency === undefined || import_base_currency === ''
+    ? null
+    : (import_base_currency === 'FCFA' || import_base_currency === 'CNY' ? import_base_currency : undefined)
+
+  if (currency === undefined) return null
+  if (basePrice !== null && (!Number.isFinite(basePrice) || basePrice < 0)) return null
+  if (weightKg !== null && (!Number.isFinite(weightKg) || weightKg <= 0)) return null
+  if (!Number.isFinite(otherFees) || otherFees < 0) return null
+
+  const normalizedCurrency = basePrice === null ? null : (currency ?? 'FCFA')
 
   return {
     name: name.trim(),
@@ -113,6 +150,10 @@ function validateProduct(value: unknown): ProductInput | null {
     city: null,
     delivery_delay: null,
     partner_id: null,
+    import_base_price: basePrice,
+    import_base_currency: normalizedCurrency,
+    import_weight_kg: weightKg,
+    import_other_fees_fcfa: otherFees,
   }
 }
 

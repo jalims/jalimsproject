@@ -9,6 +9,7 @@ import { importOrderStatusOptions, localOrderStatusOptions } from '../../../lib/
 import { logClientError } from '../../../lib/user-facing-errors'
 import { supabase } from '../../../lib/supabase'
 
+type SupplierCost = { purchase_price: number | null; currency: 'FCFA' | 'CNY' | null }
 type AdminOrder = {
   id: string
   product_id: string
@@ -26,6 +27,11 @@ type AdminOrder = {
   delivery_neighborhood: string | null
   partner_id: string | null
   partner_notified_at: string | null
+  pricing_cny_to_fcfa_rate?: number | null
+  pricing_transport_price_per_kg_fcfa?: number | null
+  pricing_commission_percent?: number | null
+  pricing_final_total_fcfa?: number | null
+  actual_transport_fcfa?: number | null
   customer_name: string
   customer_phone: string
   variant_lines: {
@@ -37,6 +43,9 @@ type AdminOrder = {
     origin: 'local' | 'import'
     city: string | null
     delivery_delay: string | null
+    pricing_cny_to_fcfa_rate?: number | null
+    pricing_final_unit_fcfa?: number | null
+    pricing_final_line_fcfa?: number | null
   }[]
   status: string
   created_at: string
@@ -189,6 +198,9 @@ export default function AdminOrdersPage() {
   const [now, setNow] = useState(0)
   const [partnerNotificationBusyId, setPartnerNotificationBusyId] = useState('')
   const [partnerNotificationFeedback, setPartnerNotificationFeedback] = useState<{ orderId: string; text: string; error: boolean } | null>(null)
+  const [supplierCostsByProductId, setSupplierCostsByProductId] = useState<Record<string, SupplierCost>>({})
+  const [supplierCostDrafts, setSupplierCostDrafts] = useState<Record<string, { price: string; currency: 'FCFA' | 'CNY' }>>({})
+  const [savingSupplierCostProductId, setSavingSupplierCostProductId] = useState('')
 
   useEffect(() => {
     const initialUpdate = window.setTimeout(() => setNow(Date.now()), 0)
@@ -223,7 +235,7 @@ export default function AdminOrdersPage() {
 
       const { data, error } = await supabase
         .from('orders')
-        .select('id, product_id, pickup_point_id, jalims_code, quantity, total_price, variant_id, variant_values, variant_stock_committed, origin, city, delivery_delay, delivery_region, delivery_neighborhood, partner_id, partner_notified_at, status, created_at')
+        .select('id, product_id, pickup_point_id, jalims_code, quantity, total_price, variant_id, variant_values, variant_stock_committed, origin, city, delivery_delay, delivery_region, delivery_neighborhood, partner_id, partner_notified_at, status, created_at, pricing_cny_to_fcfa_rate, pricing_transport_price_per_kg_fcfa, pricing_commission_percent, pricing_final_total_fcfa, actual_transport_fcfa')
         .order('created_at', { ascending: false })
       if (!active) return
       if (error) {
@@ -266,20 +278,24 @@ export default function AdminOrdersPage() {
             ? new Error('Votre session administrateur a expiré. Reconnectez-vous pour charger les coordonnées.')
             : null,
         })
-      const [{ data: products, error: productsError }, { data: pickupPoints, error: pickupError }, { data: variantLines, error: variantLinesError }, { data: logs, error: logsError }, deliveryDetailsResult] = await Promise.all([
+      const canSeeSupplierCosts = role === 'owner' || role === 'admin'
+      const [{ data: products, error: productsError }, { data: pickupPoints, error: pickupError }, { data: variantLines, error: variantLinesError }, { data: logs, error: logsError }, deliveryDetailsResult, supplierCostsResult] = await Promise.all([
         productIds.length
-          ? supabase.from('products').select('id, name, image_url').in('id', productIds)
+          ? supabase.from('products').select('id, name, image_url, origin').in('id', productIds)
           : Promise.resolve({ data: [], error: null }),
         pickupPointIds.length
           ? supabase.from('pickup_points').select('id, name, address, city').in('id', pickupPointIds)
           : Promise.resolve({ data: [], error: null }),
         orderIds.length
-          ? supabase.from('order_variant_lines').select('id, order_id, attribute_values, quantity, unit_price, line_total, origin, city, delivery_delay').in('order_id', orderIds)
+          ? supabase.from('order_variant_lines').select('id, order_id, attribute_values, quantity, unit_price, line_total, origin, city, delivery_delay, pricing_cny_to_fcfa_rate, pricing_final_unit_fcfa, pricing_final_line_fcfa').in('order_id', orderIds)
           : Promise.resolve({ data: [], error: null }),
         orderIds.length
           ? supabase.from('order_messages').select('id, order_id, template_key, channel, source, status, created_at, sent_at, error').in('order_id', orderIds).order('created_at', { ascending: false })
           : Promise.resolve({ data: [], error: null }),
         deliveryDetailsRequest,
+        canSeeSupplierCosts && productIds.length
+          ? supabase.from('product_costs').select('product_id, purchase_price, currency').in('product_id', productIds)
+          : Promise.resolve({ data: [], error: null }),
       ])
       if (!active) return
 
@@ -322,6 +338,50 @@ export default function AdminOrdersPage() {
       active = false
     }
   }, [])
+
+  function supplierCostToFcfa(cost: SupplierCost | undefined, rate: number | null | undefined) {
+    if (!cost || cost.purchase_price == null || !Number.isFinite(cost.purchase_price)) return null
+    if (cost.currency === 'CNY') {
+      const r = Number(rate)
+      return Number.isFinite(r) && r > 0 ? Math.round((cost.purchase_price * r) * 100) / 100 : null
+    }
+    return Math.round(cost.purchase_price * 100) / 100
+  }
+
+  async function saveOrderSupplierCost(productId: string) {
+    const draft = supplierCostDrafts[productId] ?? { price: '', currency: 'FCFA' as const }
+    const raw = draft.price.trim()
+    const price = raw === '' ? null : Number(raw)
+    if (price !== null && (!Number.isFinite(price) || price < 0)) {
+      setMessageFeedback({ orderId: '', text: 'Le prix d’achat fournisseur doit être un nombre positif ou vide.', error: true })
+      return
+    }
+    setSavingSupplierCostProductId(productId)
+    try {
+      if (price === null) {
+        const { error } = await supabase.from('product_costs').delete().eq('product_id', productId)
+        if (error) throw error
+      } else {
+        const { error } = await supabase.from('product_costs').upsert({
+          product_id: productId,
+          purchase_price: price,
+          currency: draft.currency,
+          updated_at: new Date().toISOString(),
+        }, { onConflict: 'product_id' })
+        if (error) throw error
+      }
+      setSupplierCostsByProductId((current) => ({
+        ...current,
+        [productId]: price === null ? { purchase_price: null, currency: null } : { purchase_price: price, currency: draft.currency },
+      }))
+      setMessageFeedback({ orderId: '', text: 'Prix d’achat fournisseur enregistré.', error: false })
+    } catch (error) {
+      logClientError('Admin order supplier cost save failed', error)
+      setMessageFeedback({ orderId: '', text: 'Le prix d’achat fournisseur n’a pas pu être enregistré.', error: true })
+    } finally {
+      setSavingSupplierCostProductId('')
+    }
+  }
 
   async function refreshMessageLogs(orderId: string) {
     const { data, error } = await supabase
@@ -633,6 +693,7 @@ export default function AdminOrdersPage() {
           <Link className="admin-nav-item" href="/admin">Produits</Link>
           <Link className="admin-nav-item current" href="/admin/commandes">Commandes</Link>
           {(staffRole === 'owner' || staffRole === 'admin') && <Link className="admin-nav-item" href="/admin/equipe">Équipe</Link>}
+          {(staffRole === 'owner' || staffRole === 'admin') && <Link className="admin-nav-item" href="/admin/parametres">Paramètres</Link>}
           <Link className="admin-nav-item" href="/admin/partenaires">Partenaires</Link>
           <Link className="admin-nav-item" href="/admin/clients">Clients</Link>
           <Link className="admin-nav-item" href="/admin/statistiques">Statistiques</Link>
@@ -797,6 +858,71 @@ export default function AdminOrdersPage() {
                       <div><button type="button" onClick={() => void confirmStatusChange()}>Enregistrer le statut</button><button type="button" className="secondary" onClick={() => setPendingStatus(null)}>Annuler</button></div>
                     </div>
                   )}
+
+                  {staffRole !== 'order_manager' && (() => {
+                    const hasImported = order.origin === 'import' || (order.variant_lines ?? []).some((l) => l.origin === 'import')
+                    if (!hasImported) return null
+                    const rate = order.pricing_cny_to_fcfa_rate ?? (order.variant_lines ?? []).find((l) => l.pricing_cny_to_fcfa_rate != null)?.pricing_cny_to_fcfa_rate ?? null
+                    const cost = supplierCostsByProductId[String(order.product_id)]
+                    const unitCostFcfa = supplierCostToFcfa(cost, rate)
+                    const draft = supplierCostDrafts[String(order.product_id)] ?? { price: '', currency: 'FCFA' as const }
+                    const items = (order.variant_lines && order.variant_lines.length > 0)
+                      ? order.variant_lines.filter((l) => l.origin === 'import').map((l) => ({ id: l.id, qty: l.quantity, label: Object.entries(l.attribute_values || {}).map(([k, v]) => `${attributeLabels[k] ?? k.replaceAll('_', ' ')} : ${v}`).join(' · ') || 'Article importé' }))
+                      : [{ id: order.id, qty: order.quantity, label: productLabel }]
+                    const missing = unitCostFcfa == null
+                    const totalSupplierCost = unitCostFcfa == null ? null : Math.round(unitCostFcfa * items.reduce((s, i) => s + i.qty, 0) * 100) / 100
+                    const actualTransport = order.actual_transport_fcfa == null ? null : Number(order.actual_transport_fcfa)
+                    const margin = totalSupplierCost == null ? null : Math.round((Number(order.total_price) - totalSupplierCost - (actualTransport ?? 0)) * 100) / 100
+                    return (
+                      <section className="order-import-costs admin-feedback" style={{ marginTop: 8 }}>
+                        <strong>Coûts fournisseur (produits importés)</strong>
+                        {items.map((item) => (
+                          <div key={item.id}>
+                            <span>{item.label} · {item.qty} unité{item.qty > 1 ? 's' : ''} — Prix d’achat : </span>
+                            {cost?.purchase_price != null ? (
+                              <span>
+                                {Number(cost.purchase_price).toLocaleString('fr-FR')} {cost.currency ?? 'FCFA'}
+                                {cost.currency === 'CNY' && unitCostFcfa != null && (
+                                  <span> (≈ {unitCostFcfa.toLocaleString('fr-FR')} FCFA/unité, taux commande)</span>
+                                )}
+                              </span>
+                            ) : (
+                              <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                                <span className="admin-supplier-cost-missing">À renseigner</span>
+                                <input
+                                  aria-label="Prix d’achat fournisseur"
+                                  inputMode="decimal"
+                                  min="0"
+                                  placeholder="Prix d’achat"
+                                  step="any"
+                                  type="number"
+                                  value={draft.price}
+                                  onChange={(event) => setSupplierCostDrafts((current) => ({ ...current, [String(order.product_id)]: { ...(current[String(order.product_id)] ?? { price: '', currency: 'FCFA' }), price: event.target.value } }))}
+                                  style={{ width: 120 }}
+                                />
+                                <select
+                                  aria-label="Devise prix d’achat"
+                                  value={draft.currency}
+                                  onChange={(event) => setSupplierCostDrafts((current) => ({ ...current, [String(order.product_id)]: { ...(current[String(order.product_id)] ?? { price: '', currency: 'FCFA' }), currency: event.target.value === 'CNY' ? 'CNY' : 'FCFA' } }))}
+                                >
+                                  <option value="FCFA">FCFA</option>
+                                  <option value="CNY">Yuan</option>
+                                </select>
+                                <button type="button" disabled={savingSupplierCostProductId === String(order.product_id)} onClick={() => void saveOrderSupplierCost(String(order.product_id))}>
+                                  {savingSupplierCostProductId === String(order.product_id) ? '...' : 'Enregistrer'}
+                                </button>
+                              </span>
+                            )}
+                          </div>
+                        ))}
+                        <div style={{ marginTop: 6 }}>
+                          <div>Coût fournisseur total : <strong>{totalSupplierCost != null ? `${totalSupplierCost.toLocaleString('fr-FR')} FCFA` : '—'}</strong></div>
+                          <div>Marge estimée : <strong>{margin != null ? `${margin.toLocaleString('fr-FR')} FCFA` : '—'}</strong>{actualTransport != null ? ` (transport réel : ${actualTransport.toLocaleString('fr-FR')} FCFA)` : ''}</div>
+                          {missing && <div className="admin-feedback error" role="alert">Certains prix d’achat fournisseur manquent : le coût total et la marge sont partiels/indisponibles.</div>}
+                        </div>
+                      </section>
+                    )
+                  })()}
 
                   <div className="order-message-actions">
                     <button type="button" onClick={() => composing ? setComposerOrderId('') : openComposer(order.id)}>Envoyer un message</button>
