@@ -217,6 +217,7 @@ export default function AdminPage() {
   const [variantConfigLoading, setVariantConfigLoading] = useState(false)
   const [stockQuantities, setStockQuantities] = useState<Record<string, string>>({})
   const [confirmingStockId, setConfirmingStockId] = useState<string | null>(null)
+  const [newProductRequestCount, setNewProductRequestCount] = useState(0)
 
   async function loadProducts() {
     const { data, error } = await supabase
@@ -316,6 +317,26 @@ export default function AdminPage() {
       void loadProducts()
       void loadPartnerOptions()
       void loadAttributeDefinitions()
+      if (role === 'owner' || role === 'admin') {
+        void (async () => {
+          const { data: sessionData } = await supabase.auth.getSession()
+          const token = sessionData.session?.access_token
+          if (!token) return
+          try {
+            const response = await fetch('/api/admin/product-requests?mode=count', {
+              headers: { Authorization: `Bearer ${token}` },
+              cache: 'no-store',
+            })
+            if (!response.ok) return
+            const body = await response.json() as { newCount?: number }
+            if (mounted && typeof body.newCount === 'number') {
+              setNewProductRequestCount(body.newCount)
+            }
+          } catch {
+            // ignore badge count errors
+          }
+        })()
+      }
     }
 
     void checkAccess()
@@ -972,6 +993,16 @@ export default function AdminPage() {
           <Link className="admin-nav-item" href="/admin/partenaires"><span className="admin-nav-icon" aria-hidden="true">⌖</span> Partenaires</Link>
           <Link className="admin-nav-item" href="/admin/clients"><span className="admin-nav-icon" aria-hidden="true">♙</span> Clients</Link>
           <Link className="admin-nav-item" href="/admin/statistiques"><span className="admin-nav-icon" aria-hidden="true">▤</span> Statistiques</Link>
+          {(staffRole === 'owner' || staffRole === 'admin') && (
+            <Link className="admin-nav-item" href="/admin/demandes">
+              <span className="admin-nav-icon" aria-hidden="true">?</span> Demandes
+              {newProductRequestCount > 0 && (
+                <span style={{ marginLeft: 6, minWidth: 20, height: 20, padding: '0 6px', borderRadius: 999, background: '#FE6E00', color: '#fff', fontSize: 12, fontWeight: 700, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
+                  {newProductRequestCount}
+                </span>
+              )}
+            </Link>
+          )}
           <Link className="admin-nav-item" href="/admin/messages"><span className="admin-nav-icon" aria-hidden="true">✉</span> Messages</Link>
           <Link className="admin-nav-item" href="/admin/retraits"><span className="admin-nav-icon" aria-hidden="true">⌖</span> Points de retrait</Link>
           <Link className="admin-nav-item" href="/admin/accueil"><span className="admin-nav-icon" aria-hidden="true">T</span> Textes accueil</Link>

@@ -7,6 +7,10 @@ migration : sauvegarde CSV des tables touchées, puis test à blanc (begin; ... 
 
 - `supabase/migrations/20261110_bictorys_payments.sql` — Ajoute les références et métadonnées de paiement aux commandes, conserve temporairement le wrapper de compatibilité historique et ajoute `confirm_product_order`. **Statut : exécutée manuellement dans Supabase selon confirmation du 2026-11-20 ; non vérifiée à distance.**
 
+## Activité du 2026-11-23
+
+- supabase/migrations/20261123_product_requests.sql — Crée la table product_requests, le bucket privé product-requests, les politiques RLS (lecture/modification réservées aux rôles staff owner/admin, insertion via service role/route serveur), et la fonction consume_product_request_rate_limit. **Statut : exécutée manuellement dans Supabase selon confirmation utilisateur du 2026-11-23.**
+
 ## Activité du 2026-11-20
 
 - `supabase/migrations/20261120_remove_legacy_payment_providers.sql` — Supprime les colonnes/index de paiement PayTech et le wrapper SQL devenu inutilisé, sans supprimer les anciennes valeurs de `payment_provider`. **Statut : exécutée manuellement dans Supabase selon confirmation utilisateur du 2026-11-20 ; non vérifiée à distance.**
@@ -42,6 +46,7 @@ migration : sauvegarde CSV des tables touchées, puis test à blanc (begin; ... 
 | 20261014_order_ready_for_pickup_status.sql | 12/10/2026 | OK | statut prête_a_retirer et fonction de confirmation du paiement |
 | 20261015_order_message_default_delay.sql | à confirmer | à confirmer | colonne delai_estime_par_defaut |
 | 20261108_local_order_partners.sql | 2026-11-02 | pexécuter | Relançable sans risque |
+| 20261123_product_requests.sql | 2026-11-23 | OK | table product_requests, bucket privé product-requests, RLS, RPC rate limit ; exécutée manuellement dans Supabase selon confirmation utilisateur |
 
 ## À faire plus tard
 - orders_status_messages_check est encore NOT VALID. Lancer :
