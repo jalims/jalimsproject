@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useEffect, useState } from 'react'
 import { supabase } from '../../lib/supabase'
 import { logClientError } from '../../lib/user-facing-errors'
+import { getDisplayedUnitPrice, normalizeAppPricingSettings, type AppPricingSettings } from '../../lib/imported-product-pricing'
 import ConnectionError from '../ui/connection-error'
 import { ProductGridSkeleton } from '../ui/loading-skeletons'
 
@@ -15,12 +16,22 @@ type FavoriteProduct = {
   image_url: string | null
   category: string | null
   moq: number
+  origin?: 'local' | 'import'
+  import_base_price?: number | null
+  import_base_currency?: 'FCFA' | 'CNY' | null
+  import_weight_kg?: number | null
+  import_other_fees_fcfa?: number | null
+}
+
+type FavoriteRow = {
+  products: FavoriteProduct | FavoriteProduct[] | null
 }
 
 export default function FavoritesPage() {
   const [loading, setLoading] = useState(true)
   const [signedIn, setSignedIn] = useState(false)
   const [products, setProducts] = useState<FavoriteProduct[]>([])
+  const [appSettings, setAppSettings] = useState<AppPricingSettings>(normalizeAppPricingSettings(null))
   const [errorMessage, setErrorMessage] = useState('')
   const [retryCount, setRetryCount] = useState(0)
 
@@ -45,17 +56,21 @@ export default function FavoritesPage() {
         }
         setSignedIn(true)
 
-        const { data, error } = await supabase
-          .from('favorites')
-          .select('products(id, name, price, image_url, category, moq)')
+        const [{ data, error }, { data: settings }] = await Promise.all([
+          supabase
+            .from('favorites')
+            .select('products(id, name, price, image_url, category, moq, origin, import_base_price, import_base_currency, import_weight_kg, import_other_fees_fcfa)'),
+          supabase.from('app_settings').select('transport_price_per_kg_fcfa, commission_percent, customs_percent, cny_to_fcfa_rate').eq('id', 1).maybeSingle(),
+        ])
         if (!active) return
+        setAppSettings(normalizeAppPricingSettings(settings))
         if (error) {
           logClientError('Favorites load failed', error)
           setErrorMessage('La connexion est lente ou coupée.')
         } else {
-          const favoriteProducts = (data ?? [])
-            .flatMap((favorite) => favorite.products)
-            .filter((product): product is FavoriteProduct => Boolean(product))
+          const favoriteProducts = ((data ?? []) as FavoriteRow[])
+            .flatMap(({ products }) => Array.isArray(products) ? products : products ? [products] : [])
+            .filter((product): product is FavoriteProduct => Boolean(product.id))
           setProducts(favoriteProducts)
         }
         setLoading(false)
@@ -108,7 +123,7 @@ export default function FavoritesPage() {
                 </Link>
                 <div className="product-details">
                   <h3><Link href={`/products/${encodeURIComponent(product.id)}`}>{product.name}</Link></h3>
-                  <p className="product-price">{Number(product.price).toLocaleString('fr-FR')} <span>FCFA</span></p>
+                  <p className="product-price">{getDisplayedUnitPrice(product, appSettings).toLocaleString('fr-FR')} <span>FCFA</span></p>
                   <Link className="order-button" href={`/products/${encodeURIComponent(product.id)}`}>Voir le produit <span aria-hidden="true">→</span></Link>
                 </div>
               </article>

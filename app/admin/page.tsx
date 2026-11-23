@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import Image from 'next/image'
 import Link from 'next/link'
@@ -8,7 +8,13 @@ import { supabase } from '../../lib/supabase'
 import { canAccessAdminPath, getStaffRoleForUser, type StaffRole } from '../../lib/admin-staff-client'
 import { isLocalStockWarning } from '../../lib/product-origin'
 import { getAuthErrorMessage, logClientError } from '../../lib/user-facing-errors'
+import { DEFAULT_APP_PRICING_SETTINGS, getDisplayedUnitPrice, normalizeAppPricingSettings, type AppPricingSettings } from '../../lib/imported-product-pricing'
 import QuantityInput from '../ui/quantity-input'
+
+type SupplierCost = {
+  purchase_price: number | null
+  currency: 'FCFA' | 'CNY' | null
+}
 
 type Product = {
   id: string | number
@@ -28,6 +34,11 @@ type Product = {
   delivery_delay: string | null
   stock_updated_at: string | null
   partner_id: string | null
+  import_base_price: number | null
+  import_base_currency: 'FCFA' | 'CNY' | null
+  import_weight_kg: number | null
+  import_other_fees_fcfa: number
+  supplier_cost?: SupplierCost | null
 }
 
 type AccessState = 'checking' | 'signed-out' | 'not-admin' | 'denied' | 'auth-error' | 'ready'
@@ -65,6 +76,12 @@ const emptyForm = {
   city: '',
   deliveryDelay: '',
   partnerId: '',
+  importBasePrice: '',
+  importBaseCurrency: 'FCFA' as 'FCFA' | 'CNY',
+  importWeightKg: '',
+  importOtherFeesFcfa: '0',
+  supplierPurchasePrice: '',
+  supplierCurrency: 'FCFA' as 'FCFA' | 'CNY',
 }
 
 function getPreviewUrl(value: string) {
@@ -194,9 +211,12 @@ export default function AdminPage() {
   const [authError, setAuthError] = useState('')
   const [products, setProducts] = useState<Product[]>([])
   const [partnerOptions, setPartnerOptions] = useState<PartnerOption[]>([])
+  const [appSettings, setAppSettings] = useState<AppPricingSettings>(DEFAULT_APP_PRICING_SETTINGS)
+  const [supplierCostDrafts, setSupplierCostDrafts] = useState<Record<string, { price: string; currency: 'FCFA' | 'CNY' }>>({})
+  const [savingSupplierCostId, setSavingSupplierCostId] = useState<string | null>(null)
   const [productsError, setProductsError] = useState('')
   const [productSearch, setProductSearch] = useState('')
-  const [productFilter, setProductFilter] = useState<'all' | 'active' | 'hidden'>('all')
+  const [productFilter, setProductFilter] = useState<'all' | 'active' | 'hidden' | 'import_missing_purchase'>('all')
   const [form, setForm] = useState(emptyForm)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editingActive, setEditingActive] = useState(true)
@@ -208,7 +228,7 @@ export default function AdminPage() {
   const [deletingProductId, setDeletingProductId] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [feedback, setFeedback] = useState<{ kind: 'success' | 'error'; text: string } | null>(null)
-  const [categoryOptions, setCategoryOptions] = useState<string[]>([]) 
+  const [categoryOptions, setCategoryOptions] = useState<string[]>([])
   const [attributeDefinitions, setAttributeDefinitions] = useState<AttributeDefinition[]>([])
   const [selectedAttributeKeys, setSelectedAttributeKeys] = useState<string[]>([])
   const [attributeValueInputs, setAttributeValueInputs] = useState<Record<string, string>>({})
@@ -219,10 +239,19 @@ export default function AdminPage() {
   const [confirmingStockId, setConfirmingStockId] = useState<string | null>(null)
   const [newProductRequestCount, setNewProductRequestCount] = useState(0)
 
+  async function loadAppSettings() {
+    const { data, error } = await supabase
+      .from('app_settings')
+      .select('transport_price_per_kg_fcfa, commission_percent, customs_percent, cny_to_fcfa_rate')
+      .eq('id', 1)
+      .maybeSingle()
+    if (!error) setAppSettings(normalizeAppPricingSettings(data as Partial<AppPricingSettings> | null))
+  }
+
   async function loadProducts() {
     const { data, error } = await supabase
       .from('products')
-      .select('id, name, description, price, delivery_estimate, image_url, category, moq, stock_status, active, featured, origin, local_stock, city, delivery_delay, stock_updated_at, partner_id')
+      .select('id, name, description, price, delivery_estimate, image_url, category, moq, stock_status, active, featured, origin, local_stock, city, delivery_delay, stock_updated_at, partner_id, import_base_price, import_base_currency, import_weight_kg, import_other_fees_fcfa')
       .order('name')
 
     if (error) {
@@ -231,8 +260,74 @@ export default function AdminPage() {
       return
     }
 
+    const rows = (data ?? []) as Product[]
+    const ids = rows.map((p) => String(p.id))
+    let costsByProductId: Record<string, SupplierCost> = {}
+    if (ids.length > 0) {
+      const { data: costs, error: costsError } = await supabase
+        .from('product_costs')
+        .select('product_id, purchase_price, currency')
+        .in('product_id', ids)
+      if (costsError) {
+        logClientError('Admin supplier costs load failed', costsError)
+      } else {
+        costsByProductId = Object.fromEntries((costs ?? []).map((c) => [String(c.product_id), {
+          purchase_price: c.purchase_price == null ? null : Number(c.purchase_price),
+          currency: c.currency === 'CNY' ? 'CNY' : c.currency === 'FCFA' ? 'FCFA' : null,
+        }]))
+      }
+    }
+
+    const merged = rows.map((p) => ({ ...p, supplier_cost: costsByProductId[String(p.id)] ?? null }))
     setProductsError('')
-    setProducts((data ?? []) as Product[])
+    setProducts(merged)
+    setSupplierCostDrafts((current) => {
+      const next = { ...current }
+      for (const p of merged) {
+        const pid = String(p.id)
+        if (!next[pid]) {
+          next[pid] = {
+            price: p.supplier_cost?.purchase_price != null ? String(p.supplier_cost.purchase_price) : '',
+            currency: p.supplier_cost?.currency ?? 'FCFA',
+          }
+        }
+      }
+      return next
+    })
+  }
+
+  async function saveSupplierCost(productId: string) {
+    const draft = supplierCostDrafts[productId] ?? { price: '', currency: 'FCFA' as const }
+    const raw = draft.price.trim()
+    const price = raw === '' ? null : Number(raw)
+    if (price !== null && (!Number.isFinite(price) || price < 0)) {
+      setFeedback({ kind: 'error', text: 'Le prix d’achat fournisseur doit être un nombre positif ou vide.' })
+      return
+    }
+    const currency = price === null ? null : draft.currency
+    setSavingSupplierCostId(productId)
+    setFeedback(null)
+    try {
+      if (price === null) {
+        const { error } = await supabase.from('product_costs').delete().eq('product_id', productId)
+        if (error) throw error
+      } else {
+        const { error } = await supabase.from('product_costs').upsert({
+          product_id: productId,
+          purchase_price: price,
+          currency,
+          updated_at: new Date().toISOString(),
+        }, { onConflict: 'product_id' })
+        if (error) throw error
+      }
+      await loadProducts()
+      setFeedback({ kind: 'success', text: 'Prix d’achat fournisseur enregistré.' })
+    } catch (error) {
+      logClientError('Admin supplier cost save failed', error)
+      setFeedback({ kind: 'error', text: 'Le prix d’achat fournisseur n’a pas pu être enregistré.' })
+    } finally {
+      setSavingSupplierCostId(null)
+    }
   }
 
   async function loadPartnerOptions() {
@@ -314,6 +409,7 @@ export default function AdminPage() {
       }
 
       setAccess('ready')
+      void loadAppSettings()
       void loadProducts()
       void loadPartnerOptions()
       void loadAttributeDefinitions()
@@ -463,7 +559,10 @@ export default function AdminPage() {
       ? (existingImages[0]?.image_url ?? fallbackImageUrl ?? null)
       : (fallbackImageUrl ?? null)
     const desiredActive = editingId ? (editingActive && publishable) : publishable
-
+    const importBasePrice = form.origin === 'import' && form.importBasePrice.trim() !== '' ? Number(form.importBasePrice) : null
+    const importBaseCurrency = form.origin === 'import' ? (form.importBaseCurrency === 'CNY' ? 'CNY' : 'FCFA') : null
+    const importWeightKg = form.origin === 'import' && form.importWeightKg.trim() !== '' ? Number(form.importWeightKg) : null
+    const importOtherFeesFcfa = form.origin === 'import' && form.importOtherFeesFcfa.trim() !== '' ? Number(form.importOtherFeesFcfa) : 0
     const productValues = {
       name,
       description: form.description.trim(),
@@ -480,6 +579,10 @@ export default function AdminPage() {
       city: form.origin === 'local' ? form.city.trim() : null,
       delivery_delay: form.origin === 'local' ? form.deliveryDelay.trim() : null,
       partner_id: form.origin === 'local' ? form.partnerId : null,
+      import_base_price: form.origin === 'import' ? importBasePrice : null,
+      import_base_currency: form.origin === 'import' ? (importBasePrice === null ? null : importBaseCurrency) : null,
+      import_weight_kg: form.origin === 'import' ? importWeightKg : null,
+      import_other_fees_fcfa: form.origin === 'import' ? importOtherFeesFcfa : 0,
     }
 
     if (!productId) {
@@ -625,6 +728,33 @@ export default function AdminPage() {
       }
     } else if (!publishable) {
       activationMessage = ' Ajoutez au moins 3 photos au total pour pouvoir publier ce produit. Il reste en brouillon.'
+    }
+
+    if (productId && form.origin === 'import') {
+      const rawSupplier = form.supplierPurchasePrice.trim()
+      const supplierPrice = rawSupplier === '' ? null : Number(rawSupplier)
+      if (supplierPrice !== null && (!Number.isFinite(supplierPrice) || supplierPrice < 0)) {
+        setSaving(false)
+        setFeedback({ kind: 'error', text: 'Le prix d’achat fournisseur doit être un nombre positif ou vide.' })
+        return
+      }
+      const supplierMutation = supplierPrice === null
+        ? await supabase.from('product_costs').delete().eq('product_id', productId)
+        : await supabase.from('product_costs').upsert({
+            product_id: productId,
+            purchase_price: supplierPrice,
+            currency: form.supplierCurrency,
+            updated_at: new Date().toISOString(),
+          }, { onConflict: 'product_id' })
+      if (supplierMutation.error) {
+        logClientError('Admin supplier cost save failed from product form', supplierMutation.error)
+        setSaving(false)
+        setFeedback({ kind: 'error', text: 'Le produit a été enregistré, mais le prix d’achat fournisseur n’a pas pu être enregistré.' })
+        await loadProducts()
+        return
+      }
+    } else if (productId && form.origin === 'local') {
+      await supabase.from('product_costs').delete().eq('product_id', productId)
     }
 
     setSaving(false)
@@ -788,6 +918,12 @@ export default function AdminPage() {
       city: product.city ?? '',
       deliveryDelay: product.delivery_delay ?? '',
       partnerId: product.partner_id ?? '',
+      importBasePrice: product.import_base_price != null ? String(product.import_base_price) : '',
+      importBaseCurrency: (product.import_base_currency === 'CNY' ? 'CNY' : 'FCFA'),
+      importWeightKg: product.import_weight_kg != null ? String(product.import_weight_kg) : '',
+      importOtherFeesFcfa: product.import_other_fees_fcfa != null ? String(product.import_other_fees_fcfa) : '0',
+      supplierPurchasePrice: product.supplier_cost?.purchase_price != null ? String(product.supplier_cost.purchase_price) : '',
+      supplierCurrency: product.supplier_cost?.currency === 'CNY' ? 'CNY' : 'FCFA',
     })
     setFeedback(null)
     void loadProductVariantConfiguration(productId)
@@ -958,9 +1094,13 @@ export default function AdminPage() {
   const canPublishWithImages = totalImageCount >= 3
   const activeProducts = products.filter((product) => product.active).length
   const hiddenProducts = products.length - activeProducts
+  const importedMissingPurchaseCount = products.filter((product) => product.origin === 'import' && (product.supplier_cost?.purchase_price == null)).length
   const visibleProducts = products.filter((product) => {
     const matchesSearch = `${product.name} ${product.category ?? ''}`.toLocaleLowerCase().includes(productSearch.trim().toLocaleLowerCase())
-    const matchesFilter = productFilter === 'all' || (productFilter === 'active' ?product.active : !product.active)
+    const matchesFilter = productFilter === 'all'
+      || (productFilter === 'active' ? product.active : false)
+      || (productFilter === 'hidden' ? !product.active : false)
+      || (productFilter === 'import_missing_purchase' ? (product.origin === 'import' && product.supplier_cost?.purchase_price == null) : false)
     return matchesSearch && matchesFilter
   })
   const configuredAttributes = selectedAttributeKeys.map((attributeKey) => ({
@@ -990,6 +1130,7 @@ export default function AdminPage() {
           <Link className="admin-nav-item" href="/admin/importer"><span className="admin-nav-icon" aria-hidden="true">↑</span> Importer des produits</Link>
           <Link className="admin-nav-item" href="/admin/commandes"><span className="admin-nav-icon" aria-hidden="true">↗</span> Commandes</Link>
           {(staffRole === 'owner' || staffRole === 'admin') && <Link className="admin-nav-item" href="/admin/equipe"><span className="admin-nav-icon" aria-hidden="true">⚙</span> Équipe</Link>}
+          {(staffRole === 'owner' || staffRole === 'admin') && <Link className="admin-nav-item" href="/admin/parametres"><span className="admin-nav-icon" aria-hidden="true">⚙</span> Paramètres</Link>}
           <Link className="admin-nav-item" href="/admin/partenaires"><span className="admin-nav-icon" aria-hidden="true">⌖</span> Partenaires</Link>
           <Link className="admin-nav-item" href="/admin/clients"><span className="admin-nav-icon" aria-hidden="true">♙</span> Clients</Link>
           <Link className="admin-nav-item" href="/admin/statistiques"><span className="admin-nav-icon" aria-hidden="true">▤</span> Statistiques</Link>
@@ -1167,6 +1308,108 @@ export default function AdminPage() {
                       ))}
                     </select>
                     {partnerOptions.length === 0 && <small>Aucun partenaire actif. Ajoutez-en depuis l’écran Partenaires.</small>}
+                  </label>
+                </div>
+              )}
+
+              {form.origin === 'import' && (
+                <div className="admin-local-stock-fields">
+                  <p className="eyebrow" style={{ margin: 0 }}>CALCUL PRIX IMPORTÉ</p>
+                  <label>
+                    <span>Prix de base produit</span>
+                    <input
+                      disabled={saving}
+                      min="0"
+                      step="0.01"
+                      type="number"
+                      value={form.importBasePrice}
+                      onChange={(event) => setForm({ ...form, importBasePrice: event.target.value })}
+                      placeholder="Ex. 45"
+                    />
+                    <small>Prix du produit avant transport, autres frais, dédouanement et commission.</small>
+                  </label>
+                  <label>
+                    <span>Devise du prix de base</span>
+                    <select
+                      disabled={saving}
+                      value={form.importBaseCurrency}
+                      onChange={(event) => setForm({ ...form, importBaseCurrency: event.target.value === 'CNY' ? 'CNY' : 'FCFA' })}
+                    >
+                      <option value="FCFA">FCFA</option>
+                      <option value="CNY">Yuan (CNY)</option>
+                    </select>
+                  </label>
+                  <label>
+                    <span>Poids (kg)</span>
+                    <input
+                      disabled={saving}
+                      min="0"
+                      step="0.001"
+                      type="number"
+                      value={form.importWeightKg}
+                      onChange={(event) => setForm({ ...form, importWeightKg: event.target.value })}
+                      placeholder="Ex. 0.8"
+                    />
+                    <small>Transport = poids × prix transport/kg (paramètres).</small>
+                  </label>
+                  <label>
+                    <span>Autres frais (FCFA)</span>
+                    <input
+                      disabled={saving}
+                      min="0"
+                      step="0.01"
+                      type="number"
+                      value={form.importOtherFeesFcfa}
+                      onChange={(event) => setForm({ ...form, importOtherFeesFcfa: event.target.value })}
+                      placeholder="0"
+                    />
+                    <small>Autres frais déjà pris en compte, inclus dans la base avant dédouanement et commission.</small>
+                  </label>
+                  {(() => {
+                    const previewPrice = getDisplayedUnitPrice({
+                      origin: 'import',
+                      price: Number(form.price) || 0,
+                      import_base_price: form.importBasePrice.trim() === '' ? null : Number(form.importBasePrice),
+                      import_base_currency: form.importBaseCurrency,
+                      import_weight_kg: form.importWeightKg.trim() === '' ? null : Number(form.importWeightKg),
+                      import_other_fees_fcfa: form.importOtherFeesFcfa.trim() === '' ? 0 : Number(form.importOtherFeesFcfa),
+                    }, appSettings)
+                    const missingRate = form.importBaseCurrency === 'CNY' && (appSettings.cny_to_fcfa_rate == null)
+                    const dynamicReady = form.importBasePrice.trim() !== '' && form.importWeightKg.trim() !== '' && !missingRate
+                    return (
+                      <p style={{ margin: 0 }}>
+                        <small>
+                          Prix final calculé (aperçu, arrondi au multiple de 25 FCFA) : <strong>{previewPrice.toLocaleString('fr-FR')} FCFA</strong>
+                          {!dynamicReady && ' — calcul dynamique non appliqué (données incomplètes ou taux CNY manquant), le prix enregistré du produit est utilisé.'}
+                        </small>
+                      </p>
+                    )
+                  })()}
+
+                  <p className="eyebrow" style={{ margin: '8px 0 0' }}>PRIX D’ACHAT FOURNISSEUR (admin)</p>
+                  <label>
+                    <span>Prix d’achat fournisseur</span>
+                    <input
+                      disabled={saving}
+                      min="0"
+                      step="0.01"
+                      type="number"
+                      value={form.supplierPurchasePrice}
+                      onChange={(event) => setForm({ ...form, supplierPurchasePrice: event.target.value })}
+                      placeholder="Laisser vide si non renseigné"
+                    />
+                    <small>Jamais affiché côté client. Enregistré dans <code>product_costs</code>.</small>
+                  </label>
+                  <label>
+                    <span>Devise du prix d’achat fournisseur</span>
+                    <select
+                      disabled={saving}
+                      value={form.supplierCurrency}
+                      onChange={(event) => setForm({ ...form, supplierCurrency: event.target.value === 'CNY' ? 'CNY' : 'FCFA' })}
+                    >
+                      <option value="FCFA">FCFA</option>
+                      <option value="CNY">Yuan (CNY)</option>
+                    </select>
                   </label>
                 </div>
               )}
@@ -1454,9 +1697,10 @@ export default function AdminPage() {
               <input placeholder="Rechercher un produit..." value={productSearch} onChange={(event) => setProductSearch(event.target.value)} />
             </label>
             <div className="admin-product-filters" role="group" aria-label="Filtrer les produits">
-              <button className={productFilter === 'all' ?'active' : ''} type="button" onClick={() => setProductFilter('all')}>Tous <span>{products.length}</span></button>
-              <button className={productFilter === 'active' ?'active' : ''} type="button" onClick={() => setProductFilter('active')}>En ligne <span>{activeProducts}</span></button>
-              <button className={productFilter === 'hidden' ?'active' : ''} type="button" onClick={() => setProductFilter('hidden')}>Masqués <span>{hiddenProducts}</span></button>
+              <button className={productFilter === 'all' ? 'active' : ''} type="button" onClick={() => setProductFilter('all')}>Tous <span>{products.length}</span></button>
+              <button className={productFilter === 'active' ? 'active' : ''} type="button" onClick={() => setProductFilter('active')}>En ligne <span>{activeProducts}</span></button>
+              <button className={productFilter === 'hidden' ? 'active' : ''} type="button" onClick={() => setProductFilter('hidden')}>Masqués <span>{hiddenProducts}</span></button>
+              <button className={productFilter === 'import_missing_purchase' ? 'active' : ''} type="button" onClick={() => setProductFilter('import_missing_purchase')}>Importés sans prix d’achat <span>{importedMissingPurchaseCount}</span></button>
             </div>
             {productsError ?(
               <p className="admin-list-error">Impossible de charger le catalogue : {productsError}</p>
@@ -1480,11 +1724,60 @@ export default function AdminPage() {
                           Disponible au Sénégal · Stock {product.local_stock} · {product.city || 'Ville à confirmer'} · Mis à jour le {formatStockUpdatedAt(product.stock_updated_at)}{isLocalStockWarning(product) ?' · Stock à confirmer' : ''}
                         </span>
                       ) : (
-                        <span className="admin-import-origin">Import Chine</span>
+                        <>
+                          <span className="admin-import-origin">Import Chine</span>
+                          <div className="admin-supplier-cost">
+                            {product.supplier_cost?.purchase_price != null ? (
+                              <span>Prix d’achat fournisseur : <strong>{Number(product.supplier_cost.purchase_price).toLocaleString('fr-FR')} {product.supplier_cost.currency ?? 'FCFA'}</strong></span>
+                            ) : (
+                              <span className="admin-supplier-cost-missing">À renseigner</span>
+                            )}
+                            <div className="admin-supplier-cost-editor">
+                              <input
+                                aria-label={`Prix d’achat fournisseur pour ${product.name}`}
+                                inputMode="decimal"
+                                min="0"
+                                placeholder="Prix d’achat"
+                                step="any"
+                                type="number"
+                                value={supplierCostDrafts[String(product.id)]?.price ?? ''}
+                                onChange={(event) => setSupplierCostDrafts((current) => ({
+                                  ...current,
+                                  [String(product.id)]: {
+                                    ...(current[String(product.id)] ?? { price: '', currency: 'FCFA' }),
+                                    price: event.target.value,
+                                  },
+                                }))}
+                              />
+                              <select
+                                aria-label={`Devise du prix d’achat pour ${product.name}`}
+                                value={supplierCostDrafts[String(product.id)]?.currency ?? 'FCFA'}
+                                onChange={(event) => setSupplierCostDrafts((current) => ({
+                                  ...current,
+                                  [String(product.id)]: {
+                                    ...(current[String(product.id)] ?? { price: '', currency: 'FCFA' }),
+                                    currency: event.target.value === 'CNY' ? 'CNY' : 'FCFA',
+                                  },
+                                }))}
+                              >
+                                <option value="FCFA">FCFA</option>
+                                <option value="CNY">Yuan</option>
+                              </select>
+                              <button
+                                className="admin-list-action"
+                                disabled={savingSupplierCostId === String(product.id)}
+                                onClick={() => void saveSupplierCost(String(product.id))}
+                                type="button"
+                              >
+                                {savingSupplierCostId === String(product.id) ? '...' : 'Enregistrer'}
+                              </button>
+                            </div>
+                          </div>
+                        </>
                       )}
                     </div>
-                    <b>{Number(product.price).toLocaleString('fr-FR')} FCFA</b>
-                    <span className={`admin-product-status ${product.active ?'is-live' : 'is-hidden'}`}>{product.active ?'En ligne' : 'Masqué'}</span>
+                    <b>{getDisplayedUnitPrice(product, appSettings).toLocaleString('fr-FR')} FCFA</b>
+                    <span className={`admin-product-status ${product.active ? 'is-live' : 'is-hidden'}`}>{product.active ? 'En ligne' : 'Masqué'}</span>
                     {product.origin === 'local' && (
                       <div className="admin-local-stock-actions">
                         <label>
