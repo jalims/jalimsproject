@@ -9,6 +9,8 @@ const CORS_HEADERS: Record<string, string> = {
   'Access-Control-Max-Age': '86400',
 }
 
+export const maxDuration = 30
+
 function corsJson(body: unknown, init?: { status?: number }) {
   return NextResponse.json(body, {
     status: init?.status,
@@ -67,10 +69,25 @@ export async function POST(request: Request) {
   const prixChine = toFiniteNumber(payload.prix_chine)
   const devise = payload.devise === 'CNY' || payload.devise === 'FCFA' ? payload.devise : null
   const image = typeof payload.image === 'string' ? payload.image.trim() : ''
+  const imagesInput = Array.isArray(payload.images)
+    ? payload.images
+        .filter((value): value is string => typeof value === 'string' && value.trim() !== '')
+        .map((value) => value.trim())
+        .slice(0, 8)
+    : null
+  const imageUrls = imagesInput ?? (image ? [image] : [])
   const poidsKg = toFiniteNumber(payload.poids_kg)
   const urlSource = typeof payload.url_source === 'string' ? payload.url_source.trim() : ''
 
-  if (!titre || prixChine === null || prixChine < 0 || !devise || !image || poidsKg === null || poidsKg <= 0) {
+  if (
+    !titre ||
+    prixChine === null ||
+    prixChine < 0 ||
+    !devise ||
+    imageUrls.length === 0 ||
+    poidsKg === null ||
+    poidsKg <= 0
+  ) {
     return corsJson({ ok: false, error: 'Missing or invalid fields' }, { status: 400 })
   }
 
@@ -103,7 +120,12 @@ export async function POST(request: Request) {
       : Number(rawCommission)
   const cnyToFcfaRate = settingsRow?.cny_to_fcfa_rate == null ? null : Number(settingsRow.cny_to_fcfa_rate)
 
-  if (!Number.isFinite(transportPerKg) || transportPerKg <= 0 || !Number.isFinite(commissionPercent) || commissionPercent <= 0) {
+  if (
+    !Number.isFinite(transportPerKg) ||
+    transportPerKg <= 0 ||
+    !Number.isFinite(commissionPercent) ||
+    commissionPercent <= 0
+  ) {
     return corsJson({ ok: false, error: 'Réglages de prix non configurés' }, { status: 400 })
   }
 
@@ -121,46 +143,65 @@ export async function POST(request: Request) {
 
   const productId = randomUUID()
 
-  let imageResponse: Response
-  try {
-    imageResponse = await fetch(image)
-  } catch {
-    return corsJson({ ok: false, error: 'Unable to download image' }, { status: 400 })
-  }
+  const downloadAndUploadResults = await Promise.all(
+    imageUrls.map(async (imageUrlInput, index) => {
+      let imageResponse: Response
+      try {
+        imageResponse = await fetch(imageUrlInput)
+      } catch {
+        return null
+      }
 
-  if (!imageResponse.ok) {
-    return corsJson({ ok: false, error: 'Unable to download image' }, { status: 400 })
-  }
+      if (!imageResponse.ok) {
+        return null
+      }
 
-  const contentType = imageResponse.headers.get('content-type')
-  const extension = getImageExtension(contentType, image)
-  const arrayBuffer = await imageResponse.arrayBuffer()
-  const imageBuffer = Buffer.from(arrayBuffer)
-  if (imageBuffer.length === 0) {
-    return corsJson({ ok: false, error: 'Downloaded image is empty' }, { status: 400 })
-  }
+      const contentType = imageResponse.headers.get('content-type')
+      const extension = getImageExtension(contentType, imageUrlInput)
+      const arrayBuffer = await imageResponse.arrayBuffer()
+      const imageBuffer = Buffer.from(arrayBuffer)
+      if (imageBuffer.length === 0) {
+        return null
+      }
 
-  const storagePath = `bookmarklet-imports/${productId}/image.${extension}`
-  const { error: uploadError } = await supabase.storage
-    .from('products')
-    .upload(storagePath, imageBuffer, {
-      contentType: contentType ?? (extension === 'png' ? 'image/png' : extension === 'webp' ? 'image/webp' : 'image/jpeg'),
-      upsert: false,
+      const storagePath = `bookmarklet-imports/${productId}/image-${index}.${extension}`
+      const { error: uploadError } = await supabase.storage
+        .from('products')
+        .upload(storagePath, imageBuffer, {
+          contentType:
+            contentType ?? (extension === 'png' ? 'image/png' : extension === 'webp' ? 'image/webp' : 'image/jpeg'),
+          upsert: false,
+        })
+
+      if (uploadError) {
+        return null
+      }
+
+      const { data: publicUrlData } = supabase.storage.from('products').getPublicUrl(storagePath)
+      return {
+        index,
+        imageUrl: publicUrlData.publicUrl,
+        storagePath,
+      }
     })
+  )
 
-  if (uploadError) {
-    return corsJson({ ok: false, error: 'Unable to upload image' }, { status: 500 })
+  const savedImages = downloadAndUploadResults
+    .filter((result): result is { index: number; imageUrl: string; storagePath: string } => result !== null)
+    .sort((a, b) => a.index - b.index)
+
+  if (savedImages.length === 0) {
+    return corsJson({ ok: false, error: 'Unable to download image' }, { status: 400 })
   }
 
-  const { data: publicUrlData } = supabase.storage.from('products').getPublicUrl(storagePath)
-  const imageUrl = publicUrlData.publicUrl
+  const [mainImage] = savedImages
 
   const insertPayload = {
     id: productId,
     name: titre,
     description: '',
     price: prixVente,
-    image_url: imageUrl,
+    image_url: mainImage.imageUrl,
     category: 'Importé',
     moq: 1,
     stock_status: 'available',
@@ -180,18 +221,20 @@ export async function POST(request: Request) {
 
   const { error: insertError } = await supabase.from('products').insert(insertPayload)
   if (insertError) {
-    await supabase.storage.from('products').remove([storagePath])
+    await supabase.storage.from('products').remove(savedImages.map((img) => img.storagePath))
     return corsJson({ ok: false, error: 'Unable to create product' }, { status: 500 })
   }
 
   const warnings: string[] = []
 
-  const { error: imageInsertError } = await supabase.from('product_images').insert({
-    product_id: productId,
-    image_url: imageUrl,
-    storage_path: storagePath,
-    display_order: 0,
-  })
+  const { error: imageInsertError } = await supabase.from('product_images').insert(
+    savedImages.map((img, displayOrder) => ({
+      product_id: productId,
+      image_url: img.imageUrl,
+      storage_path: img.storagePath,
+      display_order: displayOrder,
+    }))
+  )
   if (imageInsertError) {
     console.error('[import-produit] product_images insert failed', {
       productId,
@@ -203,13 +246,16 @@ export async function POST(request: Request) {
     warnings.push('product_images')
   }
 
-  const { error: costError } = await supabase.from('product_costs').upsert({
-    product_id: productId,
-    purchase_price: prixChine,
-    currency: devise,
-    source_url: urlSource || null,
-    updated_at: new Date().toISOString(),
-  }, { onConflict: 'product_id' })
+  const { error: costError } = await supabase.from('product_costs').upsert(
+    {
+      product_id: productId,
+      purchase_price: prixChine,
+      currency: devise,
+      source_url: urlSource || null,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: 'product_id' }
+  )
   if (costError) {
     console.error('[import-produit] product_costs upsert failed', {
       productId,
@@ -219,6 +265,14 @@ export async function POST(request: Request) {
       code: costError.code,
     })
     warnings.push('product_costs')
+  }
+
+  if (savedImages.length < 3) {
+    return corsJson({
+      ok: true,
+      prix_vente: prixVente,
+      warning: "Moins de 3 images : ajoutez-en dans l'admin avant de publier.",
+    })
   }
 
   if (warnings.length > 0) {
