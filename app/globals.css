@@ -4039,6 +4039,110 @@ button {
   font-weight: 700;
 }
 
+.admin-photo-manager {
+  display: grid;
+  gap: 16px;
+  padding: 16px;
+  border: 1px solid #f0dfd0;
+  border-radius: 8px;
+  background: #fffaf6;
+}
+
+.admin-existing-images {
+  display: grid;
+  gap: 12px;
+}
+
+.admin-existing-image-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 12px;
+}
+
+.admin-existing-image-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid #ecd8c7;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.admin-existing-image-preview {
+  position: relative;
+  width: 96px;
+  height: 96px;
+  flex: 0 0 96px;
+  overflow: hidden;
+  border-radius: 12px;
+  background: linear-gradient(145deg, #ffead8, #fff4ea 60%, #ffe2c8);
+}
+
+.admin-existing-image-preview img {
+  object-fit: cover;
+}
+
+.admin-image-badge {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #ffd000;
+  color: #1a1a1a;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.admin-existing-image-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.admin-existing-image-actions button,
+.admin-image-replace span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid #e2e8e2;
+  border-radius: 5px;
+  background: #fff;
+  color: #5e6b62;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.admin-existing-image-actions button:hover:not(:disabled),
+.admin-image-replace:hover span {
+  border-color: #e8a16b;
+  color: #b65312;
+  background: #fff5ed;
+}
+
+.admin-existing-image-actions button:disabled,
+.admin-image-replace input:disabled + span {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.admin-image-replace {
+  cursor: pointer;
+}
+
+.admin-image-replace input {
+  display: none;
+}
+
 .admin-preview-copy {
   display: flex;
   min-width: 0;

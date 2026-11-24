@@ -32,6 +32,12 @@ type Product = {
 
 type AccessState = 'checking' | 'signed-out' | 'not-admin' | 'denied' | 'auth-error' | 'ready'
 type PartnerOption = { id: string; name: string; city: string; active: boolean }
+type ExistingProductImage = {
+  id: string
+  image_url: string
+  storage_path: string | null
+  display_order: number
+}
 type AttributeDefinition = {
   attribute_key: string
   label: string
@@ -64,7 +70,7 @@ const emptyForm = {
 function getPreviewUrl(value: string) {
   try {
     const url = new URL(value)
-    return url.protocol === 'https:' || url.protocol === 'http:' ? url.toString() : null
+    return url.protocol === 'https:' || url.protocol === 'http:' ?url.toString() : null
   } catch {
     return null
   }
@@ -92,11 +98,11 @@ async function requestAdminProducts(method: 'POST' | 'PUT' | 'PATCH' | 'DELETE',
     const { data, error } = await supabase.auth.getSession()
     if (error) {
       logClientError('Admin product session read failed', error)
-      return { error: 'Impossible de vérifier votre session administrateur. Reconnectez-vous puis réessayez.' }
+      return { error: 'Impossible de vérifier votre session administrateur. Reconnectez-vous puis réessayez.', data: null }
     }
 
     const accessToken = data.session?.access_token
-    if (!accessToken) return { error: 'Votre session a expiré. Reconnectez-vous puis réessayez.' }
+    if (!accessToken) return { error: 'Votre session a expiré. Reconnectez-vous puis réessayez.', data: null }
 
     const response = await fetch('/api/admin/products', {
       method,
@@ -112,20 +118,62 @@ async function requestAdminProducts(method: 'POST' | 'PUT' | 'PATCH' | 'DELETE',
       result = await response.json()
     } catch (error) {
       logClientError('Admin product API response parsing failed', error)
-      return { error: 'La réponse du serveur est invalide. Réessayez.' }
+      return { error: 'La réponse du serveur est invalide. Réessayez.', data: null }
     }
 
     if (!response.ok) {
       const message = typeof result === 'object' && result !== null && 'error' in result && typeof result.error === 'string'
         ? result.error
         : 'La modification du produit n’a pas pu être enregistrée.'
-      return { error: message }
+      return { error: message, data: null }
     }
 
-    return { error: null }
+    return { error: null, data: result as Record<string, unknown> | null }
   } catch (error) {
     logClientError('Admin product API request failed', error)
-    return { error: 'Le serveur est momentanément inaccessible. Vérifiez votre connexion puis réessayez.' }
+    return { error: 'Le serveur est momentanément inaccessible. Vérifiez votre connexion puis réessayez.', data: null }
+  }
+}
+
+async function requestAdminProductImages(method: 'PATCH' | 'DELETE', body: Record<string, unknown>) {
+  try {
+    const { data, error } = await supabase.auth.getSession()
+    if (error) {
+      logClientError('Admin product image session read failed', error)
+      return { error: 'Impossible de vérifier votre session administrateur. Reconnectez-vous puis réessayez.', data: null }
+    }
+
+    const accessToken = data.session?.access_token
+    if (!accessToken) return { error: 'Votre session a expiré. Reconnectez-vous puis réessayez.', data: null }
+
+    const response = await fetch('/api/admin/products/images', {
+      method,
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    })
+
+    let result: unknown
+    try {
+      result = await response.json()
+    } catch (error) {
+      logClientError('Admin product image API response parsing failed', error)
+      return { error: 'La réponse du serveur est invalide. Réessayez.', data: null }
+    }
+
+    if (!response.ok) {
+      const message = typeof result === 'object' && result !== null && 'error' in result && typeof result.error === 'string'
+        ? result.error
+        : 'La modification de l’image n’a pas pu être enregistrée.'
+      return { error: message, data: null }
+    }
+
+    return { error: null, data: result as Record<string, unknown> | null }
+  } catch (error) {
+    logClientError('Admin product image API request failed', error)
+    return { error: 'Le serveur est momentanément inaccessible. Vérifiez votre connexion puis réessayez.', data: null }
   }
 }
 
@@ -154,6 +202,10 @@ export default function AdminPage() {
   const [editingActive, setEditingActive] = useState(true)
   const [imageFiles, setImageFiles] = useState<File[]>([])
   const [imagePreviews, setImagePreviews] = useState<{ file: File; url: string }[]>([])
+  const [existingImages, setExistingImages] = useState<ExistingProductImage[]>([])
+  const [existingImagesLoading, setExistingImagesLoading] = useState(false)
+  const [imageActionBusy, setImageActionBusy] = useState<string | null>(null)
+  const [deletingProductId, setDeletingProductId] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [feedback, setFeedback] = useState<{ kind: 'success' | 'error'; text: string } | null>(null)
   const [categoryOptions, setCategoryOptions] = useState<string[]>([]) 
@@ -278,7 +330,7 @@ export default function AdminPage() {
     let cancelled = false
     Promise.all(imageFiles.map((file) => new Promise<{ file: File; url: string }>((resolve, reject) => {
       const reader = new FileReader()
-      reader.onload = () => typeof reader.result === 'string' ? resolve({ file, url: reader.result }) : reject(new Error('Aperçu image indisponible'))
+      reader.onload = () => typeof reader.result === 'string' ?resolve({ file, url: reader.result }) : reject(new Error('Aperçu image indisponible'))
       reader.onerror = () => reject(new Error('Lecture de la photo impossible'))
       reader.readAsDataURL(file)
     }))).then((previews) => {
@@ -300,11 +352,11 @@ export default function AdminPage() {
     const price = Number(form.price)
     const moq = Number(form.moq)
     const localStock = form.origin === 'local' ? Number(form.localStock) : 0
-    const imageUrl = getPreviewUrl(form.imageUrl.trim())
+    const fallbackImageUrl = getPreviewUrl(form.imageUrl.trim())
     const configuredAttributes = selectedAttributeKeys.map((attributeKey) => ({
       attribute_key: attributeKey,
       attribute_values: parseAttributeValues(attributeValueInputs[attributeKey] ?? ''),
-      attribute_colors: attributeKey === 'color' ? attributeColorInputs[attributeKey] ?? {} : {},
+      attribute_colors: attributeKey === 'color' ? (attributeColorInputs[attributeKey] ?? {}) : {},
     }))
     const variantCombinations = buildVariantCombinations(configuredAttributes.map((attribute) => ({
       key: attribute.attribute_key,
@@ -323,8 +375,13 @@ export default function AdminPage() {
       return
     }
 
-    if (variantConfigLoading || configuredAttributes.some((attribute) => attribute.attribute_values.length === 0)) {
-      setFeedback({ kind: 'error', text: 'Ajoutez au moins une valeur pour chaque attribut activé.' })
+    if (variantConfigLoading) {
+      setFeedback({ kind: 'error', text: 'Patientez pendant le chargement des options du produit.' })
+      return
+    }
+
+    if (configuredAttributes.some((attribute) => attribute.attribute_values.length === 0)) {
+      setFeedback({ kind: 'error', text: 'Ajoutez au moins une valeur pour chaque attribut activ?.' })
       return
     }
 
@@ -346,13 +403,21 @@ export default function AdminPage() {
       return
     }
 
-    if ((!editingId && imageFiles.length < 3) || (imageFiles.length > 0 && imageFiles.length < 3)) {
-      setFeedback({ kind: 'error', text: 'Sélectionnez au moins 3 photos JPG, PNG ou WebP. Vous pouvez en ajouter 5 ou plus.' })
+    if (imageFiles.some((file) => file.size > 6 * 1024 * 1024 || !['image/jpeg', 'image/png', 'image/webp'].includes(file.type))) {
+      setFeedback({ kind: 'error', text: 'Chaque photo doit être au format JPG, PNG ou WebP et faire 6 Mo maximum.' })
       return
     }
 
-    if (imageFiles.some((file) => file.size > 6 * 1024 * 1024 || !['image/jpeg', 'image/png', 'image/webp'].includes(file.type))) {
-      setFeedback({ kind: 'error', text: 'Chaque photo doit être au format JPG, PNG ou WebP et faire 6 Mo maximum.' })
+    const totalImages = existingImages.length + imageFiles.length
+    const publishable = totalImages >= 3
+
+    if (!editingId && imageFiles.length === 0) {
+      setFeedback({ kind: 'error', text: 'Ajoutez au moins une photo pour créer ce produit (1 ou 2 photos : brouillon, 3 ou plus : publication possible).' })
+      return
+    }
+
+    if (editingId && totalImages === 0 && !fallbackImageUrl) {
+      setFeedback({ kind: 'error', text: 'Ajoutez au moins une photo ou conservez une image existante.' })
       return
     }
 
@@ -372,18 +437,23 @@ export default function AdminPage() {
     let productId = editingId
     let createdProduct = false
     const uploadedPaths: string[] = []
-    let productImageUrl = imageUrl
+
+    const baseImageUrl = editingId
+      ? (existingImages[0]?.image_url ?? fallbackImageUrl ?? null)
+      : (fallbackImageUrl ?? null)
+    const desiredActive = editingId ? (editingActive && publishable) : publishable
+
     const productValues = {
       name,
       description: form.description.trim(),
       price,
       delivery_estimate: form.deliveryEstimate.trim() || null,
-      image_url: productImageUrl,
+      image_url: baseImageUrl,
       category: form.category.trim() || null,
       moq,
       stock_status: form.stockStatus,
       featured: form.featured,
-      active: editingId ? editingActive : false,
+      active: desiredActive,
       origin: form.origin,
       local_stock: localStock,
       city: form.origin === 'local' ? form.city.trim() : null,
@@ -395,7 +465,7 @@ export default function AdminPage() {
       productId = crypto.randomUUID()
       const { error } = await requestAdminProducts('POST', {
         id: productId,
-        product: { ...productValues, image_url: imageUrl, active: false },
+        product: { ...productValues, active: false },
       })
 
       if (error) {
@@ -406,14 +476,22 @@ export default function AdminPage() {
       createdProduct = true
     }
 
+    let primaryImageUrl = baseImageUrl
     if (imageFiles.length > 0) {
-      const { data: existingImages } = await supabase
+      const { data: existingRows, error: existingRowsError } = await supabase
         .from('product_images')
         .select('display_order')
         .eq('product_id', productId)
         .order('display_order', { ascending: false })
         .limit(1)
-      const firstOrder = (existingImages?.[0]?.display_order ?? -1) + 1
+      if (existingRowsError) {
+        logClientError('Admin product image order lookup failed', existingRowsError)
+        if (createdProduct) await removeCreatedProduct(productId)
+        setSaving(false)
+        setFeedback({ kind: 'error', text: 'Impossible de préparer l’ajout des photos. Réessayez.' })
+        return
+      }
+      const firstOrder = (existingRows?.[0]?.display_order ?? -1) + 1
       const galleryRows: { product_id: string; image_url: string; storage_path: string; display_order: number }[] = []
 
       for (const [index, file] of imageFiles.entries()) {
@@ -435,7 +513,7 @@ export default function AdminPage() {
 
         uploadedPaths.push(objectPath)
         const publicUrl = supabase.storage.from('products').getPublicUrl(objectPath).data.publicUrl
-        if (index === 0) productImageUrl = publicUrl
+        if (existingImages.length === 0 && index === 0) primaryImageUrl = publicUrl
         galleryRows.push({
           product_id: productId,
           image_url: publicUrl,
@@ -455,19 +533,17 @@ export default function AdminPage() {
       }
     }
 
+    const finalPrimaryImageUrl = existingImages[0]?.image_url ?? primaryImageUrl ?? null
     const { error } = await requestAdminProducts('PUT', {
       id: productId,
-      product: { ...productValues, image_url: productImageUrl },
+      product: { ...productValues, image_url: finalPrimaryImageUrl, active: desiredActive },
     })
 
     if (error) {
       setSaving(false)
       if (uploadedPaths.length) await supabase.storage.from('products').remove(uploadedPaths)
       if (createdProduct) await removeCreatedProduct(productId)
-      setFeedback({
-        kind: 'error',
-        text: error,
-      })
+      setFeedback({ kind: 'error', text: error })
       return
     }
 
@@ -513,7 +589,8 @@ export default function AdminPage() {
       }
     }
 
-    if (createdProduct) {
+    let activationMessage = ''
+    if (desiredActive) {
       const { error: activateError } = await requestAdminProducts('PATCH', {
         id: productId,
         action: 'set-active',
@@ -521,32 +598,159 @@ export default function AdminPage() {
       })
       if (activateError) {
         setSaving(false)
-        setFeedback({ kind: 'error', text: `Les options sont enregistrées, mais le produit n’a pas pu être publié : ${activateError}` })
+        setFeedback({ kind: 'error', text: `Les modifications sont enregistrées, mais le produit n’a pas pu être publié : ${activateError}` })
+        await loadProducts()
         return
       }
+    } else if (!publishable) {
+      activationMessage = ' Ajoutez au moins 3 photos au total pour pouvoir publier ce produit. Il reste en brouillon.'
     }
 
     setSaving(false)
-
     setForm(emptyForm)
     setImageFiles([])
+    setImagePreviews([])
+    setExistingImages([])
     setEditingId(null)
+    setEditingActive(true)
     setSelectedAttributeKeys([])
     setAttributeValueInputs({})
     setAttributeColorInputs({})
     setVariantDrafts({})
-    setFeedback({ kind: 'success', text: editingId ? 'Produit modifié.' : 'Produit publié dans le catalogue.' })
-    setImagePreviews([])
+    setFeedback({
+      kind: publishable ? 'success' : 'success',
+      text: (editingId ? 'Produit modifi?.' : 'Produit enregistr?.') + activationMessage,
+    })
+    await loadProducts()
+  }
+
+  async function loadProductImages(productId: string) {
+    setExistingImagesLoading(true)
+    const { data, error } = await supabase
+      .from('product_images')
+      .select('id, image_url, storage_path, display_order')
+      .eq('product_id', productId)
+      .order('display_order', { ascending: true })
+
+    setExistingImagesLoading(false)
+    if (error) {
+      logClientError('Admin product images load failed', error)
+      setFeedback({ kind: 'error', text: 'Impossible de charger les photos existantes de ce produit.' })
+      return
+    }
+
+    const images = (data ?? []) as ExistingProductImage[]
+    setExistingImages(images)
+    setForm((current) => ({ ...current, imageUrl: images[0]?.image_url ?? current.imageUrl }))
+  }
+
+  async function deleteExistingImage(image: ExistingProductImage) {
+    if (!editingId) return
+    if (!window.confirm('Supprimer cette photo ? Le fichier sera retir? du stockage.')) return
+
+    setImageActionBusy(`delete-${image.id}`)
+    const { error, data } = await requestAdminProductImages('DELETE', { id: editingId, imageId: image.id })
+    setImageActionBusy(null)
+    if (error) {
+      setFeedback({ kind: 'error', text: error })
+      return
+    }
+
+    const images = Array.isArray(data?.images) ? (data.images as ExistingProductImage[]) : []
+    setExistingImages(images)
+    setForm((current) => ({ ...current, imageUrl: images[0]?.image_url ?? '' }))
+    setFeedback({ kind: 'success', text: 'Photo supprimée.' })
+    await loadProducts()
+  }
+
+  async function replaceExistingImage(image: ExistingProductImage, file: File) {
+    if (!editingId) return
+    if (file.size > 6 * 1024 * 1024 || !['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+      setFeedback({ kind: 'error', text: 'Chaque photo doit ?tre au format JPG, PNG ou WebP et faire 6 Mo maximum.' })
+      return
+    }
+
+    const { data: refreshedAuth, error: refreshError } = await supabase.auth.refreshSession()
+    const refreshedUser = refreshedAuth.session?.user
+    const refreshedRole = refreshedUser ? await getStaffRoleForUser(refreshedUser) : null
+    if (refreshError || !canAccessAdminPath(refreshedRole, '/admin')) {
+      if (refreshError) logClientError('Admin access refresh failed', refreshError)
+      setFeedback({ kind: 'error', text: 'Impossible de vérifier votre accès administrateur. Reconnectez-vous puis réessayez.' })
+      return
+    }
+
+    setImageActionBusy(`replace-${image.id}`)
+    const objectPath = `${editingId}/${crypto.randomUUID()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, '-')}`
+    const { error: uploadError } = await supabase.storage.from('products').upload(objectPath, file, {
+      cacheControl: '3600',
+      contentType: file.type,
+      upsert: false,
+    })
+    if (uploadError) {
+      logClientError('Admin product image replace upload failed', uploadError)
+      setImageActionBusy(null)
+      setFeedback({ kind: 'error', text: 'La nouvelle photo n’a pas pu être envoyée.' })
+      return
+    }
+
+    const publicUrl = supabase.storage.from('products').getPublicUrl(objectPath).data.publicUrl
+    const { error, data } = await requestAdminProductImages('PATCH', {
+      id: editingId,
+      action: 'replace',
+      imageId: image.id,
+      image_url: publicUrl,
+      storage_path: objectPath,
+    })
+    setImageActionBusy(null)
+    if (error) {
+      await supabase.storage.from('products').remove([objectPath])
+      setFeedback({ kind: 'error', text: error })
+      return
+    }
+
+    const images = Array.isArray(data?.images) ? (data.images as ExistingProductImage[]) : []
+    setExistingImages(images)
+    setForm((current) => ({ ...current, imageUrl: images[0]?.image_url ?? '' }))
+    setFeedback({ kind: 'success', text: 'Photo remplacée.' })
+    await loadProducts()
+  }
+
+  async function moveExistingImage(index: number, direction: -1 | 1) {
+    if (!editingId) return
+    const targetIndex = index + direction
+    if (targetIndex < 0 || targetIndex >= existingImages.length) return
+    const ordered = [...existingImages]
+    const [moved] = ordered.splice(index, 1)
+    ordered.splice(targetIndex, 0, moved)
+
+    setImageActionBusy(`move-${moved.id}`)
+    const { error, data } = await requestAdminProductImages('PATCH', {
+      id: editingId,
+      action: 'reorder',
+      orderedImageIds: ordered.map((img) => img.id),
+    })
+    setImageActionBusy(null)
+    if (error) {
+      setFeedback({ kind: 'error', text: error })
+      return
+    }
+
+    const images = Array.isArray(data?.images) ? (data.images as ExistingProductImage[]) : ordered
+    setExistingImages(images)
+    setForm((current) => ({ ...current, imageUrl: images[0]?.image_url ?? '' }))
     await loadProducts()
   }
 
   function editProduct(product: Product) {
-    setEditingId(String(product.id))
+    const productId = String(product.id)
+    setEditingId(productId)
     setEditingActive(product.active)
     setImageFiles([])
     setImagePreviews([])
+    setExistingImages([])
     setSelectedAttributeKeys([])
     setAttributeValueInputs({})
+    setAttributeColorInputs({})
     setVariantDrafts({})
     setForm({
       name: product.name,
@@ -565,7 +769,8 @@ export default function AdminPage() {
       partnerId: product.partner_id ?? '',
     })
     setFeedback(null)
-    void loadProductVariantConfiguration(String(product.id))
+    void loadProductVariantConfiguration(productId)
+    void loadProductImages(productId)
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
@@ -618,10 +823,46 @@ export default function AdminPage() {
       setForm(emptyForm)
       setImageFiles([])
       setImagePreviews([])
+      setExistingImages([])
       setSelectedAttributeKeys([])
       setAttributeValueInputs({})
       setAttributeColorInputs({})
       setVariantDrafts({})
+    }
+    await loadProducts()
+  }
+
+  async function deleteProduct(product: Product) {
+    const confirmed = window.confirm(
+      `Supprimer « ${product.name} » ?\n\nSi le produit est lié à des commandes, il sera archivé (masqué) sans effacer l’historique. S’il n’a jamais été commandé, il sera supprimé définitivement avec ses photos et ses coûts.`,
+    )
+    if (!confirmed) return
+
+    setDeletingProductId(String(product.id))
+    const { error, data } = await requestAdminProducts('DELETE', { id: product.id })
+    setDeletingProductId(null)
+    if (error) {
+      setFeedback({ kind: 'error', text: error })
+      return
+    }
+
+    if (editingId === String(product.id)) {
+      setEditingId(null)
+      setEditingActive(true)
+      setForm(emptyForm)
+      setImageFiles([])
+      setImagePreviews([])
+      setExistingImages([])
+      setSelectedAttributeKeys([])
+      setAttributeValueInputs({})
+      setAttributeColorInputs({})
+      setVariantDrafts({})
+    }
+
+    if (data?.archived) {
+      setFeedback({ kind: 'success', text: `Produit archivé : « ${product.name} » reste masqué car il est lié à des commandes.` })
+    } else {
+      setFeedback({ kind: 'success', text: `Produit supprimé : « ${product.name} » a été retiré avec ses photos et ses coûts.` })
     }
     await loadProducts()
   }
@@ -669,18 +910,18 @@ export default function AdminPage() {
             {access === 'signed-out'
               ? 'Connexion requise'
               : access === 'auth-error'
-                ? 'Connexion momentanément indisponible'
+                ?'Connexion momentanément indisponible'
                 : access === 'denied'
-                  ? 'Accès refusé'
+                  ?'Accès refusé'
                   : 'Accès réservé'}
           </h1>
           <p>
             {access === 'signed-out'
-              ? 'Connectez-vous avec un compte autorisé pour gérer le catalogue.'
+              ?'Connectez-vous avec un compte autorisé pour gérer le catalogue.'
               : access === 'auth-error'
-                ? authError
+                ?authError
                 : access === 'denied'
-                  ? 'Votre rôle ne permet pas d’accéder à cette page.'
+                  ?'Votre rôle ne permet pas d’accéder à cette page.'
                   : 'Ce compte ne dispose pas du rôle administrateur.'}
           </p>
           {access === 'signed-out' && <Link className="admin-primary-link" href="/login?next=%2Fadmin">Se connecter</Link>}
@@ -691,12 +932,14 @@ export default function AdminPage() {
     )
   }
 
-  const imagePreview = imagePreviews[0]?.url ?? getPreviewUrl(form.imageUrl.trim())
+  const imagePreview = imagePreviews[0]?.url ?? existingImages[0]?.image_url ?? getPreviewUrl(form.imageUrl.trim())
+  const totalImageCount = existingImages.length + imageFiles.length
+  const canPublishWithImages = totalImageCount >= 3
   const activeProducts = products.filter((product) => product.active).length
   const hiddenProducts = products.length - activeProducts
   const visibleProducts = products.filter((product) => {
     const matchesSearch = `${product.name} ${product.category ?? ''}`.toLocaleLowerCase().includes(productSearch.trim().toLocaleLowerCase())
-    const matchesFilter = productFilter === 'all' || (productFilter === 'active' ? product.active : !product.active)
+    const matchesFilter = productFilter === 'all' || (productFilter === 'active' ?product.active : !product.active)
     return matchesSearch && matchesFilter
   })
   const configuredAttributes = selectedAttributeKeys.map((attributeKey) => ({
@@ -756,9 +999,9 @@ export default function AdminPage() {
             <div className="admin-section-heading">
               <div>
                 <p className="eyebrow">NOUVEL ARTICLE</p>
-                <h2>{editingId ? 'Modifier le produit' : 'Informations produit'}</h2>
+                <h2>{editingId ?'Modifier le produit' : 'Informations produit'}</h2>
               </div>
-              <span className="publish-badge"><span /> {editingId ? 'Modification' : 'Prêt à publier'}</span>
+              <span className="publish-badge"><span /> {editingId ?'Modification' : 'Prêt à publier'}</span>
             </div>
 
             <form className="admin-product-form" onSubmit={handleSubmit}>
@@ -834,7 +1077,7 @@ export default function AdminPage() {
                   onChange={(event) => setForm({
                     ...form,
                     origin: event.target.value === 'local' ? 'local' : 'import',
-                    partnerId: event.target.value === 'local' ? form.partnerId : '',
+                    partnerId: event.target.value === 'local' ?form.partnerId : '',
                   })}
                 >
                   <option value="import">Import Chine</option>
@@ -932,7 +1175,7 @@ export default function AdminPage() {
                   <h3 id="variant-editor-title">Variantes et stock</h3>
                   <p>Activez les caractéristiques vendues avec plusieurs choix. Sans attribut actif, la disponibilité générale reste utilisée.</p>
                 </div>
-                {variantConfigLoading ? (
+                {variantConfigLoading ?(
                   <p role="status">Chargement des variantes...</p>
                 ) : (
                   <>
@@ -996,9 +1239,9 @@ export default function AdminPage() {
                         )}
                       </div>
                     ))}
-                    {selectedAttributeKeys.length === 0 ? (
+                    {selectedAttributeKeys.length === 0 ?(
                       <p className="variant-editor-note">Aucune variante : le produit utilise son statut général Disponible / Indisponible.</p>
-                    ) : variantCombinations.length === 0 ? (
+                    ) : variantCombinations.length === 0 ?(
                       <p className="variant-editor-note">Ajoutez des valeurs pour chaque attribut afin de générer les combinaisons.</p>
                     ) : (
                       <div className="variant-table-wrap">
@@ -1026,44 +1269,105 @@ export default function AdminPage() {
                 )}
               </section>
 
-              <label>
-                <span>Photo du produit</span>
-                <input
-                  accept="image/jpeg,image/png,image/webp"
-                  multiple
-                  onChange={(event) => {
-                    const files = Array.from(event.currentTarget.files ?? [])
-                    if (files.some((file) => file.size > 6 * 1024 * 1024)) {
-                      setFeedback({ kind: 'error', text: 'Chaque photo doit faire 6 Mo maximum.' })
-                      event.currentTarget.value = ''
-                      return
-                    }
-                    if (files.length > 0 && files.length < 3) {
-                      setFeedback({ kind: 'error', text: 'Sélectionnez au moins 3 photos en une seule fois. Vous pouvez en choisir 5 ou plus.' })
-                      event.currentTarget.value = ''
-                      return
-                    }
-                    setFeedback(null)
-                    setImagePreviews([])
-                    setImageFiles(files)
-                  }}
-                  type="file"
-                />
-                <small className="field-hint">Minimum 3 photos, 5 ou plus accepté. JPG, PNG ou WebP, 6 Mo maximum chacune. {imageFiles.length} sélectionnée{imageFiles.length === 1 ? '' : 's'}.</small>
-              </label>
+              <section className="admin-photo-manager" aria-label="Photos du produit">
+                <div className="admin-section-heading">
+                  <div>
+                    <h3>Photos du produit</h3>
+                    <p>Total : {totalImageCount} image(s) (existantes + nouvelles). {canPublishWithImages ? 'Publication possible (3 photos ou plus).' : 'Ajoutez au moins 3 photos au total pour publier ce produit. Il restera en brouillon.'}</p>
+                  </div>
+                </div>
 
-              <label>
-                <span>URL publique de secours (réservée aux produits existants)</span>
-                <input
-                  autoComplete="url"
-                  placeholder="https://... (facultatif si vous importez une photo)"
-                  type="url"
-                  value={form.imageUrl}
-                  onChange={(event) => {
-                    setForm({ ...form, imageUrl: event.target.value })
-                  }}
-                />
-              </label>
+                {editingId && (
+                  <div className="admin-existing-images">
+                    <h4>Photos enregistrées</h4>
+                    {existingImagesLoading ? (
+                      <p role="status">Chargement des photos existantes...</p>
+                    ) : existingImages.length === 0 ? (
+                      <p>Aucune photo enregistrée pour ce produit.</p>
+                    ) : (
+                      <ul className="admin-existing-image-list">
+                        {existingImages.map((image, index) => (
+                          <li key={image.id} className="admin-existing-image-item">
+                            <div className="admin-existing-image-preview">
+                              <Image src={image.image_url} alt={`Photo ${index + 1}`} fill sizes="96px" unoptimized />
+                              {index === 0 && <span className="admin-image-badge">Principale</span>}
+                            </div>
+                            <div className="admin-existing-image-actions">
+                              <button
+                                type="button"
+                                disabled={imageActionBusy !== null || index === 0}
+                                onClick={() => void moveExistingImage(index, -1)}
+                              >Monter</button>
+                              <button
+                                type="button"
+                                disabled={imageActionBusy !== null || index === existingImages.length - 1}
+                                onClick={() => void moveExistingImage(index, 1)}
+                              >Descendre</button>
+                              <label className="admin-image-replace">
+                                <input
+                                  accept="image/jpeg,image/png,image/webp"
+                                  disabled={imageActionBusy !== null}
+                                  type="file"
+                                  onChange={(event) => {
+                                    const file = event.currentTarget.files?.[0]
+                                    event.currentTarget.value = ''
+                                    if (file) void replaceExistingImage(image, file)
+                                  }}
+                                />
+                                <span>{imageActionBusy === `replace-${image.id}` ? 'Remplacement...' : 'Remplacer'}</span>
+                              </label>
+                              <button
+                                type="button"
+                                disabled={imageActionBusy !== null}
+                                onClick={() => void deleteExistingImage(image)}
+                              >{imageActionBusy === `delete-${image.id}` ? 'Suppression...' : 'Supprimer'}</button>
+                            </div>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                )}
+
+                <label>
+                  <span>{editingId ? 'Ajouter de nouvelles photos' : 'Photos du produit'}</span>
+                  <input
+                    accept="image/jpeg,image/png,image/webp"
+                    multiple
+                    onChange={(event) => {
+                      const files = Array.from(event.currentTarget.files ?? [])
+                      if (files.some((file) => file.size > 6 * 1024 * 1024 || !['image/jpeg', 'image/png', 'image/webp'].includes(file.type))) {
+                        setFeedback({ kind: 'error', text: 'Chaque photo doit ?tre au format JPG, PNG ou WebP et faire 6 Mo maximum.' })
+                        event.currentTarget.value = ''
+                        return
+                      }
+                      setImagePreviews([])
+                      setImageFiles(files)
+                      if (!editingId && files.length > 0 && files.length < 3) {
+                        setFeedback({ kind: 'error', text: 'Produit enregistré en brouillon : ajoutez au moins 3 photos au total pour pouvoir le publier.' })
+                      } else {
+                        setFeedback(null)
+                      }
+                    }}
+                    type="file"
+                  />
+                  <small className="field-hint">JPG, PNG ou WebP, 6 Mo maximum chacune. {imageFiles.length} nouvelle(s) sélectionnée(s). Les nouvelles photos seront ajoutées à la suite, sans dupliquer les photos existantes.</small>
+                </label>
+
+                <label>
+                  <span>URL publique de secours (ne compte pas comme photo enregistrée pour la publication)</span>
+                  <input
+                    autoComplete="url"
+                    placeholder="https://... (facultatif)"
+                    type="url"
+                    value={form.imageUrl}
+                    onChange={(event) => {
+                      setForm({ ...form, imageUrl: event.target.value })
+                    }}
+                  />
+                  <small className="field-hint">La publication nécessite au moins 3 photos enregistrées en base (product_images). Une URL de secours seule ne suffit pas.</small>
+                </label>
+              </section>
 
               <div className="admin-preview-row">
                 <div className="admin-image-preview">
@@ -1077,13 +1381,14 @@ export default function AdminPage() {
                   <span>Aperçu catalogue</span>
                   <strong>{form.name.trim() || 'Nom du produit'}</strong>
                   <b>{Number(form.price || 0).toLocaleString('fr-FR')} FCFA</b>
+                  <small>{canPublishWithImages ? 'Prêt à publier (3 photos ou plus)' : 'Brouillon tant que le total est inférieur à 3 photos'}</small>
                 </div>
               </div>
-              {imagePreviews.length > 1 && (
-                <div className="admin-image-preview-grid" aria-label="Aperçu des photos sélectionnées">
+              {imagePreviews.length > 0 && (
+                <div className="admin-image-preview-grid" aria-label="Aperçu des nouvelles photos sélectionnées">
                   {imagePreviews.map((preview, index) => (
                     <div className="admin-gallery-preview" key={`${preview.file.name}-${index}`}>
-                      <Image src={preview.url} alt={`Photo ${index + 1}`} fill sizes="80px" unoptimized />
+                      <Image src={preview.url} alt={`Nouvelle photo ${index + 1}`} fill sizes="80px" unoptimized />
                       <span>{index + 1}</span>
                     </div>
                   ))}
@@ -1096,11 +1401,11 @@ export default function AdminPage() {
                 </p>
               )}
 
-              <button className="admin-submit" type="submit" disabled={saving}>
-                {saving ? 'Enregistrement...' : editingId ? 'Enregistrer les modifications' : 'Publier le produit'}
-                {!saving && <span aria-hidden="true">→</span>}
+              <button className="admin-submit" type="submit" disabled={saving || imageActionBusy !== null || existingImagesLoading}>
+                {saving ? 'Enregistrement...' : editingId ? 'Enregistrer les modifications' : (canPublishWithImages ? 'Publier le produit' : 'Enregistrer en brouillon')}
+                {!saving && <span aria-hidden="true">{'\u2192'}</span>}
               </button>
-              {editingId && <button className="admin-cancel-edit" type="button" onClick={() => { setEditingId(null); setImageFiles([]); setImagePreviews([]); setSelectedAttributeKeys([]); setAttributeValueInputs({}); setAttributeColorInputs({}); setVariantDrafts({}); setForm(emptyForm); setFeedback(null) }}>Annuler la modification</button>}
+              {editingId && <button className="admin-cancel-edit" type="button" onClick={() => { setEditingId(null); setEditingActive(true); setImageFiles([]); setImagePreviews([]); setExistingImages([]); setSelectedAttributeKeys([]); setAttributeValueInputs({}); setAttributeColorInputs({}); setVariantDrafts({}); setForm(emptyForm); setFeedback(null) }}>Annuler la modification</button>}
             </form>
           </section>
 
@@ -1118,19 +1423,19 @@ export default function AdminPage() {
               <input placeholder="Rechercher un produit..." value={productSearch} onChange={(event) => setProductSearch(event.target.value)} />
             </label>
             <div className="admin-product-filters" role="group" aria-label="Filtrer les produits">
-              <button className={productFilter === 'all' ? 'active' : ''} type="button" onClick={() => setProductFilter('all')}>Tous <span>{products.length}</span></button>
-              <button className={productFilter === 'active' ? 'active' : ''} type="button" onClick={() => setProductFilter('active')}>En ligne <span>{activeProducts}</span></button>
-              <button className={productFilter === 'hidden' ? 'active' : ''} type="button" onClick={() => setProductFilter('hidden')}>Masqués <span>{hiddenProducts}</span></button>
+              <button className={productFilter === 'all' ?'active' : ''} type="button" onClick={() => setProductFilter('all')}>Tous <span>{products.length}</span></button>
+              <button className={productFilter === 'active' ?'active' : ''} type="button" onClick={() => setProductFilter('active')}>En ligne <span>{activeProducts}</span></button>
+              <button className={productFilter === 'hidden' ?'active' : ''} type="button" onClick={() => setProductFilter('hidden')}>Masqués <span>{hiddenProducts}</span></button>
             </div>
-            {productsError ? (
+            {productsError ?(
               <p className="admin-list-error">Impossible de charger le catalogue : {productsError}</p>
-            ) : visibleProducts.length === 0 ? (
-              <p className="admin-empty-list">{products.length === 0 ? 'Aucun produit pour le moment. Ajoutez votre premier article.' : 'Aucun produit ne correspond à cette recherche.'}</p>
+            ) : visibleProducts.length === 0 ?(
+              <p className="admin-empty-list">{products.length === 0 ?'Aucun produit pour le moment. Ajoutez votre premier article.' : 'Aucun produit ne correspond à cette recherche.'}</p>
             ) : (
               <ul className="admin-product-list">
                 {visibleProducts.map((product) => (
                   <li
-                    className={isLocalStockWarning(product) ? 'admin-local-stock-warning' : ''}
+                    className={isLocalStockWarning(product) ?'admin-local-stock-warning' : ''}
                     key={product.id}
                   >
                     <div className="admin-list-image">
@@ -1138,17 +1443,17 @@ export default function AdminPage() {
                     </div>
                     <div className="admin-list-copy">
                       <strong>{product.name}</strong>
-                      <span>{product.featured ? 'Vedette · ' : ''}{product.category || 'Sans catégorie'} · Minimum {product.moq}</span>
-                      {product.origin === 'local' ? (
+                      <span>{product.featured ?'Vedette · ' : ''}{product.category || 'Sans catégorie'} · Minimum {product.moq}</span>
+                      {product.origin === 'local' ?(
                         <span className="admin-local-stock-details">
-                          Disponible au Sénégal · Stock {product.local_stock} · {product.city || 'Ville à confirmer'} · Mis à jour le {formatStockUpdatedAt(product.stock_updated_at)}{isLocalStockWarning(product) ? ' · Stock à confirmer' : ''}
+                          Disponible au Sénégal · Stock {product.local_stock} · {product.city || 'Ville à confirmer'} · Mis à jour le {formatStockUpdatedAt(product.stock_updated_at)}{isLocalStockWarning(product) ?' · Stock à confirmer' : ''}
                         </span>
                       ) : (
                         <span className="admin-import-origin">Import Chine</span>
                       )}
                     </div>
                     <b>{Number(product.price).toLocaleString('fr-FR')} FCFA</b>
-                    <span className={`admin-product-status ${product.active ? 'is-live' : 'is-hidden'}`}>{product.active ? 'En ligne' : 'Masqué'}</span>
+                    <span className={`admin-product-status ${product.active ?'is-live' : 'is-hidden'}`}>{product.active ?'En ligne' : 'Masqué'}</span>
                     {product.origin === 'local' && (
                       <div className="admin-local-stock-actions">
                         <label>
@@ -1158,7 +1463,7 @@ export default function AdminPage() {
                             min="1"
                             step="1"
                             type="number"
-                            value={stockQuantities[String(product.id)] ?? String(product.local_stock)}
+                            value={stockQuantities[String(product.id)] ?? String(product.local_stock ?? '')}
                             onChange={(event) => setStockQuantities((current) => ({
                               ...current,
                               [String(product.id)]: event.target.value,
@@ -1176,12 +1481,15 @@ export default function AdminPage() {
                       </div>
                     )}
                     <button className="admin-list-action" type="button" onClick={() => editProduct(product)} aria-label={`Modifier ${product.name}`}>✎</button>
-                    <button className="admin-list-action" type="button" onClick={() => void toggleProduct(product)} aria-label={`${product.active ? 'Désactiver' : 'Réactiver'} ${product.name}`}>{product.active ? '−' : '+'}</button>
+                    <button className="admin-list-action" type="button" onClick={() => void toggleProduct(product)} aria-label={`${product.active ? 'Désactiver' : 'Réactiver'} ${product.name}`} >{product.active ? '−' : '+'}</button>
+                    <button className="admin-list-action is-danger" type="button" disabled={deletingProductId === String(product.id)} onClick={() => void deleteProduct(product)} aria-label={`Supprimer ou archiver ${product.name}`}>
+                      {deletingProductId === String(product.id) ? '...' : 'Supprimer'}
+                    </button>
                   </li>
                 ))}
               </ul>
             )}
-            <Link className="admin-catalog-link" href="/">Voir le catalogue <span aria-hidden="true">→</span></Link>
+            <Link className="admin-catalog-link" href="/">Voir le catalogue <span aria-hidden="true">{'\u2192'}</span></Link>
           </section>
         </div>
       </div>

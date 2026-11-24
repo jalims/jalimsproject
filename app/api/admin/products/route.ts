@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { ADMIN_AND_OWNER_ROLES, requireRole, type AdminServiceClient } from '../../../../lib/admin-staff'
+import { countProductImages, removeStorageFiles } from '../../../../lib/admin-product-images'
 
 type ProductInput = {
   name: string
@@ -249,6 +250,18 @@ export async function PATCH(request: Request) {
 
   try {
     const supabase = authorization.supabase
+
+    if (body.action === 'set-active' && body.active === true) {
+      const imageCount = await countProductImages(supabase, id)
+      if (imageCount < 3) {
+        await supabase.from('products').update({ active: false }).eq('id', id)
+        return NextResponse.json(
+          { error: 'Ajoutez au moins 3 photos avant de publier ce produit. Il reste en brouillon.' },
+          { status: 400 },
+        )
+      }
+    }
+
     let query = supabase.from('products').update(update).eq('id', id)
     if (body.action === 'confirm-stock') query = query.eq('origin', 'local')
     const { data, error } = await query.select('id').maybeSingle()
@@ -264,6 +277,7 @@ export async function PATCH(request: Request) {
     console.error('[Admin products] Product status update failed', error instanceof Error ? error.message : 'Unknown error')
     return NextResponse.json({ error: 'La modification du produit n’a pas pu être enregistrée.' }, { status: 500 })
   }
+
 }
 
 export async function DELETE(request: Request) {
@@ -276,15 +290,55 @@ export async function DELETE(request: Request) {
 
   try {
     const supabase = authorization.supabase
+
+    const { count: orderCount, error: orderError } = await supabase
+      .from('orders')
+      .select('id', { count: 'exact', head: true })
+      .eq('product_id', id)
+    if (orderError) {
+      console.error('[Admin products] Delete reference check failed', orderError.message)
+      return NextResponse.json({ error: 'Impossible de vérifier si ce produit est lié à des commandes.' }, { status: 500 })
+    }
+
+    if ((orderCount ?? 0) > 0) {
+      const { error: archiveError } = await supabase.from('products').update({ active: false }).eq('id', id)
+      if (archiveError) {
+        console.error('[Admin products] Archive failed', archiveError.message)
+        return NextResponse.json({ error: 'Le produit n’a pas pu être archivé.' }, { status: 500 })
+      }
+      return NextResponse.json({ success: true, archived: true })
+    }
+
+    const { data: images, error: imagesError } = await supabase
+      .from('product_images')
+      .select('storage_path')
+      .eq('product_id', id)
+    if (imagesError) {
+      console.error('[Admin products] Delete image lookup failed', imagesError.message)
+      return NextResponse.json({ error: 'Le produit n’a pas pu être supprimé.' }, { status: 500 })
+    }
+
+    try {
+      await removeStorageFiles(supabase, (images ?? []).map((image) => image.storage_path))
+    } catch (storageError) {
+      console.error('[Admin products] Delete storage cleanup failed', storageError instanceof Error ? storageError.message : storageError)
+    }
+
+    const { error: costsError } = await supabase.from('product_costs').delete().eq('product_id', id)
+    if (costsError) {
+      console.error('[Admin products] Delete product_costs failed', costsError.message)
+      return NextResponse.json({ error: 'Les coûts du produit n’ont pas pu être supprimés.' }, { status: 500 })
+    }
+
     const { error } = await supabase.from('products').delete().eq('id', id)
     if (error) {
       console.error('[Admin products] Delete failed', error.message)
-      return NextResponse.json({ error: 'Le produit temporaire n’a pas pu être supprimé.' }, { status: 500 })
+      return NextResponse.json({ error: 'Le produit n’a pas pu être supprimé.' }, { status: 500 })
     }
 
-    return NextResponse.json({ success: true })
+    return NextResponse.json({ success: true, deleted: true })
   } catch (error) {
     console.error('[Admin products] Delete failed', error instanceof Error ? error.message : 'Unknown error')
-    return NextResponse.json({ error: 'Le produit temporaire n’a pas pu être supprimé.' }, { status: 500 })
+    return NextResponse.json({ error: 'Le produit n’a pas pu être supprimé.' }, { status: 500 })
   }
 }
