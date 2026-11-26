@@ -1080,6 +1080,21 @@
   padding-bottom: 24px;
 }
 
+.admin-app .admin-ui-product-header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.admin-app .admin-ui-product-edit-link {
+  color: var(--admin-brand-hover);
+  font-size: 12px;
+  font-weight: 650;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
 .admin-app .admin-ui-product-section {
   min-width: 0;
   scroll-margin-top: 96px;

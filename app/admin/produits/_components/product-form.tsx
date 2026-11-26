@@ -11,7 +11,7 @@ import { useAdminSession } from '../../admin-session-provider'
 import { DEFAULT_APP_PRICING_SETTINGS, getDisplayedUnitPrice, normalizeAppPricingSettings, type AppPricingSettings } from '../../../../lib/imported-product-pricing'
 import QuantityInput from '../../../ui/quantity-input'
 import { Badge, Button, Card, ConfirmDialog, Input, PageHeader, Select, Skeleton, Textarea, useToast } from '../../_components'
-import { PRODUCT_SELECT_COLUMNS, removeCreatedProduct, requestAdminProductImages, requestAdminProducts, type Product, type SupplierCost } from './product-data'
+import { PRODUCT_SELECT_COLUMNS, requestAdminProductImages, requestAdminProducts, type Product, type SupplierCost } from './product-data'
 
 type PartnerOption = { id: string; name: string; city: string; active: boolean }
 type ExistingProductImage = {
@@ -92,6 +92,7 @@ export default function ProductForm({ productId }: { productId?: string }) {
   const [editingActive, setEditingActive] = useState(true)
   const [imageFiles, setImageFiles] = useState<File[]>([])
   const [imagePreviews, setImagePreviews] = useState<{ file: File; url: string }[]>([])
+  const [uploadRetryAvailable, setUploadRetryAvailable] = useState(false)
   const [existingImages, setExistingImages] = useState<ExistingProductImage[]>([])
   const [existingImagesLoading, setExistingImagesLoading] = useState(false)
   const [imageActionBusy, setImageActionBusy] = useState<string | null>(null)
@@ -182,9 +183,69 @@ export default function ProductForm({ productId }: { productId?: string }) {
     }
   }, [imageFiles])
 
+  async function uploadProductImages(productId: string, files: File[]) {
+    const { data: existingRows, error: existingRowsError } = await supabase
+      .from('product_images')
+      .select('display_order')
+      .eq('product_id', productId)
+      .order('display_order', { ascending: false })
+      .limit(1)
+    if (existingRowsError) {
+      logClientError('Admin product image order lookup failed', existingRowsError)
+      return { galleryRows: [], failedFiles: files, primaryImageUrl: null, error: 'Impossible de préparer l’ajout des photos. Réessayez.' }
+    }
+
+    const firstOrder = (existingRows?.[0]?.display_order ?? -1) + 1
+    const galleryRows: { product_id: string; image_url: string; storage_path: string; display_order: number }[] = []
+    const uploadedPaths: string[] = []
+    const failedFiles: File[] = []
+    let primaryImageUrl: string | null = null
+
+    for (const file of files) {
+      const objectPath = `${productId}/${crypto.randomUUID()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, '-')}`
+      const { error: uploadError } = await supabase.storage.from('products').upload(objectPath, file, {
+        cacheControl: '3600',
+        contentType: file.type,
+        upsert: false,
+      })
+
+      if (uploadError) {
+        logClientError('Admin product image upload failed', uploadError)
+        failedFiles.push(file)
+        continue
+      }
+
+      uploadedPaths.push(objectPath)
+      const publicUrl = supabase.storage.from('products').getPublicUrl(objectPath).data.publicUrl
+      if (galleryRows.length === 0) primaryImageUrl = publicUrl
+      galleryRows.push({
+        product_id: productId,
+        image_url: publicUrl,
+        storage_path: objectPath,
+        display_order: firstOrder + galleryRows.length,
+      })
+    }
+
+    if (galleryRows.length > 0) {
+      const { error: galleryError } = await supabase.from('product_images').insert(galleryRows)
+      if (galleryError) {
+        logClientError('Admin product gallery save failed', galleryError)
+        const { error: cleanupError } = await supabase.storage.from('products').remove(uploadedPaths)
+        if (cleanupError) logClientError('Admin product orphan image cleanup failed', cleanupError)
+        return { galleryRows: [], failedFiles: files, primaryImageUrl: null, error: 'Les photos envoyées n’ont pas pu être ajoutées à la galerie. Elles restent sélectionnées pour réessayer.' }
+      }
+    }
+
+    return { galleryRows, failedFiles, primaryImageUrl, error: null }
+  }
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setFeedback(null)
+    if (uploadRetryAvailable) {
+      setFeedback({ kind: 'error', text: 'Réessayez d’abord l’envoi des photos restantes avec le bouton prévu à cet effet.' })
+      return
+    }
     const submitter = (event.nativeEvent as SubmitEvent).submitter
     const submitAction = submitter instanceof HTMLButtonElement ? submitter.value : 'draft'
 
@@ -249,7 +310,7 @@ export default function ProductForm({ productId }: { productId?: string }) {
     }
 
     const totalImages = existingImages.length + imageFiles.length
-    const publishable = totalImages >= 3
+    let publishable = totalImages >= 3
 
     if (!editingId && imageFiles.length === 0) {
       setFeedback({ kind: 'error', text: 'Ajoutez au moins une photo pour créer ce produit (1 ou 2 photos : brouillon, 3 ou plus : publication possible).' })
@@ -261,11 +322,23 @@ export default function ProductForm({ productId }: { productId?: string }) {
       return
     }
 
-    const { data: refreshedAuth, error: refreshError } = await supabase.auth.refreshSession()
-    const refreshedUser = refreshedAuth.session?.user
-    const refreshedRole = refreshedUser ? await getStaffRoleForUser(refreshedUser) : null
-    if (refreshError || !canAccessAdminPath(refreshedRole, '/admin/produits')) {
-      if (refreshError) logClientError('Admin access refresh failed', refreshError)
+    setSaving(true)
+    try {
+      const { data: refreshedAuth, error: refreshError } = await supabase.auth.refreshSession()
+      const refreshedUser = refreshedAuth.session?.user
+      const refreshedRole = refreshedUser ? await getStaffRoleForUser(refreshedUser) : null
+      if (refreshError || !canAccessAdminPath(refreshedRole, '/admin/produits')) {
+        if (refreshError) logClientError('Admin access refresh failed', refreshError)
+        setFeedback({
+          kind: 'error',
+          text: 'Impossible de vérifier votre accès administrateur. Reconnectez-vous puis réessayez.',
+        })
+        setSaving(false)
+        return
+      }
+    } catch (error) {
+      logClientError('Admin access refresh failed', error)
+      setSaving(false)
       setFeedback({
         kind: 'error',
         text: 'Impossible de vérifier votre accès administrateur. Reconnectez-vous puis réessayez.',
@@ -273,16 +346,13 @@ export default function ProductForm({ productId }: { productId?: string }) {
       return
     }
 
-    setSaving(true)
     let productId = editingId
-    let createdProduct = false
-    const uploadedPaths: string[] = []
 
     const baseImageUrl = editingId
       ? (existingImages[0]?.image_url ?? fallbackImageUrl ?? null)
       : (fallbackImageUrl ?? null)
-    const desiredActive = editingId
-      ? (editingActive ? publishable : submitAction === 'publish' && publishable)
+    let desiredActive = editingId
+      ? (editingActive || (submitAction === 'publish' && publishable))
       : submitAction === 'publish' && publishable
     const importBasePrice = form.origin === 'import' && form.importBasePrice.trim() !== '' ? Number(form.importBasePrice) : null
     const importBaseCurrency = form.origin === 'import' ? (form.importBaseCurrency === 'CNY' ? 'CNY' : 'FCFA') : null
@@ -322,63 +392,36 @@ export default function ProductForm({ productId }: { productId?: string }) {
         setFeedback({ kind: 'error', text: error })
         return
       }
-      createdProduct = true
+      setEditingId(productId)
+      setEditingActive(false)
     }
 
     let primaryImageUrl = baseImageUrl
+    let hasImageUploadFailures = false
+    let failedImageFiles: File[] = []
     if (imageFiles.length > 0) {
-      const { data: existingRows, error: existingRowsError } = await supabase
-        .from('product_images')
-        .select('display_order')
-        .eq('product_id', productId)
-        .order('display_order', { ascending: false })
-        .limit(1)
-      if (existingRowsError) {
-        logClientError('Admin product image order lookup failed', existingRowsError)
-        if (createdProduct) await removeCreatedProduct(productId)
+      const uploadResult = await uploadProductImages(productId, imageFiles)
+      if (uploadResult.error) {
+        setUploadRetryAvailable(true)
         setSaving(false)
-        setFeedback({ kind: 'error', text: 'Impossible de préparer l’ajout des photos. Réessayez.' })
+        setFeedback({ kind: 'error', text: uploadResult.error })
         return
       }
-      const firstOrder = (existingRows?.[0]?.display_order ?? -1) + 1
-      const galleryRows: { product_id: string; image_url: string; storage_path: string; display_order: number }[] = []
-
-      for (const [index, file] of imageFiles.entries()) {
-        const objectPath = `${productId}/${crypto.randomUUID()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, '-')}`
-        const { error: uploadError } = await supabase.storage.from('products').upload(objectPath, file, {
-          cacheControl: '3600',
-          contentType: file.type,
-          upsert: false,
-        })
-
-        if (uploadError) {
-          logClientError('Admin product image upload failed', uploadError)
-          if (uploadedPaths.length) await supabase.storage.from('products').remove(uploadedPaths)
-          if (createdProduct) await removeCreatedProduct(productId)
-          setSaving(false)
-          setFeedback({ kind: 'error', text: `La photo ${index + 1}/${imageFiles.length} n’a pas pu être envoyée. Vérifiez votre accès administrateur et réessayez.` })
-          return
-        }
-
-        uploadedPaths.push(objectPath)
-        const publicUrl = supabase.storage.from('products').getPublicUrl(objectPath).data.publicUrl
-        if (existingImages.length === 0 && index === 0) primaryImageUrl = publicUrl
-        galleryRows.push({
-          product_id: productId,
-          image_url: publicUrl,
-          storage_path: objectPath,
-          display_order: firstOrder + index,
-        })
+      if (existingImages.length === 0 && uploadResult.galleryRows.length > 0) {
+        primaryImageUrl = uploadResult.primaryImageUrl
       }
-
-      const { error: galleryError } = await supabase.from('product_images').insert(galleryRows)
-      if (galleryError) {
-        logClientError('Admin product gallery save failed', galleryError)
-        await supabase.storage.from('products').remove(uploadedPaths)
-        if (createdProduct) await removeCreatedProduct(productId)
-        setSaving(false)
-        setFeedback({ kind: 'error', text: 'Les photos ont été envoyées, mais elles n’ont pas pu être ajoutées au produit.' })
-        return
+      failedImageFiles = uploadResult.failedFiles
+      hasImageUploadFailures = failedImageFiles.length > 0
+      if (hasImageUploadFailures) {
+        setImageFiles(failedImageFiles)
+        setImagePreviews([])
+        setUploadRetryAvailable(true)
+        publishable = existingImages.length + uploadResult.galleryRows.length >= 3
+        desiredActive = editingId ? editingActive : false
+        await loadProductImages(productId)
+      } else {
+        setImageFiles([])
+        setUploadRetryAvailable(false)
       }
     }
 
@@ -390,8 +433,6 @@ export default function ProductForm({ productId }: { productId?: string }) {
 
     if (error) {
       setSaving(false)
-      if (uploadedPaths.length) await supabase.storage.from('products').remove(uploadedPaths)
-      if (createdProduct) await removeCreatedProduct(productId)
       setFeedback({ kind: 'error', text: error })
       return
     }
@@ -405,10 +446,6 @@ export default function ProductForm({ productId }: { productId?: string }) {
     if (variantError) {
       logClientError('Admin product variant save failed', variantError)
       setSaving(false)
-      if (createdProduct) {
-        if (uploadedPaths.length) await supabase.storage.from('products').remove(uploadedPaths)
-        await removeCreatedProduct(productId)
-      }
       setFeedback({ kind: 'error', text: 'Les options du produit n’ont pas pu être enregistrées.' })
       return
     }
@@ -426,10 +463,6 @@ export default function ProductForm({ productId }: { productId?: string }) {
       if (colorError || !savedColorAttribute) {
         if (colorError) logClientError('Admin product color save failed', colorError)
         setSaving(false)
-        if (createdProduct) {
-          if (uploadedPaths.length) await supabase.storage.from('products').remove(uploadedPaths)
-          await removeCreatedProduct(productId)
-        }
         setFeedback({
           kind: 'error',
           text: 'Les options sont enregistrées, mais les couleurs n’ont pas pu être enregistrées.',
@@ -439,7 +472,7 @@ export default function ProductForm({ productId }: { productId?: string }) {
     }
 
     let activationMessage = ''
-    if (desiredActive) {
+    if (desiredActive && !hasImageUploadFailures) {
       const { error: activateError } = await requestAdminProducts('PATCH', {
         id: productId,
         action: 'set-active',
@@ -480,8 +513,47 @@ export default function ProductForm({ productId }: { productId?: string }) {
       await supabase.from('product_costs').delete().eq('product_id', productId)
     }
 
+    if (hasImageUploadFailures) {
+      setSaving(false)
+      const failedNames = failedImageFiles.map((file) => `« ${file.name} »`).join(', ')
+      const uploadMessage = `Le produit reste en brouillon. Échec de l’envoi pour ${failedNames}. Les autres photos et les informations du produit sont enregistrées; réessayez l’envoi des photos restantes.`
+      setFeedback({ kind: 'error', text: uploadMessage })
+      toast({ title: 'Certaines photos n’ont pas été envoyées', description: failedImageFiles.map((file) => file.name).join(', '), variant: 'danger' })
+      return
+    }
+
     toast({ title: editingId ? 'Produit modifié' : 'Produit enregistré', description: activationMessage.trim() || undefined, variant: 'success' })
     router.push('/admin/produits')
+  }
+
+  async function retryFailedImageUploads() {
+    if (!editingId || imageFiles.length === 0 || saving) return
+    setSaving(true)
+    setFeedback(null)
+    const result = await uploadProductImages(editingId, imageFiles)
+    if (result.error) {
+      setSaving(false)
+      setUploadRetryAvailable(true)
+      setFeedback({ kind: 'error', text: result.error })
+      toast({ title: 'Nouvel envoi impossible', description: result.error, variant: 'danger' })
+      return
+    }
+
+    await loadProductImages(editingId)
+    setImageFiles(result.failedFiles)
+    setImagePreviews([])
+    setUploadRetryAvailable(result.failedFiles.length > 0)
+    setSaving(false)
+    if (result.failedFiles.length > 0) {
+      const failedNames = result.failedFiles.map((file) => `« ${file.name} »`).join(', ')
+      const uploadMessage = `Le produit reste en brouillon. Échec de l’envoi pour ${failedNames}. Réessayez l’envoi des photos restantes.`
+      setFeedback({ kind: 'error', text: uploadMessage })
+      toast({ title: 'Certaines photos n’ont pas été envoyées', description: result.failedFiles.map((file) => file.name).join(', '), variant: 'danger' })
+      return
+    }
+
+    setFeedback({ kind: 'success', text: 'Toutes les photos restantes ont été ajoutées. Enregistrez le produit ou publiez-le lorsque les 3 photos minimum sont atteintes.' })
+    toast({ title: 'Photos envoyées', description: 'Les photos enregistrées sont maintenant dans la galerie.', variant: 'success' })
   }
 
   async function unpublishProduct() {
@@ -656,6 +728,7 @@ export default function ProductForm({ productId }: { productId?: string }) {
     setEditingActive(product.active)
     setImageFiles([])
     setImagePreviews([])
+    setUploadRetryAvailable(false)
     setExistingImages([])
     setSelectedAttributeKeys([])
     setAttributeValueInputs({})
@@ -705,6 +778,7 @@ export default function ProductForm({ productId }: { productId?: string }) {
       setEditingActive(true)
       setImageFiles([])
       setImagePreviews([])
+      setUploadRetryAvailable(false)
       setExistingImages([])
       setSelectedAttributeKeys([])
       setAttributeValueInputs({})
@@ -798,7 +872,7 @@ export default function ProductForm({ productId }: { productId?: string }) {
   }
 
   const imagePreview = imagePreviews[0]?.url ?? existingImages[0]?.image_url ?? getPreviewUrl(form.imageUrl.trim())
-  const totalImageCount = existingImages.length + imageFiles.length
+  const totalImageCount = existingImages.length + (uploadRetryAvailable ? 0 : imageFiles.length)
   const canPublishWithImages = totalImageCount >= 3
   const configuredAttributes = selectedAttributeKeys.map((attributeKey) => ({
     key: attributeKey,
@@ -814,7 +888,18 @@ export default function ProductForm({ productId }: { productId?: string }) {
           eyebrow="Catalogue produits"
           title={editingId ? 'Modifier le produit' : 'Nouveau produit'}
           description="Renseignez les informations, les prix, le stock, les variantes et les photos."
-          actions={<Badge variant={editingActive ? 'success' : 'warning'}>{editingActive ? 'En ligne' : 'Brouillon'}</Badge>}
+          actions={(
+            <div className="admin-ui-product-header-actions">
+              <Badge variant={editingId && editingActive ? 'success' : 'warning'}>
+                {editingId && editingActive ? 'En ligne' : 'Brouillon'}
+              </Badge>
+              {editingId && !productId && (
+                <Link className="admin-ui-product-edit-link" href={`/admin/produits/${encodeURIComponent(editingId)}`}>
+                  Ouvrir la page d’édition permanente
+                </Link>
+              )}
+            </div>
+          )}
         />
 
         <form className="admin-product-form admin-ui-product-form" onSubmit={handleSubmit}>
@@ -1237,6 +1322,7 @@ export default function ProductForm({ productId }: { productId?: string }) {
                   }
                   setImagePreviews([])
                   setImageFiles(files)
+                  setUploadRetryAvailable(false)
                   if (!editingId && files.length > 0 && files.length < 3) {
                     setFeedback({ kind: 'error', text: 'Produit enregistré en brouillon : ajoutez au moins 3 photos au total pour pouvoir le publier.' })
                   } else {
@@ -1245,6 +1331,17 @@ export default function ProductForm({ productId }: { productId?: string }) {
                 }}
                 type="file"
               />
+              {uploadRetryAvailable && editingId && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  loading={saving}
+                  disabled={imageActionBusy !== null}
+                  onClick={() => void retryFailedImageUploads()}
+                >
+                  Réessayer l’envoi des photos restantes ({imageFiles.length})
+                </Button>
+              )}
 
               <Input
                 label="URL publique de secours (ne compte pas comme photo enregistrée pour la publication)"
