@@ -5,6 +5,19 @@ import { useEffect, useState } from 'react'
 import { canAccessAdminPath } from '../../../lib/admin-staff-client'
 import { supabase } from '../../../lib/supabase'
 import { useAdminSession } from '../admin-session-provider'
+import {
+  Badge,
+  Button,
+  Card,
+  DataTable,
+  EmptyState,
+  PageHeader,
+  Skeleton,
+  StatCard,
+  Tabs,
+  useToast,
+  type DataTableColumn,
+} from '../_components'
 
 type Overview = {
   revenue: number
@@ -28,6 +41,7 @@ type StatsPayload = {
   categories: CategoryRow[]
   statuses: StatusRow[]
   pickupDelay: PickupDelay
+  operationalCounts?: Pick<Overview, 'orders_to_process' | 'unpaid_carts_over_one_hour'>
 }
 type SearchMetric = { term: string; searches: number; visitors: number }
 type ProductMetric = { product_id: string; name: string; views: number; visitors: number }
@@ -90,7 +104,7 @@ async function readResponse<T>(response: Response): Promise<T> {
 
 function SalesChart({ sales }: { sales: SalesDay[] }) {
   if (sales.length === 0) {
-    return <p className="admin-stats-empty">Aucune vente sur cette période. Les ventes payées apparaîtront ici.</p>
+    return <EmptyState title="Aucune vente sur cette période" description="Les ventes payées apparaîtront ici." />
   }
 
   const width = 800
@@ -127,43 +141,71 @@ function SalesChart({ sales }: { sales: SalesDay[] }) {
   )
 }
 
-function Skeletons() {
+function StatisticsSkeletons() {
   return (
     <>
-      <div className="admin-stats-cards" aria-label="Chargement des indicateurs">
-        {Array.from({ length: 7 }, (_, index) => <div className="admin-stats-skeleton" key={index} />)}
-      </div>
-      <div className="admin-stats-panel admin-stats-chart-skeleton" aria-hidden="true">
-        <div className="admin-stats-skeleton" />
-      </div>
+      <section className="admin-stats-cards" aria-label="Chargement des indicateurs" aria-busy="true">
+        {Array.from({ length: 7 }, (_, index) => (
+          <StatCard key={index} label="Chargement" value={<Skeleton />} />
+        ))}
+      </section>
+      <Card title="Ventes par jour">
+        <Skeleton variant="rect" className="admin-stats-chart-skeleton" />
+      </Card>
       <div className="admin-stats-grid">
-        <div className="admin-stats-panel admin-stats-skeleton-table" />
-        <div className="admin-stats-panel admin-stats-skeleton-table" />
+        <Card title="Chargement des tableaux"><Skeleton variant="rect" className="admin-stats-skeleton-table" /></Card>
+        <Card title="Chargement des tableaux"><Skeleton variant="rect" className="admin-stats-skeleton-table" /></Card>
       </div>
     </>
   )
 }
 
-function AnalyticsSearchTable({ title, rows, empty }: { title: string; rows: SearchMetric[]; empty: string }) {
+function RequestErrorCard({
+  title,
+  message,
+  retrying,
+  onRetry,
+}: {
+  title: string
+  message: string
+  retrying: boolean
+  onRetry: () => void
+}) {
   return (
-    <section className="admin-analytics-subpanel">
-      <h3>{title}</h3>
-      {rows.length === 0 ? <p className="admin-stats-empty">{empty}</p> : (
-        <div className="admin-stats-table-wrap">
-          <table className="admin-stats-table">
-            <thead><tr><th>Terme</th><th>Recherches</th><th>Visiteurs</th></tr></thead>
-            <tbody>{rows.map((row) => (
-              <tr key={row.term}><th scope="row">{row.term}</th><td>{row.searches.toLocaleString('fr-FR')}</td><td>{row.visitors.toLocaleString('fr-FR')}</td></tr>
-            ))}</tbody>
-          </table>
-        </div>
-      )}
-    </section>
+    <Card title={title}>
+      <p role="alert">{message}</p>
+      <Button variant="outline" loading={retrying} onClick={onRetry}>Réessayer</Button>
+    </Card>
   )
 }
 
+function AnalyticsSearchTable({ title, rows, empty, period }: {
+  title: string
+  rows: SearchMetric[]
+  empty: string
+  period: string
+}) {
+  const columns: DataTableColumn<SearchMetric>[] = [
+    { key: 'term', label: 'Terme', render: (row) => row.term },
+    { key: 'searches', label: 'Recherches', render: (row) => row.searches.toLocaleString('fr-FR') },
+    { key: 'visitors', label: 'Visiteurs', render: (row) => row.visitors.toLocaleString('fr-FR') },
+  ]
+
+  return (
+    <Card title={title} description={period}>
+      <DataTable
+        columns={columns}
+        rows={rows}
+        rowKey={(row) => row.term}
+        caption={title}
+        emptyState={<EmptyState title={empty} />}
+      />
+    </Card>
+  )
+}
 export default function AdminStatisticsPage() {
   const { userId, role, loading: checking } = useAdminSession()
+  const { toast } = useToast()
   const hasSession = Boolean(userId)
   const [period, setPeriod] = useState('30')
   const [stats, setStats] = useState<StatsPayload | null>(null)
@@ -172,6 +214,8 @@ export default function AdminStatisticsPage() {
   const [analyticsLoading, setAnalyticsLoading] = useState(true)
   const [errorMessage, setErrorMessage] = useState('')
   const [analyticsError, setAnalyticsError] = useState('')
+  const [statsRetry, setStatsRetry] = useState(0)
+  const [analyticsRetry, setAnalyticsRetry] = useState(0)
 
   const allowed = canAccessAdminPath(role, '/admin/statistiques')
 
@@ -181,25 +225,35 @@ export default function AdminStatisticsPage() {
     async function loadStats() {
       setLoading(true)
       setErrorMessage('')
-      const { data, error } = await supabase.auth.getSession()
-      if (error || !data.session?.access_token) {
-        setStats(null)
-        setErrorMessage('Connectez-vous avec le compte administrateur pour consulter les statistiques.')
-        setLoading(false)
-        return
-      }
-
       try {
-        const response = await fetch(`/api/admin/stats?period=${period}`, {
+        const { data, error } = await supabase.auth.getSession()
+        if (error || !data.session?.access_token) {
+          throw new Error('Connectez-vous avec le compte administrateur pour consulter les statistiques.')
+        }
+
+        const params = new URLSearchParams({ period })
+        if (period === 'all') params.set('operationalPeriod', 'all')
+        const response = await fetch(`/api/admin/stats?${params}`, {
           headers: { Authorization: `Bearer ${data.session.access_token}` },
           signal: controller.signal,
         })
         const result = await readResponse<StatsPayload>(response)
+        if (
+          period === 'all'
+          && (
+            !result.operationalCounts
+            || !Number.isFinite(result.operationalCounts.orders_to_process)
+            || !Number.isFinite(result.operationalCounts.unpaid_carts_over_one_hour)
+          )
+        ) {
+          throw new Error('Les compteurs opérationnels ne sont pas disponibles.')
+        }
         setStats(result)
       } catch (error) {
         if (controller.signal.aborted) return
         setStats(null)
-        setErrorMessage(error instanceof Error ? error.message : 'Les statistiques n’ont pas pu être chargées.')
+        const message = error instanceof Error ? error.message : 'Les statistiques n’ont pas pu être chargées.'
+        setErrorMessage(message)
       } finally {
         if (!controller.signal.aborted) setLoading(false)
       }
@@ -207,7 +261,7 @@ export default function AdminStatisticsPage() {
 
     void loadStats()
     return () => controller.abort()
-  }, [allowed, checking, period])
+  }, [allowed, checking, period, statsRetry, toast])
 
   useEffect(() => {
     if (checking || !allowed) return
@@ -215,15 +269,12 @@ export default function AdminStatisticsPage() {
     async function loadAnalytics() {
       setAnalyticsLoading(true)
       setAnalyticsError('')
-      const { data, error } = await supabase.auth.getSession()
-      if (error || !data.session?.access_token) {
-        setAnalytics(null)
-        setAnalyticsError('Connectez-vous avec le compte administrateur pour consulter les statistiques.')
-        setAnalyticsLoading(false)
-        return
-      }
-
       try {
+        const { data, error } = await supabase.auth.getSession()
+        if (error || !data.session?.access_token) {
+          throw new Error('Connectez-vous avec le compte administrateur pour consulter les statistiques.')
+        }
+
         const response = await fetch(`/api/admin/analytics?period=${period}`, {
           headers: { Authorization: `Bearer ${data.session.access_token}` },
           signal: controller.signal,
@@ -233,7 +284,8 @@ export default function AdminStatisticsPage() {
       } catch (error) {
         if (controller.signal.aborted) return
         setAnalytics(null)
-        setAnalyticsError(error instanceof Error ? error.message : 'Les statistiques de fréquentation n’ont pas pu être chargées.')
+        const message = error instanceof Error ? error.message : 'Les statistiques de fréquentation n’ont pas pu être chargées.'
+        setAnalyticsError(message)
       } finally {
         if (!controller.signal.aborted) setAnalyticsLoading(false)
       }
@@ -241,18 +293,75 @@ export default function AdminStatisticsPage() {
 
     void loadAnalytics()
     return () => controller.abort()
-  }, [allowed, checking, period])
+  }, [allowed, analyticsRetry, checking, period, toast])
+
+  function retryStats() {
+    toast({ title: 'Nouvelle tentative', description: 'Rechargement des statistiques principales.', variant: 'info' })
+    setStatsRetry((current) => current + 1)
+  }
+
+  function retryAnalytics() {
+    toast({ title: 'Nouvelle tentative', description: 'Rechargement des analytics.', variant: 'info' })
+    setAnalyticsRetry((current) => current + 1)
+  }
 
   const overview = stats?.overview
+  const ordersToProcess = period === 'all'
+    ? stats?.operationalCounts?.orders_to_process
+    : overview?.orders_to_process
+  const unpaidCarts = period === 'all'
+    ? stats?.operationalCounts?.unpaid_carts_over_one_hour
+    : overview?.unpaid_carts_over_one_hour
+  const periodDescription = periodLabels[period].toLocaleLowerCase()
   const cards = overview ? [
-    { label: 'Chiffre d’affaires', value: formatMoney(overview.revenue), note: 'Commandes payées sur la période' },
-    { label: 'Commandes payées', value: overview.paid_orders.toLocaleString('fr-FR'), note: 'Hors paiements en attente et annulations' },
-    { label: 'Panier moyen', value: formatMoney(overview.average_basket), note: 'Moyenne des commandes payées' },
-    { label: 'Nouveaux comptes', value: overview.new_accounts.toLocaleString('fr-FR'), note: 'Créés sur la période' },
-    { label: 'Sans commande', value: overview.accounts_without_order.toLocaleString('fr-FR'), note: 'Comptes sans commande enregistrée' },
-    { label: 'À traiter', value: overview.orders_to_process.toLocaleString('fr-FR'), note: 'Commandes au statut « Payé »' },
-    { label: 'Paniers non payés', value: overview.unpaid_carts_over_one_hour.toLocaleString('fr-FR'), note: 'En attente depuis plus d’une heure' },
+    { label: 'Chiffre d’affaires', value: formatMoney(overview.revenue), note: `Commandes payées · ${periodDescription}` },
+    { label: 'Commandes payées', value: overview.paid_orders.toLocaleString('fr-FR'), note: `Hors paiements en attente et annulations · ${periodDescription}` },
+    { label: 'Panier moyen', value: formatMoney(overview.average_basket), note: `Moyenne des commandes payées · ${periodDescription}` },
+    { label: 'Nouveaux comptes', value: overview.new_accounts.toLocaleString('fr-FR'), note: `Créés sur ${periodDescription}` },
+    { label: 'Sans commande', value: overview.accounts_without_order.toLocaleString('fr-FR'), note: 'Tous les comptes, indépendamment de la période sélectionnée' },
+    { label: 'Commandes à traiter', value: Number(ordersToProcess ?? 0).toLocaleString('fr-FR'), note: `Statut « Payé » · ${periodDescription}` },
+    { label: 'Paniers non payés', value: Number(unpaidCarts ?? 0).toLocaleString('fr-FR'), note: `En attente depuis plus d’une heure · ${periodDescription}` },
   ] : []
+  const topProductColumns: DataTableColumn<TopProduct>[] = [
+    { key: 'name', label: 'Produit', render: (row) => row.name },
+    { key: 'units', label: 'Unités', render: (row) => row.units.toLocaleString('fr-FR') },
+    { key: 'revenue', label: 'Ventes', render: (row) => formatMoney(row.revenue) },
+    { key: 'margin', label: 'Marge estimée', render: (row) => row.estimated_margin === null ? '—' : formatMoney(row.estimated_margin) },
+  ]
+  const categoryColumns: DataTableColumn<CategoryRow>[] = [
+    { key: 'category', label: 'Catégorie', render: (row) => row.category },
+    { key: 'units', label: 'Unités', render: (row) => row.units.toLocaleString('fr-FR') },
+    { key: 'orders', label: 'Commandes', render: (row) => row.orders.toLocaleString('fr-FR') },
+    { key: 'revenue', label: 'Ventes', render: (row) => formatMoney(row.revenue) },
+  ]
+  const statusColumns: DataTableColumn<StatusRow>[] = [
+    {
+      key: 'status',
+      label: 'Statut',
+      render: (row) => <Badge variant="neutral">{statusLabels[row.status] ?? row.status}</Badge>,
+    },
+    { key: 'orders', label: 'Commandes', render: (row) => row.orders.toLocaleString('fr-FR') },
+  ]
+  const productMetricColumns: DataTableColumn<ProductMetric>[] = [
+    { key: 'name', label: 'Produit', render: (row) => row.name },
+    { key: 'views', label: 'Visites', render: (row) => row.views.toLocaleString('fr-FR') },
+    { key: 'visitors', label: 'Visiteurs', render: (row) => row.visitors.toLocaleString('fr-FR') },
+  ]
+  const funnelColumns: DataTableColumn<ProductFunnel>[] = [
+    { key: 'name', label: 'Produit', render: (row) => row.name },
+    { key: 'views', label: 'Consultations', render: (row) => row.views.toLocaleString('fr-FR') },
+    { key: 'view-visitors', label: 'Visiteurs', render: (row) => row.view_visitors.toLocaleString('fr-FR') },
+    {
+      key: 'cart',
+      label: 'Ajouts panier',
+      render: (row) => `${row.add_to_cart.toLocaleString('fr-FR')} · ${row.cart_visitors.toLocaleString('fr-FR')} visiteurs`,
+    },
+    { key: 'orders', label: 'Commandes payées', render: (row) => row.orders.toLocaleString('fr-FR') },
+  ]
+  const underperformingColumns: DataTableColumn<UnderperformingProduct>[] = [
+    ...productMetricColumns,
+    { key: 'orders', label: 'Commandes payées', render: (row) => row.orders.toLocaleString('fr-FR') },
+  ]
 
   if (checking) return <main className="admin-page"><div className="admin-state">Vérification de l’accès...</div></main>
   if (!hasSession) {
@@ -279,177 +388,179 @@ export default function AdminStatisticsPage() {
   return (
     <main className="admin-page">
       <div className="admin-shell">
-        <header className="admin-header">
-          <div>
-            <p className="eyebrow">JALIMS <span className="admin-header-divider">/</span> ESPACE ADMIN</p>
-            <h1>Statistiques</h1>
-            <p>Suivez les ventes, les commandes et les comptes clients.</p>
-          </div>
-          <label className="admin-stats-period">
-            <span>Période</span>
-            <select value={period} onChange={(event) => setPeriod(event.target.value)}>
-              {Object.entries(periodLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-            </select>
-          </label>
-        </header>
-        {loading ? <Skeletons /> : errorMessage ? (
-          <section className="admin-stats-error" role="alert">
-            <h2>Les statistiques sont indisponibles</h2>
-            <p>{errorMessage}</p>
-            <Link href="/login?next=%2Fadmin%2Fstatistiques">Se connecter</Link>
-          </section>
+        <PageHeader
+          title="Statistiques"
+          description="Suivez les ventes, les commandes et les comptes clients."
+          eyebrow="JALIMS · ESPACE ADMIN"
+          actions={(
+            <Tabs
+              label="Période des statistiques"
+              value={period}
+              onChange={setPeriod}
+              items={Object.entries(periodLabels).map(([id, label]) => ({ id, label }))}
+            />
+          )}
+        />
+        {loading ? <StatisticsSkeletons /> : errorMessage ? (
+          <RequestErrorCard
+            title="Les statistiques sont indisponibles"
+            message={errorMessage}
+            retrying={loading}
+            onRetry={retryStats}
+          />
         ) : stats ? (
           <>
-            <p className="admin-stats-period-note">Données : {periodLabels[period].toLocaleLowerCase()}.</p>
+            <p className="admin-stats-period-note">Données : {periodDescription}.</p>
             <section className="admin-stats-cards" aria-label="Indicateurs clés">
               {cards.map((card) => (
-                <article className="admin-stats-card" key={card.label}>
-                  <span>{card.label}</span>
-                  <strong>{card.value}</strong>
-                  <small>{card.note}</small>
-                </article>
+                <StatCard
+                  key={card.label}
+                  label={card.label}
+                  value={card.value}
+                  trend={{ label: card.note }}
+                />
               ))}
             </section>
 
-            <section className="admin-stats-panel">
-              <div className="admin-stats-heading">
-                <div><p className="eyebrow">ÉVOLUTION</p><h2>Ventes par jour</h2></div>
-                <span>Chiffre d’affaires · FCFA</span>
-              </div>
+            <Card title="Ventes par jour" description={`Chiffre d’affaires · FCFA · ${periodDescription}`}>
               <SalesChart sales={stats.salesByDay} />
-            </section>
+            </Card>
 
             <div className="admin-stats-grid">
-              <section className="admin-stats-panel">
-                <div className="admin-stats-heading"><div><p className="eyebrow">TOP 10</p><h2>Meilleures ventes</h2></div></div>
-                {stats.topProducts.length === 0 ? <p className="admin-stats-empty">Aucune vente enregistrée sur cette période.</p> : (
-                  <div className="admin-stats-table-wrap">
-                    <table className="admin-stats-table">
-                      <thead><tr><th>Produit</th><th>Unités</th><th>Ventes</th><th>Marge estimée</th></tr></thead>
-                      <tbody>{stats.topProducts.map((product) => (
-                        <tr key={product.product_id}>
-                          <th scope="row">{product.name}</th>
-                          <td>{product.units.toLocaleString('fr-FR')}</td>
-                          <td>{formatMoney(product.revenue)}</td>
-                          <td>{product.estimated_margin === null ? '—' : formatMoney(product.estimated_margin)}</td>
-                        </tr>
-                      ))}</tbody>
-                    </table>
-                  </div>
-                )}
-              </section>
-              <section className="admin-stats-panel">
-                <div className="admin-stats-heading"><div><p className="eyebrow">VENTES</p><h2>Par catégorie</h2></div></div>
-                {stats.categories.length === 0 ? <p className="admin-stats-empty">Aucune vente par catégorie sur cette période.</p> : (
-                  <div className="admin-stats-table-wrap">
-                    <table className="admin-stats-table">
-                      <thead><tr><th>Catégorie</th><th>Unités</th><th>Commandes</th><th>Ventes</th></tr></thead>
-                      <tbody>{stats.categories.map((row) => (
-                        <tr key={row.category}><th scope="row">{row.category}</th><td>{row.units.toLocaleString('fr-FR')}</td><td>{row.orders.toLocaleString('fr-FR')}</td><td>{formatMoney(row.revenue)}</td></tr>
-                      ))}</tbody>
-                    </table>
-                  </div>
-                )}
-              </section>
+              <Card title="Meilleures ventes" description={`Top 10 · ${periodDescription}`}>
+                <DataTable
+                  columns={topProductColumns}
+                  rows={stats.topProducts}
+                  rowKey={(row) => row.product_id}
+                  caption="Meilleures ventes par produit"
+                  emptyState={<EmptyState title="Aucune vente enregistrée" description={periodLabels[period]} />}
+                />
+              </Card>
+              <Card title="Ventes par catégorie" description={periodLabels[period]}>
+                <DataTable
+                  columns={categoryColumns}
+                  rows={stats.categories}
+                  rowKey={(row) => row.category}
+                  caption="Ventes par catégorie"
+                  emptyState={<EmptyState title="Aucune vente par catégorie" description={periodLabels[period]} />}
+                />
+              </Card>
             </div>
 
             <div className="admin-stats-grid">
-              <section className="admin-stats-panel">
-                <div className="admin-stats-heading"><div><p className="eyebrow">COMMANDES</p><h2>Répartition par statut</h2></div></div>
-                {stats.statuses.length === 0 ? <p className="admin-stats-empty">Aucune commande sur cette période.</p> : (
-                  <ul className="admin-stats-status-list">
-                    {stats.statuses.map((row) => <li key={row.status}><span>{statusLabels[row.status] ?? row.status}</span><strong>{row.orders.toLocaleString('fr-FR')}</strong></li>)}
-                  </ul>
-                )}
-              </section>
-              <section className="admin-stats-panel admin-stats-delay">
-                <p className="eyebrow">RETRAIT</p>
-                <h2>Délai paiement → retrait</h2>
+              <Card title="Répartition des commandes par statut" description={periodLabels[period]}>
+                <DataTable
+                  columns={statusColumns}
+                  rows={stats.statuses}
+                  rowKey={(row) => row.status}
+                  caption="Commandes par statut"
+                  emptyState={<EmptyState title="Aucune commande" description={periodLabels[period]} />}
+                />
+              </Card>
+              <Card title="Délai paiement → retrait" description={`Commandes récupérées · ${periodDescription}`}>
                 {!stats.pickupDelay.available ? (
-                  <p className="admin-stats-delay-unavailable">Non disponible : les dates historiques de paiement et de retrait ne sont pas enregistrées.</p>
-                ) : stats.pickupDelay.average_hours === null
-                  ? <strong>—</strong>
-                  : <strong>{stats.pickupDelay.average_hours.toLocaleString('fr-FR')} h</strong>}
-                {stats.pickupDelay.available && (
-                  <p>{stats.pickupDelay.orders.toLocaleString('fr-FR')} commande{stats.pickupDelay.orders === 1 ? '' : 's'} récupérée{stats.pickupDelay.orders === 1 ? '' : 's'} mesurée{stats.pickupDelay.orders === 1 ? '' : 's'}.</p>
+                  <EmptyState title="Indicateur non disponible" description="Les dates historiques de paiement et de retrait ne sont pas enregistrées." />
+                ) : (
+                  <StatCard
+                    label="Délai moyen"
+                    value={stats.pickupDelay.average_hours === null
+                      ? '—'
+                      : `${stats.pickupDelay.average_hours.toLocaleString('fr-FR')} h`}
+                    trend={{ label: `${stats.pickupDelay.orders.toLocaleString('fr-FR')} commandes mesurées · ${periodDescription}` }}
+                  />
                 )}
-              </section>
+              </Card>
             </div>
-
-            <section className="admin-stats-panel admin-analytics-panel">
-              <div className="admin-stats-heading">
-                <div><p className="eyebrow">FRÉQUENTATION PSEUDONYME</p><h2>Recherches des visiteurs</h2></div>
-                <span>Événements envoyés par le navigateur : ces indicateurs de tendance peuvent être incomplets, approximatifs ou manipulés. Aucune adresse IP n’est enregistrée ; les recherches sont filtrées mais peuvent encore contenir des informations personnelles.</span>
-              </div>
-              {analyticsLoading ? <div className="admin-analytics-skeleton" aria-label="Chargement des statistiques de fréquentation" /> : analyticsError ? (
-                <p className="admin-analytics-error" role="alert">{analyticsError}</p>
-              ) : analytics ? (
-                <div className="admin-analytics-grid">
-                  <AnalyticsSearchTable title="Recherches fréquentes" rows={analytics.topSearches} empty="Aucune recherche enregistrée sur cette période." />
-                  <AnalyticsSearchTable title="Sans résultat" rows={analytics.zeroResultSearches} empty="Aucune recherche sans résultat sur cette période." />
-                </div>
-              ) : null}
-            </section>
-
-            <div className="admin-analytics-grid">
-              <section className="admin-stats-panel admin-analytics-panel">
-                <div className="admin-stats-heading"><div><p className="eyebrow">PRODUITS</p><h2>Consultations</h2></div></div>
-                {analyticsLoading ? <div className="admin-analytics-skeleton" aria-label="Chargement des consultations" /> : analyticsError ? (
-                  <p className="admin-analytics-error" role="alert">{analyticsError}</p>
-                ) : analytics && analytics.topProducts.length > 0 ? (
-                  <div className="admin-stats-table-wrap">
-                    <table className="admin-stats-table">
-                      <thead><tr><th>Produit</th><th>Visites</th><th>Visiteurs</th></tr></thead>
-                      <tbody>{analytics.topProducts.map((row) => (
-                        <tr key={row.product_id}><th scope="row">{row.name}</th><td>{row.views.toLocaleString('fr-FR')}</td><td>{row.visitors.toLocaleString('fr-FR')}</td></tr>
-                      ))}</tbody>
-                    </table>
-                  </div>
-                ) : <p className="admin-stats-empty">Aucune consultation enregistrée sur cette période.</p>}
-              </section>
-              <section className="admin-stats-panel admin-analytics-panel">
-                <div className="admin-stats-heading">
-                  <div><p className="eyebrow">PARCOURS AGRÉGÉ</p><h2>Consultations → panier → commandes payées</h2></div>
-                </div>
-                <p className="admin-analytics-note">Volumes regroupés par produit : ils ne permettent pas une attribution individuelle fiable. Les ajouts au panier sont des événements déclarés par le navigateur, indicatifs et potentiellement manipulables ; ils ne correspondent pas à des commandes confirmées. Seules les commandes payées sont comptées comme telles.</p>
-                {analyticsLoading ? <div className="admin-analytics-skeleton" aria-label="Chargement du parcours produit" /> : analyticsError ? (
-                  <p className="admin-analytics-error" role="alert">{analyticsError}</p>
-                ) : analytics && analytics.productFunnel.length > 0 ? (
-                  <div className="admin-stats-table-wrap">
-                    <table className="admin-stats-table">
-                      <thead><tr><th>Produit</th><th>Consultations</th><th>Visiteurs</th><th>Ajouts panier</th><th>Commandes payées</th></tr></thead>
-                      <tbody>{analytics.productFunnel.map((row) => (
-                        <tr key={row.product_id}>
-                          <th scope="row">{row.name}</th>
-                          <td>{row.views.toLocaleString('fr-FR')}</td>
-                          <td>{row.view_visitors.toLocaleString('fr-FR')}</td>
-                          <td>{row.add_to_cart.toLocaleString('fr-FR')} · {row.cart_visitors.toLocaleString('fr-FR')} visiteurs</td>
-                          <td>{row.orders.toLocaleString('fr-FR')}</td>
-                        </tr>
-                      ))}</tbody>
-                    </table>
-                  </div>
-                ) : <p className="admin-stats-empty">Aucun parcours disponible sur cette période.</p>}
-              </section>
-            </div>
-
-            <section className="admin-stats-panel admin-analytics-panel">
-              <div className="admin-stats-heading"><div><p className="eyebrow">À EXAMINER</p><h2>Produits très consultés et peu vendus</h2></div></div>
-              {analyticsLoading ? <div className="admin-analytics-skeleton" aria-label="Chargement des produits à examiner" /> : analyticsError ? (
-                <p className="admin-analytics-error" role="alert">{analyticsError}</p>
-              ) : analytics && analytics.underperformingProducts.length > 0 ? (
-                <div className="admin-stats-table-wrap">
-                  <table className="admin-stats-table">
-                    <thead><tr><th>Produit</th><th>Visites</th><th>Visiteurs</th><th>Commandes payées</th></tr></thead>
-                    <tbody>{analytics.underperformingProducts.map((row) => (
-                      <tr key={row.product_id}><th scope="row">{row.name}</th><td>{row.views.toLocaleString('fr-FR')}</td><td>{row.visitors.toLocaleString('fr-FR')}</td><td>{row.orders.toLocaleString('fr-FR')}</td></tr>
-                    ))}</tbody>
-                  </table>
-                </div>
-              ) : <p className="admin-stats-empty">Aucun produit ne correspond à ces critères sur cette période.</p>}
-            </section>
           </>
         ) : null}
+
+        <Card
+          title="Recherches des visiteurs"
+          description={`Fréquentation pseudonyme · ${periodDescription}`}
+        >
+          <p>
+            Événements envoyés par le navigateur : ces indicateurs de tendance peuvent être incomplets,
+            approximatifs ou manipulés. Aucune adresse IP n’est enregistrée ; les recherches sont filtrées
+            mais peuvent encore contenir des informations personnelles.
+          </p>
+          {analyticsError ? (
+            <RequestErrorCard
+              title="Les statistiques de fréquentation sont indisponibles"
+              message={analyticsError}
+              retrying={analyticsLoading}
+              onRetry={retryAnalytics}
+            />
+          ) : analyticsLoading ? (
+            <div className="admin-analytics-grid" aria-label="Chargement des statistiques de fréquentation">
+              <Card title="Recherches fréquentes"><Skeleton variant="rect" className="admin-analytics-skeleton" /></Card>
+              <Card title="Sans résultat"><Skeleton variant="rect" className="admin-analytics-skeleton" /></Card>
+            </div>
+          ) : analytics ? (
+            <div className="admin-analytics-grid">
+              <AnalyticsSearchTable
+                title="Recherches fréquentes"
+                rows={analytics.topSearches}
+                empty="Aucune recherche enregistrée sur cette période."
+                period={periodLabels[period]}
+              />
+              <AnalyticsSearchTable
+                title="Sans résultat"
+                rows={analytics.zeroResultSearches}
+                empty="Aucune recherche sans résultat sur cette période."
+                period={periodLabels[period]}
+              />
+            </div>
+          ) : null}
+        </Card>
+
+        {analyticsError ? null : analyticsLoading ? (
+          <div className="admin-analytics-grid">
+            <Card title="Consultations"><Skeleton variant="rect" className="admin-analytics-skeleton" /></Card>
+            <Card title="Consultations → panier → commandes payées"><Skeleton variant="rect" className="admin-analytics-skeleton" /></Card>
+          </div>
+        ) : analytics ? (
+          <div className="admin-analytics-grid">
+            <Card title="Consultations" description={periodLabels[period]}>
+              <DataTable
+                columns={productMetricColumns}
+                rows={analytics.topProducts}
+                rowKey={(row) => row.product_id}
+                caption="Produits les plus consultés"
+                emptyState={<EmptyState title="Aucune consultation enregistrée" description={periodLabels[period]} />}
+              />
+            </Card>
+            <Card
+              title="Consultations → panier → commandes payées"
+              description={`Parcours agrégé · ${periodDescription}`}
+            >
+              <p>
+                Volumes regroupés par produit : ils ne permettent pas une attribution individuelle fiable.
+                Les ajouts au panier sont des événements déclarés par le navigateur, indicatifs et
+                potentiellement manipulables ; ils ne correspondent pas à des commandes confirmées.
+                Seules les commandes payées sont comptées comme telles.
+              </p>
+              <DataTable
+                columns={funnelColumns}
+                rows={analytics.productFunnel}
+                rowKey={(row) => row.product_id}
+                caption="Parcours agrégé des produits"
+                emptyState={<EmptyState title="Aucun parcours disponible" description={periodLabels[period]} />}
+              />
+            </Card>
+          </div>
+        ) : null}
+
+        {!analyticsError && !analyticsLoading && analytics && (
+          <Card title="Produits très consultés et peu vendus" description={`À examiner · ${periodDescription}`}>
+            <DataTable
+              columns={underperformingColumns}
+              rows={analytics.underperformingProducts}
+              rowKey={(row) => row.product_id}
+              caption="Produits très consultés et peu vendus"
+              emptyState={<EmptyState title="Aucun produit ne correspond à ces critères" description={periodLabels[period]} />}
+            />
+          </Card>
+        )}
       </div>
     </main>
   )
