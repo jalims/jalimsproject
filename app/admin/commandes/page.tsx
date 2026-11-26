@@ -10,7 +10,7 @@ import { getOrderStatusLabel, importOrderStatusOptions, localOrderStatusOptions 
 import { logClientError } from '../../../lib/user-facing-errors'
 import { supabase } from '../../../lib/supabase'
 import { useAdminSession } from '../admin-session-provider'
-import { Badge, Button, Card, EmptyState, PageHeader, Pagination, SearchInput, Select, Skeleton, type BadgeVariant } from '../_components'
+import { Badge, Button, Card, ConfirmDialog, EmptyState, PageHeader, Pagination, SearchInput, Select, Skeleton, useToast, type BadgeVariant } from '../_components'
 
 type SupplierCost = { purchase_price: number | null; currency: 'FCFA' | 'CNY' | null }
 type AdminOrder = {
@@ -200,6 +200,7 @@ function AdminOrdersPageContent() {
   const searchParams = useSearchParams()
   const globalQuery = searchParams.get('q') ?? ''
   const { userId, role, loading: sessionLoading } = useAdminSession()
+  const { toast } = useToast()
   const [checking, setChecking] = useState(true)
   const [authorized, setAuthorized] = useState(false)
   const [hasSession, setHasSession] = useState(false)
@@ -209,6 +210,7 @@ function AdminOrdersPageContent() {
   const [errorMessage, setErrorMessage] = useState('')
   const [savingId, setSavingId] = useState('')
   const [pendingStatus, setPendingStatus] = useState<PendingStatus | null>(null)
+  const [pendingPartnerNotification, setPendingPartnerNotification] = useState<{ order: AdminOrder; resend: boolean } | null>(null)
   const [composerOrderId, setComposerOrderId] = useState('')
   const [templateKey, setTemplateKey] = useState<OrderMessageTemplateKey>('commande_confirmee')
   const [extraVariables, setExtraVariables] = useState<Record<string, string>>({})
@@ -266,6 +268,16 @@ function AdminOrdersPageContent() {
   const visibleOrders = filteredOrders.slice(
     (currentPage - 1) * ordersPageSize,
     currentPage * ordersPageSize,
+  )
+  const pendingStatusOrder = pendingStatus
+    ? orders.find((order) => order.id === pendingStatus.orderId) ?? null
+    : null
+  const canSendStatusMessage = Boolean(
+    pendingStatus
+    && pendingStatusOrder
+    && pendingStatusOrder.origin === 'import'
+    && isPaidOrder(pendingStatusOrder)
+    && ['en_transit', 'prête_a_retirer'].includes(pendingStatus.status),
   )
 
   function resetPage() {
@@ -436,6 +448,11 @@ function AdminOrdersPageContent() {
     const price = raw === '' ? null : Number(raw)
     if (price !== null && (!Number.isFinite(price) || price < 0)) {
       setMessageFeedback({ orderId: '', text: 'Le prix d’achat fournisseur doit être un nombre positif ou vide.', error: true })
+      toast({
+        title: 'Prix invalide',
+        description: 'Le prix d’achat fournisseur doit être un nombre positif ou vide.',
+        variant: 'danger',
+      })
       return
     }
     setSavingSupplierCostProductId(productId)
@@ -457,9 +474,15 @@ function AdminOrdersPageContent() {
         [productId]: price === null ? { purchase_price: null, currency: null } : { purchase_price: price, currency: draft.currency },
       }))
       setMessageFeedback({ orderId: '', text: 'Prix d’achat fournisseur enregistré.', error: false })
+      toast({ title: 'Prix fournisseur enregistré', variant: 'success' })
     } catch (error) {
       logClientError('Admin order supplier cost save failed', error)
       setMessageFeedback({ orderId: '', text: 'Le prix d’achat fournisseur n’a pas pu être enregistré.', error: true })
+      toast({
+        title: 'Enregistrement impossible',
+        description: 'Le prix d’achat fournisseur n’a pas pu être enregistré.',
+        variant: 'danger',
+      })
     } finally {
       setSavingSupplierCostProductId('')
     }
@@ -474,6 +497,11 @@ function AdminOrdersPageContent() {
     if (error) {
       logClientError('Admin order message history refresh failed', error)
       setErrorMessage('Le message a été traité, mais son historique n’a pas pu être actualisé.')
+      toast({
+        title: 'Historique non actualisé',
+        description: 'Le message a été traité, mais son historique n’a pas pu être actualisé.',
+        variant: 'danger',
+      })
       return
     }
 
@@ -484,15 +512,15 @@ function AdminOrdersPageContent() {
   }
 
   async function notifyPartner(order: AdminOrder, resend = false) {
-      if (resend && !window.confirm(`Renvoyer le message WhatsApp pour la commande ${order.jalims_code} ?`)) return
-
       const newTab = window.open('about:blank', '_blank')
       if (!newTab) {
+        const text = 'Autorisez les fenêtres pop-up pour ouvrir WhatsApp, puis réessayez.'
         setPartnerNotificationFeedback({
           orderId: order.id,
-          text: 'Autorisez les fenêtres pop-up pour ouvrir WhatsApp, puis réessayez.',
+          text,
           error: true,
         })
+        toast({ title: 'Ouverture de WhatsApp bloquée', description: text, variant: 'danger' })
         return
       }
 
@@ -533,17 +561,35 @@ function AdminOrdersPageContent() {
           text: 'WhatsApp est prêt avec le message au partenaire.',
           error: false,
         })
+        toast({ title: 'Message partenaire prêt', description: 'WhatsApp est prêt avec le message au partenaire.', variant: 'success' })
       } catch (error) {
         newTab.close()
         logClientError('Admin partner notification failed', error)
+        const text = error instanceof Error ? error.message : 'Le message du partenaire n’a pas pu être préparé.'
         setPartnerNotificationFeedback({
           orderId: order.id,
-          text: error instanceof Error ? error.message : 'Le message du partenaire n’a pas pu être préparé.',
+          text,
           error: true,
         })
+        toast({ title: 'Notification partenaire impossible', description: text, variant: 'danger' })
       } finally {
         setPartnerNotificationBusyId('')
       }
+  }
+
+  function requestPartnerNotification(order: AdminOrder, resend: boolean) {
+    if (resend) {
+      setPendingPartnerNotification({ order, resend })
+      return
+    }
+    void notifyPartner(order)
+  }
+
+  async function confirmPartnerNotification() {
+    if (!pendingPartnerNotification) return
+    const pending = pendingPartnerNotification
+    await notifyPartner(pending.order, pending.resend)
+    setPendingPartnerNotification(null)
   }
 
   async function updateStatus(orderId: string, status: string) {
@@ -553,32 +599,32 @@ function AdminOrdersPageContent() {
     setSavingId('')
     if (error) {
       logClientError('Admin order status update failed', error)
-      setErrorMessage('Le statut de la commande n’a pas pu être modifié. Vérifiez votre accès administrateur.')
+      const text = 'Le statut de la commande n’a pas pu être modifié. Vérifiez votre accès administrateur.'
+      setErrorMessage(text)
+      toast({ title: 'Modification du statut impossible', description: text, variant: 'danger' })
       return false
     }
     setOrders((current) => current.map((order) => order.id === orderId ? { ...order, status } : order))
+    toast({ title: 'Statut de commande mis à jour', variant: 'success' })
     return true
   }
 
   function chooseStatus(order: AdminOrder, status: string) {
     if (status === order.status) return
-    if (order.origin === 'local') {
-      void updateStatus(order.id, status)
-      return
-    }
-    if (isPaidOrder(order) && ['en_transit', 'prête_a_retirer'].includes(status)) {
-      setPendingStatus({ orderId: order.id, status, sendMessage: true, dateEstimate: '' })
-      setErrorMessage('')
-      return
-    }
-    void updateStatus(order.id, status)
+    const sendMessage = order.origin === 'import'
+      && isPaidOrder(order)
+      && ['en_transit', 'prête_a_retirer'].includes(status)
+    setPendingStatus({ orderId: order.id, status, sendMessage, dateEstimate: '' })
+    setErrorMessage('')
   }
 
   async function confirmStatusChange() {
     if (!pendingStatus) return
     const current = pendingStatus
     if (current.sendMessage && current.status === 'en_transit' && !current.dateEstimate.trim()) {
-      setErrorMessage('Saisissez la date estimée d’arrivée ou décochez l’envoi du message.')
+      const text = 'Saisissez la date estimée d’arrivée ou décochez l’envoi du message.'
+      setErrorMessage(text)
+      toast({ title: 'Date estimée requise', description: text, variant: 'danger' })
       return
     }
 
@@ -602,12 +648,19 @@ function AdminOrdersPageContent() {
         text: [typeof body.message === 'string' ? body.message : 'Message traité.', ...warnings].join(' '),
         error: false,
       })
+      toast({
+        title: 'Message de suivi traité',
+        description: [typeof body.message === 'string' ? body.message : 'Message traité.', ...warnings].join(' '),
+        variant: 'success',
+      })
     } catch (error) {
+      const text = error instanceof Error ? error.message : 'Le statut est enregistré, mais le message n’a pas pu être envoyé.'
       setMessageFeedback({
         orderId: current.orderId,
-        text: error instanceof Error ? error.message : 'Le statut est enregistré, mais le message n’a pas pu être envoyé.',
+        text,
         error: true,
       })
+      toast({ title: 'Envoi du message impossible', description: text, variant: 'danger' })
     }
     await refreshMessageLogs(current.orderId)
   }
@@ -639,11 +692,13 @@ function AdminOrdersPageContent() {
       const warnings = Array.isArray(body.warnings) ? body.warnings.filter((item): item is string => typeof item === 'string') : []
       setPreview({ subject: body.subject, text: body.text, warnings })
     } catch (error) {
+      const text = error instanceof Error ? error.message : 'L’aperçu n’a pas pu être préparé.'
       setMessageFeedback({
         orderId: composerOrderId,
-        text: error instanceof Error ? error.message : 'L’aperçu n’a pas pu être préparé.',
+        text,
         error: true,
       })
+      toast({ title: 'Aperçu impossible', description: text, variant: 'danger' })
     } finally {
       setPreviewing(false)
     }
@@ -666,13 +721,20 @@ function AdminOrdersPageContent() {
         text: [typeof body.message === 'string' ? body.message : 'Le courriel a été traité.', ...warnings].join(' '),
         error: false,
       })
+      toast({
+        title: 'E-mail traité',
+        description: [typeof body.message === 'string' ? body.message : 'Le courriel a été traité.', ...warnings].join(' '),
+        variant: 'success',
+      })
       await refreshMessageLogs(composerOrderId)
     } catch (error) {
+      const text = error instanceof Error ? error.message : 'Le courriel n’a pas pu être envoyé.'
       setMessageFeedback({
         orderId: composerOrderId,
-        text: error instanceof Error ? error.message : 'Le courriel n’a pas pu être envoyé.',
+        text,
         error: true,
       })
+      toast({ title: 'Envoi de l’e-mail impossible', description: text, variant: 'danger' })
       await refreshMessageLogs(composerOrderId)
     } finally {
       setMessageBusy(false)
@@ -704,14 +766,21 @@ function AdminOrdersPageContent() {
         text: ['Message WhatsApp préparé. Il ne sera marqué comme envoyé que si vous l’envoyez dans WhatsApp.', ...warnings].join(' '),
         error: false,
       })
+      toast({
+        title: 'Message WhatsApp préparé',
+        description: 'Il ne sera marqué comme envoyé que si vous l’envoyez dans WhatsApp.',
+        variant: 'success',
+      })
       await refreshMessageLogs(composerOrderId)
     } catch (error) {
       popup?.close()
+      const text = error instanceof Error ? error.message : 'Le message WhatsApp n’a pas pu être préparé.'
       setMessageFeedback({
         orderId: composerOrderId,
-        text: error instanceof Error ? error.message : 'Le message WhatsApp n’a pas pu être préparé.',
+        text,
         error: true,
       })
+      toast({ title: 'Préparation WhatsApp impossible', description: text, variant: 'danger' })
     } finally {
       setMessageBusy(false)
     }
@@ -733,12 +802,19 @@ function AdminOrdersPageContent() {
         text: [typeof body.message === 'string' ? body.message : 'Le courriel a été traité.', ...warnings].join(' '),
         error: false,
       })
+      toast({
+        title: 'Confirmation renvoyée',
+        description: [typeof body.message === 'string' ? body.message : 'Le courriel a été traité.', ...warnings].join(' '),
+        variant: 'success',
+      })
     } catch (error) {
+      const text = error instanceof Error ? error.message : 'Le courriel n’a pas pu être renvoyé.'
       setMessageFeedback({
         orderId,
-        text: error instanceof Error ? error.message : 'Le courriel n’a pas pu être renvoyé.',
+        text,
         error: true,
       })
+      toast({ title: 'Renvoi de la confirmation impossible', description: text, variant: 'danger' })
     } finally {
       setMessageBusy(false)
       await refreshMessageLogs(orderId)
@@ -1009,7 +1085,7 @@ function AdminOrdersPageContent() {
                         <button
                           type="button"
                           disabled={partnerNotificationBusyId === order.id}
-                          onClick={() => void notifyPartner(order, Boolean(order.partner_notified_at))}
+                          onClick={() => requestPartnerNotification(order, Boolean(order.partner_notified_at))}
                         >
                           {partnerNotificationBusyId === order.id
                             ? 'Préparation...'
@@ -1030,17 +1106,6 @@ function AdminOrdersPageContent() {
                     <div className="order-message-alert">
                       <span className="order-message-alert-badge">E-mail de confirmation en échec ou interrompu</span>
                       <button type="button" disabled={messageBusy} onClick={() => void resendConfirmation(order.id)}>Renvoyer</button>
-                    </div>
-                  )}
-
-                  {pending && (
-                    <div className="order-status-message-prompt">
-                      <label><input type="checkbox" checked={pending.sendMessage} onChange={(event) => setPendingStatus({ ...pending, sendMessage: event.target.checked })} /> Envoyer le message « {pending.status === 'en_transit' ? 'En transit' : 'Prête à retirer'} » par e-mail</label>
-                      {pending.status === 'en_transit' && pending.sendMessage && (
-                        <label className="order-message-field"><span>Date estimée d’arrivée</span><input value={pending.dateEstimate} onChange={(event) => setPendingStatus({ ...pending, dateEstimate: event.target.value })} placeholder="Ex. 15 novembre 2026" /></label>
-                      )}
-                      {pending.status === 'prête_a_retirer' && <p>Le message ne sera envoyé que si l’adresse et les horaires du point de retrait sont renseignés.</p>}
-                      <div><button type="button" onClick={() => void confirmStatusChange()}>Enregistrer le statut</button><button type="button" className="secondary" onClick={() => setPendingStatus(null)}>Annuler</button></div>
                     </div>
                   )}
 
@@ -1210,6 +1275,62 @@ function AdminOrdersPageContent() {
           </>
         )}
       </div>
+      <ConfirmDialog
+        open={Boolean(pendingStatus)}
+        onClose={() => {
+          setPendingStatus(null)
+          setErrorMessage('')
+        }}
+        onConfirm={() => void confirmStatusChange()}
+        title="Confirmer le changement de statut"
+        description={pendingStatus && pendingStatusOrder
+          ? `Confirmez le passage de la commande ${pendingStatusOrder.jalims_code} au statut « ${getOrderStatusLabel(pendingStatus.status, pendingStatusOrder.origin)} ».`
+          : 'Confirmez le changement de statut.'}
+        confirmLabel="Enregistrer le statut"
+        confirmVariant="primary"
+        loading={Boolean(pendingStatus && savingId === pendingStatus.orderId)}
+      >
+        {pendingStatus && canSendStatusMessage && (
+          <div className="order-status-message-prompt">
+            <label>
+              <input
+                type="checkbox"
+                checked={pendingStatus.sendMessage}
+                onChange={(event) => setPendingStatus({ ...pendingStatus, sendMessage: event.target.checked })}
+              />
+              {' '}Envoyer le message « {pendingStatus.status === 'en_transit' ? 'En transit' : 'Prête à retirer'} » par e-mail
+            </label>
+            {pendingStatus.status === 'en_transit' && pendingStatus.sendMessage && (
+              <label className="order-message-field">
+                <span>Date estimée d’arrivée</span>
+                <input
+                  value={pendingStatus.dateEstimate}
+                  onChange={(event) => setPendingStatus({ ...pendingStatus, dateEstimate: event.target.value })}
+                  placeholder="Ex. 15 novembre 2026"
+                />
+              </label>
+            )}
+            {pendingStatus.status === 'prête_a_retirer' && (
+              <p>Le message ne sera envoyé que si l’adresse et les horaires du point de retrait sont renseignés.</p>
+            )}
+          </div>
+        )}
+      </ConfirmDialog>
+      <ConfirmDialog
+        open={Boolean(pendingPartnerNotification)}
+        onClose={() => setPendingPartnerNotification(null)}
+        onConfirm={() => void confirmPartnerNotification()}
+        title="Confirmer le renvoi au partenaire"
+        description={pendingPartnerNotification
+          ? `Renvoyer le message WhatsApp pour la commande ${pendingPartnerNotification.order.jalims_code} ?`
+          : 'Confirmez le renvoi du message WhatsApp au partenaire.'}
+        confirmLabel="Renvoyer le message"
+        confirmVariant="primary"
+        loading={Boolean(
+          pendingPartnerNotification
+          && partnerNotificationBusyId === pendingPartnerNotification.order.id,
+        )}
+      />
     </main>
   )
 }

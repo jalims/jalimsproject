@@ -111,6 +111,7 @@ export function ConfirmDialog({
   onConfirm,
   title = 'Confirmer cette action',
   description,
+  children,
   confirmLabel = 'Confirmer',
   cancelLabel = 'Annuler',
   confirmVariant = 'danger',
@@ -121,6 +122,7 @@ export function ConfirmDialog({
   onConfirm: () => void
   title?: string
   description: ReactNode
+  children?: ReactNode
   confirmLabel?: string
   cancelLabel?: string
   confirmVariant?: 'primary' | 'danger'
@@ -140,6 +142,7 @@ export function ConfirmDialog({
         </>
       )}
     >
+      {children}
     </Modal>
   )
 }
