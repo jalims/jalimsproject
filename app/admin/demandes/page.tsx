@@ -1,10 +1,26 @@
 'use client'
 
+import Image from 'next/image'
 import Link from 'next/link'
 import { useCallback, useEffect, useState } from 'react'
 import { canAccessAdminPath } from '../../../lib/admin-staff-client'
 import { supabase } from '../../../lib/supabase'
 import { useAdminSession } from '../admin-session-provider'
+import {
+  Badge,
+  Button,
+  Card,
+  DataTable,
+  EmptyState,
+  Input,
+  PageHeader,
+  Select,
+  Skeleton,
+  Tabs,
+  Textarea,
+  useToast,
+  type DataTableColumn,
+} from '../_components'
 
 type SearchMetric = { term: string; searches: number; visitors: number }
 
@@ -78,6 +94,7 @@ function isSearchMetricArray(value: unknown): value is SearchMetric[] {
 
 export default function AdminDemandesPage() {
   const { userId, role, loading: checking } = useAdminSession()
+  const { toast } = useToast()
   const hasSession = Boolean(userId)
   const [statusFilter, setStatusFilter] = useState<(typeof STATUS_OPTIONS)[number]['value']>('all')
   const [requests, setRequests] = useState<ProductRequest[]>([])
@@ -87,7 +104,6 @@ export default function AdminDemandesPage() {
   const [error, setError] = useState('')
   const [savingId, setSavingId] = useState<string | null>(null)
   const [saveError, setSaveError] = useState<Record<string, string>>({})
-  const [savedId, setSavedId] = useState<string | null>(null)
 
   const loadRequests = useCallback(async (filter: string) => {
     const { data } = await supabase.auth.getSession()
@@ -133,22 +149,26 @@ export default function AdminDemandesPage() {
     void loadRequests(statusFilter)
   }, [checking, hasSession, role, statusFilter, loadRequests])
 
+  const zeroResultColumns: DataTableColumn<SearchMetric>[] = [
+    { key: 'term', label: 'Terme recherché', render: (row) => row.term },
+    { key: 'searches', label: 'Recherches', render: (row) => row.searches.toLocaleString('fr-FR') },
+    { key: 'visitors', label: 'Visiteurs', render: (row) => row.visitors.toLocaleString('fr-FR') },
+  ]
+
   function updateRequest(id: string, patch: Partial<Pick<ProductRequest, 'status' | 'admin_notes' | 'quoted_price'>>) {
     setRequests((current) => current.map((item) => (item.id === id ? { ...item, ...patch } : item)))
-    setSavedId(null)
   }
 
   async function saveRequest(item: ProductRequest) {
-    const { data } = await supabase.auth.getSession()
-    const token = data.session?.access_token
-    if (!token) {
-      setSaveError((current) => ({ ...current, [item.id]: 'Votre session a expiré. Reconnectez-vous.' }))
-      return
-    }
-
     setSavingId(item.id)
     setSaveError((current) => ({ ...current, [item.id]: '' }))
     try {
+      const { data, error: sessionError } = await supabase.auth.getSession()
+      const token = data.session?.access_token
+      if (sessionError || !token) {
+        throw new Error('Votre session a expiré. Reconnectez-vous.')
+      }
+
       const response = await fetch('/api/admin/product-requests', {
         method: 'PATCH',
         headers: {
@@ -170,7 +190,7 @@ export default function AdminDemandesPage() {
       if (body.request) {
         setRequests((current) => current.map((row) => (row.id === item.id ? { ...row, ...body.request } : row)))
       }
-      setSavedId(item.id)
+      toast({ title: 'Demande enregistrée', description: 'Les modifications ont été sauvegardées.', variant: 'success' })
     } catch (err) {
       setSaveError((current) => ({ ...current, [item.id]: err instanceof Error ? err.message : 'Enregistrement impossible.' }))
     } finally {
@@ -211,208 +231,152 @@ export default function AdminDemandesPage() {
   return (
     <main className="admin-page">
       <div className="admin-shell">
-        <header className="admin-header">
-          <div>
-            <p className="eyebrow">JALIMS <span className="admin-header-divider">/</span> DEMANDES</p>
-            <h1>Demandes produit</h1>
-            <p>Produits recherchés ou demandés par les clients. Répondez sur WhatsApp sous 24h.</p>
-          </div>
-          <div className="admin-session">
-            <Link href="/admin">← Tableau de bord</Link>
-          </div>
-        </header>
+        <PageHeader
+          title="Demandes produit"
+          description="Produits recherchés ou demandés par les clients. Répondez sur WhatsApp sous 24h."
+          eyebrow="JALIMS · DEMANDES"
+          actions={<Link className="admin-secondary-link" href="/admin">← Tableau de bord</Link>}
+        />
 
-        <section className="admin-stats-panel" style={{ marginBottom: 20 }}>
-          <div className="admin-stats-heading">
-            <div>
-              <p className="eyebrow">SANS RÉSULTAT</p>
-              <h2>Recherches les plus demandées sans résultat</h2>
-            </div>
-            <span>Basé sur les recherches analytics (30 derniers jours). Priorité pour ajouter des produits.</span>
-          </div>
-          {loading ? (
-            <p className="admin-stats-empty">Chargement…</p>
-          ) : zeroResultSearches.length === 0 ? (
-            <p className="admin-stats-empty">Aucune recherche sans résultat enregistrée sur cette période.</p>
+        <Card
+          title="Recherches sans résultat"
+          description="Analytics des 30 derniers jours · priorités potentielles pour le catalogue."
+        >
+          {error ? (
+            <p role="alert">{error}</p>
           ) : (
-            <div className="admin-stats-table-wrap">
-              <table className="admin-stats-table">
-                <thead><tr><th>Terme</th><th>Recherches</th><th>Visiteurs</th></tr></thead>
-                <tbody>
-                  {zeroResultSearches.map((row) => (
-                    <tr key={row.term}>
-                      <th scope="row">{row.term}</th>
-                      <td>{row.searches.toLocaleString('fr-FR')}</td>
-                      <td>{row.visitors.toLocaleString('fr-FR')}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <DataTable
+              columns={zeroResultColumns}
+              rows={zeroResultSearches}
+              rowKey={(row) => row.term}
+              caption="Recherches les plus fréquentes sans résultat sur les 30 derniers jours"
+              loading={loading}
+              loadingRows={4}
+              emptyState={<EmptyState title="Aucune recherche sans résultat" description="Aucune donnée enregistrée sur les 30 derniers jours." />}
+            />
           )}
-        </section>
+        </Card>
 
-        <section className="admin-stats-panel">
-          <div className="admin-stats-heading" style={{ alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-            <div>
-              <p className="eyebrow">DEMANDES CLIENTS</p>
-              <h2>Liste des demandes {newCount > 0 ? <span style={{ color: '#FE6E00', fontSize: 16, fontWeight: 700 }}>({newCount} nouvelle{newCount > 1 ? 's' : ''})</span> : null}</h2>
-            </div>
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              {STATUS_OPTIONS.map((option) => (
-                <button
-                  key={option.value}
-                  type="button"
-                  onClick={() => setStatusFilter(option.value)}
-                  style={{
-                    minHeight: 40,
-                    padding: '0 14px',
-                    borderRadius: 999,
-                    border: statusFilter === option.value ? '1px solid #FE6E00' : '1px solid #d1d5db',
-                    background: statusFilter === option.value ? '#fff3e8' : '#fff',
-                    color: statusFilter === option.value ? '#FE6E00' : '#373430',
-                    fontWeight: 600,
-                    cursor: 'pointer',
-                  }}
-                >
-                  {option.label}
-                </button>
-              ))}
-            </div>
+        <Card
+          title="Demandes clients"
+          description="Consultez et mettez à jour les demandes produit."
+          actions={(
+            <Badge variant={newCount > 0 ? 'brand' : 'neutral'}>
+              {newCount} nouvelle{newCount === 1 ? '' : 's'}
+            </Badge>
+          )}
+        >
+          <Tabs
+            label="Filtrer les demandes par statut"
+            value={statusFilter}
+            onChange={(value) => setStatusFilter(value as (typeof STATUS_OPTIONS)[number]['value'])}
+            items={STATUS_OPTIONS.map((option) => ({ id: option.value, label: option.label }))}
+          />
+        </Card>
+
+        {error && (
+          <Card title="Impossible de charger les demandes">
+            <p role="alert">{error}</p>
+            <Button variant="outline" onClick={() => void loadRequests(statusFilter)}>Réessayer</Button>
+          </Card>
+        )}
+
+        {loading ? (
+          <div className="admin-stats-grid" aria-label="Chargement des demandes" aria-busy="true">
+            {Array.from({ length: 2 }, (_, index) => (
+              <Card key={index} title="Chargement de la demande">
+                <Skeleton variant="rect" className="admin-stats-skeleton-table" />
+              </Card>
+            ))}
           </div>
-
-          {error && <p className="admin-analytics-error" role="alert">{error}</p>}
-
-          {loading ? (
-            <p className="admin-stats-empty">Chargement des demandes…</p>
-          ) : requests.length === 0 ? (
-            <p className="admin-stats-empty">Aucune demande pour ce filtre.</p>
-          ) : (
-            <div style={{ display: 'grid', gap: 16 }}>
-              {requests.map((item) => (
-                <article key={item.id} style={{ border: '1px solid #e5e7eb', borderRadius: 18, padding: 16, display: 'grid', gap: 14, background: '#fff' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', alignItems: 'flex-start' }}>
-                    <div>
-                      <p style={{ margin: 0, color: '#6b7280', fontSize: 13 }}>{formatDate(item.created_at)}</p>
-                      <p style={{ margin: '4px 0 0', color: '#373430', fontSize: 18, fontWeight: 700 }}>
-                        {item.search_query?.trim() ? `Recherche : « ${item.search_query.trim()} »` : 'Demande sans terme recherché'}
-                      </p>
-                    </div>
-                    <span style={{
-                      padding: '6px 12px',
-                      borderRadius: 999,
-                      fontSize: 13,
-                      fontWeight: 700,
-                      background: item.status === 'new' ? '#fff3e8' : '#f3f4f6',
-                      color: item.status === 'new' ? '#FE6E00' : '#374151',
-                      border: item.status === 'new' ? '1px solid #ffd8b5' : '1px solid #e5e7eb',
-                    }}>
-                      {STATUS_LABELS[item.status] ?? item.status}
-                    </span>
-                  </div>
-
-                  <div style={{ display: 'grid', gap: 16, gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))' }}>
-                    <div style={{ display: 'grid', gap: 10 }}>
-                      {item.image_url ? (
-                        <a href={item.image_url} target="_blank" rel="noreferrer">
-                          <img src={item.image_url} alt="Photo du produit demandé" style={{ width: '100%', maxWidth: 320, height: 220, objectFit: 'cover', borderRadius: 14, border: '1px solid #e5e7eb', background: '#f9fafb' }} />
-                        </a>
-                      ) : (
-                        <div style={{ width: '100%', maxWidth: 320, height: 220, borderRadius: 14, border: '1px dashed #d1d5db', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#6b7280', background: '#f9fafb' }}>
-                          Aucune photo
-                        </div>
-                      )}
-
-                      {item.description?.trim() && (
-                        <div>
-                          <p style={{ margin: '0 0 4px', color: '#6b7280', fontSize: 13, fontWeight: 600 }}>Description / quantité</p>
-                          <p style={{ margin: 0, color: '#373430', whiteSpace: 'pre-wrap' }}>{item.description}</p>
-                        </div>
-                      )}
-                    </div>
-
-                    <div style={{ display: 'grid', gap: 12, alignContent: 'start' }}>
-                      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                        <a
-                          href={buildWhatsAppUrl(item)}
-                          target="_blank"
-                          rel="noreferrer"
-                          style={{ minHeight: 44, padding: '0 14px', borderRadius: 12, background: '#16a34a', color: '#fff', fontWeight: 700, textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}
-                        >
-                          WhatsApp ({item.whatsapp})
-                        </a>
-                        {item.link && (
-                          <a
-                            href={item.link}
-                            target="_blank"
-                            rel="noreferrer"
-                            style={{ minHeight: 44, padding: '0 14px', borderRadius: 12, border: '1px solid #d1d5db', color: '#373430', fontWeight: 600, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', background: '#fff' }}
-                          >
-                            Ouvrir le lien
-                          </a>
-                        )}
-                      </div>
-
-                      <div style={{ display: 'grid', gap: 6 }}>
-                        <label htmlFor={`status-${item.id}`} style={{ fontWeight: 600, color: '#373430' }}>Statut</label>
-                        <select
-                          id={`status-${item.id}`}
-                          value={item.status}
-                          onChange={(event) => updateRequest(item.id, { status: event.target.value })}
-                          style={{ minHeight: 48, borderRadius: 12, border: '1px solid #95938E', padding: '0 12px', fontSize: 16, color: '#373430', background: '#fff' }}
-                        >
-                          {STATUS_OPTIONS.filter((option) => option.value !== 'all').map((option) => (
-                            <option key={option.value} value={option.value}>{option.label}</option>
-                          ))}
-                        </select>
-                      </div>
-
-                      <div style={{ display: 'grid', gap: 6 }}>
-                        <label htmlFor={`price-${item.id}`} style={{ fontWeight: 600, color: '#373430' }}>Prix proposé (FCFA)</label>
-                        <input
-                          id={`price-${item.id}`}
-                          type="text"
-                          inputMode="decimal"
-                          value={item.quoted_price}
-                          onChange={(event) => updateRequest(item.id, { quoted_price: event.target.value })}
-                          placeholder="Ex : 25000"
-                          style={{ minHeight: 48, borderRadius: 12, border: '1px solid #95938E', padding: '0 12px', fontSize: 16, color: '#373430' }}
+        ) : error ? null : requests.length === 0 ? (
+          <EmptyState title="Aucune demande pour ce filtre" description="Les nouvelles demandes apparaîtront ici." />
+        ) : (
+          <div className="admin-stats-grid">
+            {requests.map((item) => (
+              <Card
+                key={item.id}
+                title={item.search_query?.trim()
+                  ? `Recherche : « ${item.search_query.trim()} »`
+                  : 'Demande sans terme recherché'}
+                description={formatDate(item.created_at)}
+                actions={<Badge variant={item.status === 'new' ? 'brand' : 'neutral'}>{STATUS_LABELS[item.status] ?? item.status}</Badge>}
+              >
+                <div className="admin-stats-grid">
+                  <div>
+                    {item.image_url ? (
+                      <a href={item.image_url} target="_blank" rel="noreferrer">
+                        <Image
+                          src={item.image_url}
+                          alt="Photo du produit demandé"
+                          width={320}
+                          height={220}
+                          sizes="(max-width: 700px) 100vw, 320px"
                         />
-                      </div>
-
-                      <div style={{ display: 'grid', gap: 6 }}>
-                        <label htmlFor={`notes-${item.id}`} style={{ fontWeight: 600, color: '#373430' }}>Notes internes</label>
-                        <textarea
-                          id={`notes-${item.id}`}
-                          value={item.admin_notes}
-                          onChange={(event) => updateRequest(item.id, { admin_notes: event.target.value })}
-                          rows={4}
-                          placeholder="Notes pour l’équipe, devis, suivi…"
-                          style={{ borderRadius: 12, border: '1px solid #95938E', padding: '10px 12px', fontSize: 16, color: '#373430', fontFamily: 'inherit', resize: 'vertical' }}
-                        />
-                      </div>
-
-                      {saveError[item.id] && <p className="admin-analytics-error" role="alert" style={{ margin: 0 }}>{saveError[item.id]}</p>}
-                      {savedId === item.id && !saveError[item.id] && <p style={{ margin: 0, color: '#15803d', fontWeight: 600 }}>Modifications enregistrées.</p>}
-
+                      </a>
+                    ) : (
+                      <EmptyState title="Aucune photo" />
+                    )}
+                    {item.description?.trim() && (
                       <div>
-                        <button
-                          type="button"
-                          onClick={() => void saveRequest(item)}
-                          disabled={savingId === item.id}
-                          className="product-request-submit"
-                          style={{ width: 'auto', minWidth: 220 }}
-                        >
-                          {savingId === item.id ? 'Enregistrement…' : 'Enregistrer'}
-                        </button>
+                        <h3>Description / quantité</h3>
+                        <p>{item.description}</p>
                       </div>
-                    </div>
+                    )}
                   </div>
-                </article>
-              ))}
-            </div>
-          )}
-        </section>
+
+                  <div>
+                    <div className="admin-ui-page-actions">
+                      <a className="admin-primary-link" href={buildWhatsAppUrl(item)} target="_blank" rel="noreferrer">
+                        WhatsApp ({item.whatsapp})
+                      </a>
+                      {item.link && (
+                        <a className="admin-secondary-link" href={item.link} target="_blank" rel="noreferrer">
+                          Ouvrir le lien source
+                        </a>
+                      )}
+                    </div>
+
+                    <Select
+                      label="Statut"
+                      value={item.status}
+                      onChange={(event) => updateRequest(item.id, { status: event.target.value })}
+                    >
+                      {STATUS_OPTIONS.filter((option) => option.value !== 'all').map((option) => (
+                        <option key={option.value} value={option.value}>{option.label}</option>
+                      ))}
+                    </Select>
+
+                    <Input
+                      label="Prix proposé (FCFA)"
+                      type="text"
+                      inputMode="decimal"
+                      value={item.quoted_price}
+                      onChange={(event) => updateRequest(item.id, { quoted_price: event.target.value })}
+                      placeholder="Ex : 25000"
+                    />
+
+                    <Textarea
+                      label="Notes internes"
+                      value={item.admin_notes}
+                      onChange={(event) => updateRequest(item.id, { admin_notes: event.target.value })}
+                      rows={4}
+                      placeholder="Notes pour l’équipe, devis, suivi…"
+                    />
+
+                    {saveError[item.id] && <p className="admin-analytics-error" role="alert">{saveError[item.id]}</p>}
+                    <Button
+                      onClick={() => void saveRequest(item)}
+                      loading={savingId === item.id}
+                    >
+                      Enregistrer
+                    </Button>
+                  </div>
+                </div>
+              </Card>
+            ))}
+          </div>
+        )}
       </div>
     </main>
   )
