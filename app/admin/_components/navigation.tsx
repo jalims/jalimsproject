@@ -6,41 +6,55 @@ import { useEffect, useId, useRef, type KeyboardEvent } from 'react'
 export function Pagination({
   page,
   pageSize,
-  totalItems,
+  totalItems = 0,
+  hasMore,
+  currentItems,
   onPageChange,
   label = 'Pagination',
+  disabled = false,
 }: {
   page: number
   pageSize: number
-  totalItems: number
+  totalItems?: number
+  hasMore?: boolean
+  currentItems?: number
   onPageChange: (page: number) => void
   label?: string
+  disabled?: boolean
 }) {
   const safePageSize = Math.max(1, pageSize)
-  const safePageCount = Math.max(1, Math.ceil(totalItems / safePageSize))
+  const safePageCount = hasMore === undefined
+    ? Math.max(1, Math.ceil(totalItems / safePageSize))
+    : hasMore ? page + 1 : page
   const safePage = Math.min(Math.max(1, page), safePageCount)
-  const firstItem = totalItems === 0 ? 0 : (safePage - 1) * safePageSize + 1
-  const lastItem = Math.min(safePage * safePageSize, totalItems)
+  const firstItem = hasMore === undefined
+    ? totalItems === 0 ? 0 : (safePage - 1) * safePageSize + 1
+    : currentItems ? (safePage - 1) * safePageSize + 1 : 0
+  const lastItem = hasMore === undefined
+    ? Math.min(safePage * safePageSize, totalItems)
+    : firstItem + Math.max(0, (currentItems ?? 0) - 1)
 
   return (
     <nav className="admin-ui-pagination" aria-label={label}>
-      <span className="admin-ui-pagination-summary">
-        {firstItem}–{lastItem} sur {totalItems}
-      </span>
+      {hasMore === undefined
+        ? <span className="admin-ui-pagination-summary">{firstItem}–{lastItem} sur {totalItems}</span>
+        : <span className="admin-ui-pagination-summary">
+            {currentItems === undefined ? `Page ${safePage}` : currentItems === 0 ? 'Aucun résultat' : `Résultats ${firstItem}–${lastItem}`}
+          </span>}
       <div className="admin-ui-pagination-controls">
         <button
           type="button"
           aria-label="Page précédente"
-          disabled={safePage <= 1}
+          disabled={disabled || safePage <= 1}
           onClick={() => onPageChange(safePage - 1)}
         >
           <ChevronLeft size={17} aria-hidden="true" />
         </button>
-        <span aria-current="page">Page {safePage} sur {safePageCount}</span>
+        <span aria-current="page">{hasMore === undefined ? `Page ${safePage} sur ${safePageCount}` : `Page ${safePage}`}</span>
         <button
           type="button"
           aria-label="Page suivante"
-          disabled={safePage >= safePageCount}
+          disabled={disabled || (hasMore === undefined ? safePage >= safePageCount : !hasMore)}
           onClick={() => onPageChange(safePage + 1)}
         >
           <ChevronRight size={17} aria-hidden="true" />

@@ -1,11 +1,18 @@
 'use client'
 
 import Link from 'next/link'
-import { useEffect, useState } from 'react'
+import { useSearchParams } from 'next/navigation'
+import { Suspense, useEffect, useState } from 'react'
 import { canAccessAdminPath } from '../../../lib/admin-staff-client'
 import { normalizeSenegalPhone } from '../../../lib/order-messages'
 import { supabase } from '../../../lib/supabase'
 import { useAdminSession } from '../admin-session-provider'
+import { Button } from '../_components/button'
+import { DataTable, type DataTableColumn } from '../_components/data-table'
+import { Badge, Card, EmptyState, PageHeader, Skeleton } from '../_components/display'
+import { Pagination, SearchInput, Tabs } from '../_components/navigation'
+import { Textarea } from '../_components/form-controls'
+import { useToast } from '../_components/overlays'
 
 type Client = {
   id: string
@@ -45,14 +52,22 @@ function formatDate(value: string) {
   return new Date(value).toLocaleString('fr-FR', { dateStyle: 'medium', timeStyle: 'short' })
 }
 
-function Skeletons() {
-  return <div className="admin-clients-skeletons" aria-label="Chargement des comptes">{Array.from({ length: 6 }, (_, index) => <div className="admin-clients-skeleton" key={index} />)}</div>
+function ClientsLoadingFallback() {
+  return (
+    <main className="admin-page">
+      <div className="admin-shell">
+        <PageHeader title="Clients" description="Chargement des comptes clients…" eyebrow="JALIMS · ESPACE ADMIN" />
+        <Card><Skeleton variant="rect" width="100%" height={180} /></Card>
+      </div>
+    </main>
+  )
 }
 
-export default function AdminClientsPage() {
+function AdminClientsPageContent({ initialSearch }: { initialSearch: string }) {
   const { userId, role, loading: checking } = useAdminSession()
+  const { toast } = useToast()
   const hasSession = Boolean(userId)
-  const [search, setSearch] = useState('')
+  const [search, setSearch] = useState(initialSearch)
   const [withoutOrder, setWithoutOrder] = useState(false)
   const [page, setPage] = useState(1)
   const [clients, setClients] = useState<Client[]>([])
@@ -112,16 +127,13 @@ export default function AdminClientsPage() {
 
   async function exportCsv() {
     setExporting(true)
-    setErrorMessage('')
-    const { data, error } = await supabase.auth.getSession()
-    if (error || !data.session?.access_token) {
-      setErrorMessage('Votre session a expiré. Reconnectez-vous puis réessayez.')
-      setExporting(false)
-      return
-    }
-
-    const params = new URLSearchParams({ export: 'csv', search, withoutOrder: String(withoutOrder) })
     try {
+      const { data, error } = await supabase.auth.getSession()
+      if (error || !data.session?.access_token) {
+        throw new Error('Votre session a expiré. Reconnectez-vous puis réessayez.')
+      }
+
+      const params = new URLSearchParams({ export: 'csv', search, withoutOrder: String(withoutOrder) })
       const response = await fetch(`/api/admin/clients?${params}`, {
         headers: { Authorization: `Bearer ${data.session.access_token}` },
       })
@@ -137,12 +149,80 @@ export default function AdminClientsPage() {
       anchor.download = `jalims-clients-${new Date().toISOString().slice(0, 10)}.csv`
       anchor.click()
       URL.revokeObjectURL(url)
+      toast({ title: 'Export prêt', description: 'Le fichier CSV a été téléchargé.', variant: 'success' })
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : 'L’export CSV a échoué.')
+      toast({
+        title: 'Échec de l’export',
+        description: error instanceof Error ? error.message : 'L’export CSV a échoué.',
+        variant: 'danger',
+      })
     } finally {
       setExporting(false)
     }
   }
+
+  const columns: DataTableColumn<Client>[] = [
+    {
+      key: 'client',
+      label: 'Client',
+      render: (client) => (
+        <div>
+          <strong>{client.name}</strong>
+          {isNewAccount(client.created_at) && <Badge variant="brand">Nouveau</Badge>}
+          <div>{client.phone || 'Téléphone non renseigné'}</div>
+        </div>
+      ),
+    },
+    {
+      key: 'created',
+      label: 'Inscription',
+      render: (client) => formatDate(client.created_at),
+    },
+    {
+      key: 'email',
+      label: 'E-mail',
+      render: (client) => (
+        <div>
+          <Badge variant={client.email_confirmed ? 'success' : 'warning'}>
+            {client.email_confirmed ? 'Confirmé' : 'Non confirmé'}
+          </Badge>
+          <div>{client.email || 'E-mail non renseigné'}</div>
+        </div>
+      ),
+    },
+    {
+      key: 'orders',
+      label: 'Commandes',
+      render: (client) => client.order_count.toLocaleString('fr-FR'),
+    },
+    {
+      key: 'spent',
+      label: 'Total dépensé',
+      render: (client) => `${Number(client.total_spent).toLocaleString('fr-FR')} FCFA`,
+    },
+    {
+      key: 'whatsapp',
+      label: 'Bienvenue sur WhatsApp',
+      render: (client) => {
+        const phone = normalizeSenegalPhone(client.phone)
+        const message = welcomeMessages[client.id] ?? welcomeMessage(client.name)
+        const whatsappUrl = phone ? `https://wa.me/${phone.replace('+', '')}?text=${encodeURIComponent(message)}` : null
+        return (
+          <div>
+            <Textarea
+              label={`Message WhatsApp pour ${client.name}`}
+              value={message}
+              onChange={(event) => setWelcomeMessages((current) => ({ ...current, [client.id]: event.target.value }))}
+              rows={2}
+            />
+            {whatsappUrl
+              ? <a href={whatsappUrl} target="_blank" rel="noreferrer">Ouvrir WhatsApp <span aria-hidden="true">↗</span></a>
+              : <span>Numéro sénégalais à 9 chiffres requis</span>}
+          </div>
+        )
+      },
+    },
+  ]
 
   if (checking) return <main className="admin-page"><div className="admin-state">Vérification de l’accès...</div></main>
   if (!hasSession) {
@@ -169,88 +249,81 @@ export default function AdminClientsPage() {
   return (
     <main className="admin-page">
       <div className="admin-shell">
-        <header className="admin-header">
-          <div>
-            <p className="eyebrow">JALIMS <span className="admin-header-divider">/</span> ESPACE ADMIN</p>
-            <h1>Clients</h1>
-            <p>Consultez les comptes et accueillez vos nouveaux clients.</p>
-          </div>
-          <button className="admin-clients-export" type="button" onClick={() => void exportCsv()} disabled={exporting}>
-            {exporting ? 'Préparation…' : 'Exporter en CSV'}
-          </button>
-        </header>
-        <section className="admin-clients-panel">
-          <div className="admin-clients-filters">
-            <label className="admin-clients-search">
-              <span className="sr-only">Rechercher un client</span>
-              <input
-                type="search"
-                placeholder="Nom, téléphone ou e-mail"
-                value={search}
-                onChange={(event) => { setSearch(event.target.value); setPage(1) }}
-              />
-            </label>
-            <label className="admin-clients-without-order">
-              <input type="checkbox" checked={withoutOrder} onChange={(event) => { setWithoutOrder(event.target.checked); setPage(1) }} />
-              <span>Sans commande</span>
-            </label>
-            <span className="admin-clients-page-label">Page {page}</span>
-          </div>
-
-          {errorMessage && <p className="admin-clients-error" role="alert">{errorMessage}</p>}
-          {loading ? <Skeletons /> : clients.length === 0 ? (
-            <div className="admin-clients-empty">
-              <span aria-hidden="true">♙</span>
-              <h2>Aucun compte à afficher</h2>
-              <p>{search || withoutOrder ? 'Essayez une autre recherche ou désactivez le filtre « Sans commande ».' : 'Les nouveaux comptes apparaîtront ici dès leur inscription.'}</p>
-            </div>
-          ) : (
-            <div className="admin-clients-table-wrap">
-              <table className="admin-clients-table">
-                <thead><tr><th>Client</th><th>Inscription</th><th>E-mail</th><th>Commandes</th><th>Total dépensé</th><th>Bienvenue sur WhatsApp</th></tr></thead>
-                <tbody>
-                  {clients.map((client) => {
-                    const phone = normalizeSenegalPhone(client.phone)
-                    const message = welcomeMessages[client.id] ?? welcomeMessage(client.name)
-                    const whatsappUrl = phone ? `https://wa.me/${phone.replace('+', '')}?text=${encodeURIComponent(message)}` : null
-                    return (
-                      <tr key={client.id}>
-                        <th className="admin-clients-identity" scope="row">
-                          <strong>{client.name}</strong>
-                          {isNewAccount(client.created_at) && <span className="admin-clients-new">Nouveau</span>}
-                          <span>{client.phone || 'Téléphone non renseigné'}</span>
-                          <span className="admin-clients-mobile-date">{formatDate(client.created_at)}</span>
-                        </th>
-                        <td data-label="Inscription">{formatDate(client.created_at)}</td>
-                        <td data-label="E-mail"><span className={`admin-clients-confirmed ${client.email_confirmed ? 'is-confirmed' : ''}`}>{client.email_confirmed ? 'Confirmé' : 'Non confirmé'}</span><span className="admin-clients-email">{client.email || 'E-mail non renseigné'}</span></td>
-                        <td data-label="Commandes">{client.order_count.toLocaleString('fr-FR')}</td>
-                        <td data-label="Total dépensé">{`${Number(client.total_spent).toLocaleString('fr-FR')} FCFA`}</td>
-                        <td className="admin-clients-whatsapp" data-label="Message de bienvenue WhatsApp">
-                          <textarea
-                            aria-label={`Message WhatsApp pour ${client.name}`}
-                            value={message}
-                            onChange={(event) => setWelcomeMessages((current) => ({ ...current, [client.id]: event.target.value }))}
-                            rows={2}
-                          />
-                          {whatsappUrl
-                            ? <a href={whatsappUrl} target="_blank" rel="noreferrer">Ouvrir WhatsApp <span aria-hidden="true">↗</span></a>
-                            : <span className="admin-clients-phone-hint">Numéro sénégalais à 9 chiffres requis</span>}
-                        </td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
-            </div>
+        <PageHeader
+          title="Clients"
+          description="Consultez les comptes et accueillez vos nouveaux clients."
+          eyebrow="JALIMS · ESPACE ADMIN"
+          actions={(
+            <Button variant="outline" onClick={() => void exportCsv()} loading={exporting}>
+              Exporter en CSV
+            </Button>
           )}
-
-          <nav className="admin-clients-pagination" aria-label="Pagination des clients">
-            <button type="button" disabled={page <= 1 || loading} onClick={() => setPage((current) => Math.max(1, current - 1))}>← Précédent</button>
-            <span>Page {page}</span>
-            <button type="button" disabled={!hasMore || loading} onClick={() => setPage((current) => current + 1)}>Suivant →</button>
-          </nav>
-        </section>
+        />
+        <Card title="Répertoire clients">
+          <div>
+            <SearchInput
+              label="Rechercher un client"
+              placeholder="Nom, téléphone ou e-mail"
+              value={search}
+              onChange={(value) => { setSearch(value); setPage(1) }}
+            />
+            <Tabs
+              label="Filtrer les clients"
+              value={withoutOrder ? 'without-order' : 'all'}
+              onChange={(value) => { setWithoutOrder(value === 'without-order'); setPage(1) }}
+              items={[
+                { id: 'all', label: 'Tous' },
+                { id: 'without-order', label: 'Sans commande' },
+              ]}
+            />
+          </div>
+          {errorMessage ? (
+            <Card title="Impossible de charger les clients">
+              <p role="alert">{errorMessage}</p>
+            </Card>
+          ) : (
+            <DataTable
+              columns={columns}
+              rows={clients}
+              rowKey={(client) => client.id}
+              caption="Comptes clients, inscriptions, commandes, dépenses et messages de bienvenue"
+              loading={loading}
+              loadingRows={5}
+              emptyState={(
+                <EmptyState
+                  title="Aucun compte à afficher"
+                  description={search || withoutOrder
+                    ? 'Essayez une autre recherche ou désactivez le filtre « Sans commande ».'
+                    : 'Les nouveaux comptes apparaîtront ici dès leur inscription.'}
+                />
+              )}
+            />
+          )}
+          <Pagination
+            page={page}
+            pageSize={20}
+            hasMore={hasMore}
+            currentItems={clients.length}
+            onPageChange={setPage}
+            label="Pagination des clients"
+            disabled={loading}
+          />
+        </Card>
       </div>
     </main>
+  )
+}
+
+function AdminClientsPageWithQuery() {
+  const searchParams = useSearchParams()
+  const querySearch = searchParams.get('q') ?? ''
+  return <AdminClientsPageContent key={querySearch} initialSearch={querySearch} />
+}
+
+export default function AdminClientsPage() {
+  return (
+    <Suspense fallback={<ClientsLoadingFallback />}>
+      <AdminClientsPageWithQuery />
+    </Suspense>
   )
 }
