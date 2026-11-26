@@ -10,7 +10,7 @@ import { logClientError } from '../../../../lib/user-facing-errors'
 import { useAdminSession } from '../../admin-session-provider'
 import { DEFAULT_APP_PRICING_SETTINGS, getDisplayedUnitPrice, normalizeAppPricingSettings, type AppPricingSettings } from '../../../../lib/imported-product-pricing'
 import QuantityInput from '../../../ui/quantity-input'
-import { Skeleton, useToast } from '../../_components'
+import { Badge, Button, Card, ConfirmDialog, Input, PageHeader, Select, Skeleton, Textarea, useToast } from '../../_components'
 import { PRODUCT_SELECT_COLUMNS, removeCreatedProduct, requestAdminProductImages, requestAdminProducts, type Product, type SupplierCost } from './product-data'
 
 type PartnerOption = { id: string; name: string; city: string; active: boolean }
@@ -96,6 +96,8 @@ export default function ProductForm({ productId }: { productId?: string }) {
   const [existingImagesLoading, setExistingImagesLoading] = useState(false)
   const [imageActionBusy, setImageActionBusy] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  const [unpublishing, setUnpublishing] = useState(false)
+  const [confirmUnpublish, setConfirmUnpublish] = useState(false)
   const [feedback, setFeedback] = useState<{ kind: 'success' | 'error'; text: string } | null>(null)
   const [initialLoading, setInitialLoading] = useState(true)
   const [productLoadError, setProductLoadError] = useState('')
@@ -183,6 +185,8 @@ export default function ProductForm({ productId }: { productId?: string }) {
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setFeedback(null)
+    const submitter = (event.nativeEvent as SubmitEvent).submitter
+    const submitAction = submitter instanceof HTMLButtonElement ? submitter.value : 'draft'
 
     const name = form.name.trim()
     const price = Number(form.price)
@@ -277,7 +281,9 @@ export default function ProductForm({ productId }: { productId?: string }) {
     const baseImageUrl = editingId
       ? (existingImages[0]?.image_url ?? fallbackImageUrl ?? null)
       : (fallbackImageUrl ?? null)
-    const desiredActive = editingId ? (editingActive && publishable) : publishable
+    const desiredActive = editingId
+      ? (editingActive ? publishable : submitAction === 'publish' && publishable)
+      : submitAction === 'publish' && publishable
     const importBasePrice = form.origin === 'import' && form.importBasePrice.trim() !== '' ? Number(form.importBasePrice) : null
     const importBaseCurrency = form.origin === 'import' ? (form.importBaseCurrency === 'CNY' ? 'CNY' : 'FCFA') : null
     const importWeightKg = form.origin === 'import' && form.importWeightKg.trim() !== '' ? Number(form.importWeightKg) : null
@@ -476,6 +482,27 @@ export default function ProductForm({ productId }: { productId?: string }) {
 
     toast({ title: editingId ? 'Produit modifié' : 'Produit enregistré', description: activationMessage.trim() || undefined, variant: 'success' })
     router.push('/admin/produits')
+  }
+
+  async function unpublishProduct() {
+    if (!editingId) return
+    setUnpublishing(true)
+    const { error } = await requestAdminProducts('PATCH', {
+      id: editingId,
+      action: 'set-active',
+      active: false,
+    })
+    setUnpublishing(false)
+    if (error) {
+      logClientError('Admin product unpublish failed', error)
+      setFeedback({ kind: 'error', text: error })
+      toast({ title: 'Dépublication impossible', description: error, variant: 'danger' })
+      return
+    }
+
+    setEditingActive(false)
+    setConfirmUnpublish(false)
+    toast({ title: 'Produit dépublié', variant: 'success' })
   }
 
   const loadProductImages = useCallback(async (productId: string) => {
@@ -783,213 +810,130 @@ export default function ProductForm({ productId }: { productId?: string }) {
   return (
     <main className="admin-page">
       <div className="admin-shell">
-        <header className="admin-header">
-          <div>
-            <p className="eyebrow">JALIMS <span className="admin-header-divider">/</span> ESPACE ADMIN</p>
-            <h1>Produits</h1>
-            <p>Gérez votre catalogue et préparez vos produits à la vente.</p>
-          </div>
-        </header>
+        <PageHeader
+          eyebrow="Catalogue produits"
+          title={editingId ? 'Modifier le produit' : 'Nouveau produit'}
+          description="Renseignez les informations, les prix, le stock, les variantes et les photos."
+          actions={<Badge variant={editingActive ? 'success' : 'warning'}>{editingActive ? 'En ligne' : 'Brouillon'}</Badge>}
+        />
 
-        <div className="admin-layout">
-          <section className="admin-form-panel">
-            <div className="admin-section-heading">
-              <div>
-                <p className="eyebrow">NOUVEL ARTICLE</p>
-                <h2>{editingId ?'Modifier le produit' : 'Informations produit'}</h2>
-              </div>
-              <span className="publish-badge"><span /> {editingId ?'Modification' : 'Prêt à publier'}</span>
-            </div>
-
-            <form className="admin-product-form" onSubmit={handleSubmit}>
-              <label>
-                <span>Nom du produit</span>
+        <form className="admin-product-form admin-ui-product-form" onSubmit={handleSubmit}>
+          <section id="product-info" className="admin-ui-product-section">
+            <Card title="Infos" description="Les informations générales présentées sur le catalogue.">
+              <Input
+                label="Nom du produit"
+                autoComplete="off"
+                maxLength={120}
+                placeholder="Ex. Écouteurs sans fil"
+                required
+                value={form.name}
+                onChange={(event) => setForm({ ...form, name: event.target.value })}
+              />
+              <Textarea
+                label="Description"
+                maxLength={3000}
+                placeholder="Décrivez les caractéristiques utiles du produit..."
+                rows={4}
+                value={form.description}
+                onChange={(event) => setForm({ ...form, description: event.target.value })}
+              />
+              <Select
+                label="Catégorie"
+                required
+                value={form.category}
+                onChange={(event) => setForm({ ...form, category: event.target.value })}
+              >
+                <option value="">Choisir une catégorie</option>
+                {categoryOptions.map((category) => <option key={category} value={category}>{category}</option>)}
+              </Select>
+              <Input
+                label="Délai de livraison estimé"
+                maxLength={100}
+                placeholder="Ex. 5 à 12 jours"
+                value={form.deliveryEstimate}
+                onChange={(event) => setForm({ ...form, deliveryEstimate: event.target.value })}
+              />
+              <Select
+                label="Origine du produit"
+                disabled={saving}
+                value={form.origin}
+                onChange={(event) => setForm({
+                  ...form,
+                  origin: event.target.value === 'local' ? 'local' : 'import',
+                  partnerId: event.target.value === 'local' ? form.partnerId : '',
+                })}
+              >
+                <option value="import">Import Chine</option>
+                <option value="local">Disponible au Sénégal</option>
+              </Select>
+              <label className="featured-checkbox-row">
                 <input
-                  autoComplete="off"
-                  maxLength={120}
-                  placeholder="Ex. Écouteurs sans fil"
-                  required
-                  value={form.name}
-                  onChange={(event) => setForm({ ...form, name: event.target.value })}
+                  checked={form.featured}
+                  onChange={(event) => setForm({ ...form, featured: event.target.checked })}
+                  type="checkbox"
                 />
+                <span><strong>Mettre en produit vedette</strong><small>Ce produit apparaîtra en priorité sur l’accueil.</small></span>
               </label>
+            </Card>
+          </section>
 
-              <label>
-                <span>Description</span>
-                <textarea
-                  maxLength={3000}
-                  placeholder="Décrivez les caractéristiques utiles du produit..."
-                  rows={4}
-                  value={form.description}
-                  onChange={(event) => setForm({ ...form, description: event.target.value })}
-                />
-              </label>
-
-              <div className="admin-form-row">
-                <label>
-                  <span>Prix de vente <small>FCFA</small></span>
-                  <input
-                    inputMode="numeric"
-                    min="1"
-                    placeholder="25000"
-                    required
-                    type="number"
-                    value={form.price}
-                    onChange={(event) => setForm({ ...form, price: event.target.value })}
-                  />
-                </label>
-                <label>
-  <span>Catégorie</span>
-  <select
-    required
-    value={form.category}
-    onChange={(event) => setForm({ ...form, category: event.target.value })}
-  >
-    <option value="">Choisir une catégorie</option>
-    {categoryOptions.map((cat) => (
-      <option key={cat} value={cat}>
-        {cat}
-      </option>
-    ))}
-  </select>
-</label>
-              </div>
-
-              <label>
-                <span>Délai de livraison estimé</span>
-                <input
-                  maxLength={100}
-                  placeholder="Ex. 5 à 12 jours"
-                  type="text"
-                  value={form.deliveryEstimate}
-                  onChange={(event) => setForm({ ...form, deliveryEstimate: event.target.value })}
-                />
-              </label>
-
-              <label>
-                <span>Origine du produit</span>
-                <select
-                  disabled={saving}
-                  value={form.origin}
-                  onChange={(event) => setForm({
-                    ...form,
-                    origin: event.target.value === 'local' ? 'local' : 'import',
-                    partnerId: event.target.value === 'local' ?form.partnerId : '',
-                  })}
-                >
-                  <option value="import">Import Chine</option>
-                  <option value="local">Disponible au Sénégal</option>
-                </select>
-              </label>
-
-              {form.origin === 'local' && (
-                <div className="admin-local-stock-fields">
-                  <label>
-                    <span>Quantité en stock</span>
-                    <input
-                      disabled={saving}
-                      min="1"
-                      required
-                      step="1"
-                      type="number"
-                      value={form.localStock}
-                      onChange={(event) => setForm({ ...form, localStock: event.target.value })}
-                    />
-                  </label>
-                  <label>
-                    <span>Ville</span>
-                    <input
-                      autoComplete="address-level2"
-                      disabled={saving}
-                      maxLength={100}
-                      placeholder="Ex. Dakar"
-                      required
-                      value={form.city}
-                      onChange={(event) => setForm({ ...form, city: event.target.value })}
-                    />
-                  </label>
-                  <label>
-                    <span>Délai de livraison local</span>
-                    <input
-                      disabled={saving}
-                      maxLength={100}
-                      placeholder="Ex. 24-72h"
-                      required
-                      value={form.deliveryDelay}
-                      onChange={(event) => setForm({ ...form, deliveryDelay: event.target.value })}
-                    />
-                  </label>
-                  <label>
-                    <span>Partenaire</span>
-                    <select
-                      disabled={saving}
-                      required
-                      value={form.partnerId}
-                      onChange={(event) => setForm({ ...form, partnerId: event.target.value })}
-                    >
-                      <option value="">Choisir un partenaire actif</option>
-                      {partnerOptions.map((partner) => (
-                        <option key={partner.id} value={partner.id}>{partner.name} · {partner.city}</option>
-                      ))}
-                    </select>
-                    {partnerOptions.length === 0 && <small>Aucun partenaire actif. Ajoutez-en depuis l’écran Partenaires.</small>}
-                  </label>
-                </div>
-              )}
-
+          <section id="product-pricing" className="admin-ui-product-section">
+            <Card title="Prix et coûts" description="Prix de vente et, pour les produits importés, les paramètres de calcul et le coût fournisseur.">
+              <Input
+                label="Prix de vente (FCFA)"
+                inputMode="numeric"
+                min="1"
+                placeholder="25000"
+                required
+                type="number"
+                value={form.price}
+                onChange={(event) => setForm({ ...form, price: event.target.value })}
+              />
               {form.origin === 'import' && (
                 <div className="admin-local-stock-fields">
-                  <p className="eyebrow" style={{ margin: 0 }}>CALCUL PRIX IMPORTÉ</p>
-                  <label>
-                    <span>Prix de base produit</span>
-                    <input
-                      disabled={saving}
-                      min="0"
-                      step="0.01"
-                      type="number"
-                      value={form.importBasePrice}
-                      onChange={(event) => setForm({ ...form, importBasePrice: event.target.value })}
-                      placeholder="Ex. 45"
-                    />
-                    <small>Prix du produit avant transport, autres frais, dédouanement et commission.</small>
-                  </label>
-                  <label>
-                    <span>Devise du prix de base</span>
-                    <select
-                      disabled={saving}
-                      value={form.importBaseCurrency}
-                      onChange={(event) => setForm({ ...form, importBaseCurrency: event.target.value === 'CNY' ? 'CNY' : 'FCFA' })}
-                    >
-                      <option value="FCFA">FCFA</option>
-                      <option value="CNY">Yuan (CNY)</option>
-                    </select>
-                  </label>
-                  <label>
-                    <span>Poids (kg)</span>
-                    <input
-                      disabled={saving}
-                      min="0"
-                      step="0.001"
-                      type="number"
-                      value={form.importWeightKg}
-                      onChange={(event) => setForm({ ...form, importWeightKg: event.target.value })}
-                      placeholder="Ex. 0.8"
-                    />
-                    <small>Transport = poids × prix transport/kg (paramètres).</small>
-                  </label>
-                  <label>
-                    <span>Autres frais (FCFA)</span>
-                    <input
-                      disabled={saving}
-                      min="0"
-                      step="0.01"
-                      type="number"
-                      value={form.importOtherFeesFcfa}
-                      onChange={(event) => setForm({ ...form, importOtherFeesFcfa: event.target.value })}
-                      placeholder="0"
-                    />
-                    <small>Autres frais déjà pris en compte, inclus dans la base avant dédouanement et commission.</small>
-                  </label>
+                  <h3 className="admin-ui-product-subheading">Calcul du prix importé</h3>
+                  <Input
+                    label="Prix de base produit"
+                    hint="Avant transport, autres frais, dédouanement et commission."
+                    disabled={saving}
+                    min="0"
+                    step="0.01"
+                    type="number"
+                    value={form.importBasePrice}
+                    onChange={(event) => setForm({ ...form, importBasePrice: event.target.value })}
+                    placeholder="Ex. 45"
+                  />
+                  <Select
+                    label="Devise du prix de base"
+                    disabled={saving}
+                    value={form.importBaseCurrency}
+                    onChange={(event) => setForm({ ...form, importBaseCurrency: event.target.value === 'CNY' ? 'CNY' : 'FCFA' })}
+                  >
+                    <option value="FCFA">FCFA</option>
+                    <option value="CNY">Yuan (CNY)</option>
+                  </Select>
+                  <Input
+                    label="Poids (kg)"
+                    hint="Transport = poids × prix transport/kg (paramètres)."
+                    disabled={saving}
+                    min="0"
+                    step="0.001"
+                    type="number"
+                    value={form.importWeightKg}
+                    onChange={(event) => setForm({ ...form, importWeightKg: event.target.value })}
+                    placeholder="Ex. 0.8"
+                  />
+                  <Input
+                    label="Autres frais (FCFA)"
+                    hint="Inclus dans la base avant dédouanement et commission."
+                    disabled={saving}
+                    min="0"
+                    step="0.01"
+                    type="number"
+                    value={form.importOtherFeesFcfa}
+                    onChange={(event) => setForm({ ...form, importOtherFeesFcfa: event.target.value })}
+                    placeholder="0"
+                  />
                   {(() => {
                     const previewPrice = getDisplayedUnitPrice({
                       origin: 'import',
@@ -1002,7 +946,7 @@ export default function ProductForm({ productId }: { productId?: string }) {
                     const missingRate = form.importBaseCurrency === 'CNY' && (appSettings.cny_to_fcfa_rate == null)
                     const dynamicReady = form.importBasePrice.trim() !== '' && form.importWeightKg.trim() !== '' && !missingRate
                     return (
-                      <p style={{ margin: 0 }}>
+                      <p className="admin-ui-product-price-preview">
                         <small>
                           Prix final calculé (aperçu, arrondi au multiple de 25 FCFA) : <strong>{previewPrice.toLocaleString('fr-FR')} FCFA</strong>
                           {!dynamicReady && ' — calcul dynamique non appliqué (données incomplètes ou taux CNY manquant), le prix enregistré du produit est utilisé.'}
@@ -1011,43 +955,79 @@ export default function ProductForm({ productId }: { productId?: string }) {
                     )
                   })()}
 
-                  <p className="eyebrow" style={{ margin: '8px 0 0' }}>PRIX D’ACHAT FOURNISSEUR (admin)</p>
-                  <label>
-                    <span>Prix d’achat fournisseur</span>
-                    <input
-                      disabled={saving}
-                      min="0"
-                      step="0.01"
-                      type="number"
-                      value={form.supplierPurchasePrice}
-                      onChange={(event) => setForm({ ...form, supplierPurchasePrice: event.target.value })}
-                      placeholder="Laisser vide si non renseigné"
-                    />
-                    <small>Jamais affiché côté client. Enregistré dans <code>product_costs</code>.</small>
-                  </label>
-                  <label>
-                    <span>Devise du prix d’achat fournisseur</span>
-                    <select
-                      disabled={saving}
-                      value={form.supplierCurrency}
-                      onChange={(event) => setForm({ ...form, supplierCurrency: event.target.value === 'CNY' ? 'CNY' : 'FCFA' })}
-                    >
-                      <option value="FCFA">FCFA</option>
-                      <option value="CNY">Yuan (CNY)</option>
-                    </select>
-                  </label>
+                  <h3 className="admin-ui-product-subheading">Coût fournisseur</h3>
+                  <Input
+                    label="Prix d’achat fournisseur"
+                    hint={<>Jamais affiché côté client. Enregistré dans <code>product_costs</code>.</>}
+                    disabled={saving}
+                    min="0"
+                    step="0.01"
+                    type="number"
+                    value={form.supplierPurchasePrice}
+                    onChange={(event) => setForm({ ...form, supplierPurchasePrice: event.target.value })}
+                    placeholder="Laisser vide si non renseigné"
+                  />
+                  <Select
+                    label="Devise du prix d’achat fournisseur"
+                    disabled={saving}
+                    value={form.supplierCurrency}
+                    onChange={(event) => setForm({ ...form, supplierCurrency: event.target.value === 'CNY' ? 'CNY' : 'FCFA' })}
+                  >
+                    <option value="FCFA">FCFA</option>
+                    <option value="CNY">Yuan (CNY)</option>
+                  </Select>
                 </div>
               )}
 
-              <label className="featured-checkbox-row">
-                <input
-                  checked={form.featured}
-                  onChange={(event) => setForm({ ...form, featured: event.target.checked })}
-                  type="checkbox"
-                />
-                <span><strong>Mettre en produit vedette</strong><small>Ce produit apparaîtra en priorité sur l’accueil.</small></span>
-              </label>
+            </Card>
+          </section>
 
+          <section id="product-stock" className="admin-ui-product-section">
+            <Card title="Stock" description="Gérez les quantités, la disponibilité et les informations du partenaire local.">
+              {form.origin === 'local' && (
+                <div className="admin-local-stock-fields">
+                  <Input
+                    label="Quantité en stock"
+                    disabled={saving}
+                    min="1"
+                    required
+                    step="1"
+                    type="number"
+                    value={form.localStock}
+                    onChange={(event) => setForm({ ...form, localStock: event.target.value })}
+                  />
+                  <Input
+                    label="Ville"
+                    autoComplete="address-level2"
+                    disabled={saving}
+                    maxLength={100}
+                    placeholder="Ex. Dakar"
+                    required
+                    value={form.city}
+                    onChange={(event) => setForm({ ...form, city: event.target.value })}
+                  />
+                  <Input
+                    label="Délai de livraison local"
+                    disabled={saving}
+                    maxLength={100}
+                    placeholder="Ex. 24-72h"
+                    required
+                    value={form.deliveryDelay}
+                    onChange={(event) => setForm({ ...form, deliveryDelay: event.target.value })}
+                  />
+                  <Select
+                    label="Partenaire"
+                    disabled={saving}
+                    required
+                    value={form.partnerId}
+                    onChange={(event) => setForm({ ...form, partnerId: event.target.value })}
+                  >
+                    <option value="">Choisir un partenaire actif</option>
+                    {partnerOptions.map((partner) => <option key={partner.id} value={partner.id}>{partner.name} · {partner.city}</option>)}
+                  </Select>
+                  {partnerOptions.length === 0 && <small>Aucun partenaire actif. Ajoutez-en depuis l’écran Partenaires.</small>}
+                </div>
+              )}
               <div className="admin-form-row">
                 <label>
                   <span>Quantité minimale (MOQ)</span>
@@ -1059,16 +1039,21 @@ export default function ProductForm({ productId }: { productId?: string }) {
                     onChange={(value) => setForm({ ...form, moq: value })}
                   />
                 </label>
-                <label>
-                  <span>Disponibilité</span>
-                  <select value={form.stockStatus} onChange={(event) => setForm({ ...form, stockStatus: event.target.value })}>
-                    <option value="available">Disponible</option>
-                    <option value="preorder">Sur commande</option>
-                    <option value="out_of_stock">Indisponible</option>
-                  </select>
-                </label>
+                <Select
+                  label="Disponibilité"
+                  value={form.stockStatus}
+                  onChange={(event) => setForm({ ...form, stockStatus: event.target.value })}
+                >
+                  <option value="available">Disponible</option>
+                  <option value="preorder">Sur commande</option>
+                  <option value="out_of_stock">Indisponible</option>
+                </Select>
               </div>
+            </Card>
+          </section>
 
+          <section id="product-variants" className="admin-ui-product-section">
+            <Card title="Variantes" description="Définissez les choix proposés et leurs stocks et ajustements de prix.">
               <section className="variant-editor" aria-labelledby="variant-editor-title">
                 <div className="variant-editor-heading">
                   <h3 id="variant-editor-title">Variantes et stock</h3>
@@ -1097,26 +1082,24 @@ export default function ProductForm({ productId }: { productId?: string }) {
                     </div>
                     {configuredAttributes.map((attribute) => (
                       <div className="variant-values-field" key={attribute.key}>
-                        <label>
-                          <span>Valeurs : {attribute.label}</span>
-                          <textarea
-                            disabled={saving}
-                            onChange={(event) => {
-                              const nextValue = event.target.value
-                              const nextValues = parseAttributeValues(nextValue)
-                              setAttributeValueInputs((current) => ({ ...current, [attribute.key]: nextValue }))
-                              if (attribute.key === 'color') {
-                                setAttributeColorInputs((current) => ({
-                                  ...current,
-                                  color: Object.fromEntries(nextValues.map((value) => [value, current.color?.[value] ?? '#808080'])),
-                                }))
-                              }
-                            }}
-                            placeholder="Une valeur par ligne ou séparée par des virgules"
-                            rows={3}
-                            value={attributeValueInputs[attribute.key] ?? ''}
-                          />
-                        </label>
+                        <Textarea
+                          label={`Valeurs : ${attribute.label}`}
+                          disabled={saving}
+                          onChange={(event) => {
+                            const nextValue = event.target.value
+                            const nextValues = parseAttributeValues(nextValue)
+                            setAttributeValueInputs((current) => ({ ...current, [attribute.key]: nextValue }))
+                            if (attribute.key === 'color') {
+                              setAttributeColorInputs((current) => ({
+                                ...current,
+                                color: Object.fromEntries(nextValues.map((value) => [value, current.color?.[value] ?? '#808080'])),
+                              }))
+                            }
+                          }}
+                          placeholder="Une valeur par ligne ou séparée par des virgules"
+                          rows={3}
+                          value={attributeValueInputs[attribute.key] ?? ''}
+                        />
                         {attribute.key === 'color' && attribute.values.length > 0 && (
                           <div className="variant-color-editor-list">
                             {attribute.values.map((value) => (
@@ -1167,16 +1150,22 @@ export default function ProductForm({ productId }: { productId?: string }) {
                   </>
                 )}
               </section>
+            </Card>
+          </section>
 
-              <section className="admin-photo-manager" aria-label="Photos du produit">
-                <div className="admin-section-heading">
-                  <div>
-                    <h3>Photos du produit</h3>
-                    <p>Total : {totalImageCount} image(s) (existantes + nouvelles). {canPublishWithImages ? 'Publication possible (3 photos ou plus).' : 'Ajoutez au moins 3 photos au total pour publier ce produit. Il restera en brouillon.'}</p>
-                  </div>
-                </div>
+          <section id="product-photos" className="admin-ui-product-section">
+            <Card
+              title="Photos"
+              description="JPG, PNG ou WebP, 6 Mo maximum par fichier. Les photos peuvent être réordonnées."
+              actions={<Badge variant={canPublishWithImages ? 'success' : 'warning'}>{totalImageCount} / 3 photos</Badge>}
+            >
+              <p className="admin-ui-product-photo-validation" role="status">
+                {canPublishWithImages
+                  ? 'Au moins 3 photos sont prêtes pour la publication.'
+                  : `Ajoutez ${3 - totalImageCount} photo(s) pour pouvoir publier. Le produit restera en brouillon.`}
+              </p>
 
-                {editingId && (
+              {editingId && (
                   <div className="admin-existing-images">
                     <h4>Photos enregistrées</h4>
                     {existingImagesLoading ? (
@@ -1192,16 +1181,20 @@ export default function ProductForm({ productId }: { productId?: string }) {
                               {index === 0 && <span className="admin-image-badge">Principale</span>}
                             </div>
                             <div className="admin-existing-image-actions">
-                              <button
+                              <Button
+                                size="sm"
+                                variant="outline"
                                 type="button"
                                 disabled={imageActionBusy !== null || index === 0}
                                 onClick={() => void moveExistingImage(index, -1)}
-                              >Monter</button>
-                              <button
+                              >Monter</Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
                                 type="button"
                                 disabled={imageActionBusy !== null || index === existingImages.length - 1}
                                 onClick={() => void moveExistingImage(index, 1)}
-                              >Descendre</button>
+                              >Descendre</Button>
                               <label className="admin-image-replace">
                                 <input
                                   accept="image/jpeg,image/png,image/webp"
@@ -1215,58 +1208,53 @@ export default function ProductForm({ productId }: { productId?: string }) {
                                 />
                                 <span>{imageActionBusy === `replace-${image.id}` ? 'Remplacement...' : 'Remplacer'}</span>
                               </label>
-                              <button
+                              <Button
+                                size="sm"
+                                variant="danger"
                                 type="button"
                                 disabled={imageActionBusy !== null}
                                 onClick={() => void deleteExistingImage(image)}
-                              >{imageActionBusy === `delete-${image.id}` ? 'Suppression...' : 'Supprimer'}</button>
+                              >{imageActionBusy === `delete-${image.id}` ? 'Suppression...' : 'Supprimer'}</Button>
                             </div>
                           </li>
                         ))}
                       </ul>
                     )}
                   </div>
-                )}
+              )}
 
-                <label>
-                  <span>{editingId ? 'Ajouter de nouvelles photos' : 'Photos du produit'}</span>
-                  <input
-                    accept="image/jpeg,image/png,image/webp"
-                    multiple
-                    onChange={(event) => {
-                      const files = Array.from(event.currentTarget.files ?? [])
-                      if (files.some((file) => file.size > 6 * 1024 * 1024 || !['image/jpeg', 'image/png', 'image/webp'].includes(file.type))) {
-                        setFeedback({ kind: 'error', text: 'Chaque photo doit ?tre au format JPG, PNG ou WebP et faire 6 Mo maximum.' })
-                        event.currentTarget.value = ''
-                        return
-                      }
-                      setImagePreviews([])
-                      setImageFiles(files)
-                      if (!editingId && files.length > 0 && files.length < 3) {
-                        setFeedback({ kind: 'error', text: 'Produit enregistré en brouillon : ajoutez au moins 3 photos au total pour pouvoir le publier.' })
-                      } else {
-                        setFeedback(null)
-                      }
-                    }}
-                    type="file"
-                  />
-                  <small className="field-hint">JPG, PNG ou WebP, 6 Mo maximum chacune. {imageFiles.length} nouvelle(s) sélectionnée(s). Les nouvelles photos seront ajoutées à la suite, sans dupliquer les photos existantes.</small>
-                </label>
+              <Input
+                label={editingId ? 'Ajouter de nouvelles photos' : 'Photos du produit'}
+                accept="image/jpeg,image/png,image/webp"
+                hint={`JPG, PNG ou WebP, 6 Mo maximum chacune. ${imageFiles.length} nouvelle(s) sélectionnée(s). Les nouvelles photos seront ajoutées à la suite, sans dupliquer les photos existantes.`}
+                multiple
+                onChange={(event) => {
+                  const files = Array.from(event.currentTarget.files ?? [])
+                  if (files.some((file) => file.size > 6 * 1024 * 1024 || !['image/jpeg', 'image/png', 'image/webp'].includes(file.type))) {
+                    setFeedback({ kind: 'error', text: 'Chaque photo doit ?tre au format JPG, PNG ou WebP et faire 6 Mo maximum.' })
+                    event.currentTarget.value = ''
+                    return
+                  }
+                  setImagePreviews([])
+                  setImageFiles(files)
+                  if (!editingId && files.length > 0 && files.length < 3) {
+                    setFeedback({ kind: 'error', text: 'Produit enregistré en brouillon : ajoutez au moins 3 photos au total pour pouvoir le publier.' })
+                  } else {
+                    setFeedback(null)
+                  }
+                }}
+                type="file"
+              />
 
-                <label>
-                  <span>URL publique de secours (ne compte pas comme photo enregistrée pour la publication)</span>
-                  <input
-                    autoComplete="url"
-                    placeholder="https://... (facultatif)"
-                    type="url"
-                    value={form.imageUrl}
-                    onChange={(event) => {
-                      setForm({ ...form, imageUrl: event.target.value })
-                    }}
-                  />
-                  <small className="field-hint">La publication nécessite au moins 3 photos enregistrées en base (product_images). Une URL de secours seule ne suffit pas.</small>
-                </label>
-              </section>
+              <Input
+                label="URL publique de secours (ne compte pas comme photo enregistrée pour la publication)"
+                autoComplete="url"
+                placeholder="https://... (facultatif)"
+                type="url"
+                value={form.imageUrl}
+                onChange={(event) => setForm({ ...form, imageUrl: event.target.value })}
+                hint="La publication nécessite au moins 3 photos enregistrées en base (product_images). Une URL de secours seule ne suffit pas."
+              />
 
               <div className="admin-preview-row">
                 <div className="admin-image-preview">
@@ -1293,23 +1281,82 @@ export default function ProductForm({ productId }: { productId?: string }) {
                   ))}
                 </div>
               )}
-
-              {feedback && (
-                <p className={`admin-feedback ${feedback.kind}`} role={feedback.kind === 'error' ? 'alert' : 'status'}>
-                  {feedback.text}
-                </p>
-              )}
-
-              <button className="admin-submit" type="submit" disabled={saving || imageActionBusy !== null || existingImagesLoading}>
-                {saving ? 'Enregistrement...' : editingId ? 'Enregistrer les modifications' : (canPublishWithImages ? 'Publier le produit' : 'Enregistrer en brouillon')}
-                {!saving && <span aria-hidden="true">{'\u2192'}</span>}
-              </button>
-              {editingId && <button className="admin-cancel-edit" type="button" onClick={() => router.push('/admin/produits')}>Annuler la modification</button>}
-            </form>
+            </Card>
           </section>
 
+          {feedback && (
+            <p className={`admin-feedback ${feedback.kind}`} role={feedback.kind === 'error' ? 'alert' : 'status'}>
+              {feedback.text}
+            </p>
+          )}
 
-        </div>
+          <footer className="admin-ui-product-savebar">
+            <div className="admin-ui-product-savecopy">
+              <strong>{editingId ? 'Modifications du produit' : 'Nouveau produit'}</strong>
+              <span>{canPublishWithImages ? '3 photos minimum atteintes' : `Encore ${3 - totalImageCount} photo(s) pour publier`}</span>
+            </div>
+            <div className="admin-ui-product-saveactions">
+              {editingId && editingActive ? (
+                <>
+                  <Button
+                    type="submit"
+                    value="save"
+                    variant="outline"
+                    loading={saving}
+                    disabled={imageActionBusy !== null || existingImagesLoading}
+                  >
+                    Enregistrer les modifications
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="danger"
+                    disabled={saving || imageActionBusy !== null}
+                    onClick={() => setConfirmUnpublish(true)}
+                  >
+                    Dépublier
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <Button
+                    type="submit"
+                    value="draft"
+                    variant="outline"
+                    loading={saving}
+                    disabled={imageActionBusy !== null || existingImagesLoading}
+                  >
+                    Enregistrer en brouillon
+                  </Button>
+                  <Button
+                    type="submit"
+                    value="publish"
+                    loading={saving}
+                    disabled={!canPublishWithImages || imageActionBusy !== null || existingImagesLoading}
+                  >
+                    Publier le produit
+                  </Button>
+                </>
+              )}
+              {editingId && (
+                <Button type="button" variant="ghost" disabled={saving} onClick={() => router.push('/admin/produits')}>
+                  Retour à la liste
+                </Button>
+              )}
+            </div>
+          </footer>
+        </form>
+
+        <ConfirmDialog
+          open={confirmUnpublish}
+          onClose={() => {
+            if (!unpublishing) setConfirmUnpublish(false)
+          }}
+          onConfirm={() => void unpublishProduct()}
+          title="Dépublier ce produit ?"
+          description="Le produit sera masqué du catalogue public. Ses données et ses photos seront conservées."
+          confirmLabel="Dépublier"
+          loading={unpublishing}
+        />
       </div>
     </main>
   )
