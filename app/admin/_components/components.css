@@ -1134,6 +1134,101 @@
   white-space: nowrap;
 }
 
+.admin-app .admin-ui-orders-filters .admin-ui-card-body {
+  padding: 16px;
+}
+
+.admin-app .admin-ui-orders-filters-grid {
+  display: grid;
+  grid-template-columns: minmax(220px, 2fr) repeat(3, minmax(130px, 1fr));
+  align-items: end;
+  gap: 12px;
+}
+
+.admin-app .admin-ui-orders-search {
+  min-width: 0;
+}
+
+.admin-app .admin-ui-orders-result-count {
+  margin: 12px 0 0;
+  color: var(--admin-text-muted);
+  font-size: 12px;
+}
+
+.admin-app .admin-ui-orders-list {
+  display: grid;
+  gap: 12px;
+}
+
+.admin-app .admin-ui-order-card .admin-ui-card-body {
+  padding: 0;
+}
+
+.admin-app .admin-ui-order-summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 16px;
+  padding: 16px;
+}
+
+.admin-app .admin-ui-order-summary-main {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.admin-app .admin-ui-order-summary-main strong {
+  overflow: hidden;
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-app .admin-ui-order-summary-main span,
+.admin-app .admin-ui-order-summary-meta time {
+  color: var(--admin-text-muted);
+  font-size: 12px;
+}
+
+.admin-app .admin-ui-order-summary-meta {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px 12px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.admin-app .admin-ui-order-summary-meta > strong {
+  color: var(--admin-text);
+  font-size: 14px;
+  white-space: nowrap;
+}
+
+.admin-app .admin-ui-order-summary-meta time {
+  flex-basis: 100%;
+  text-align: right;
+}
+
+.admin-app .admin-ui-order-details {
+  border-top: 1px solid var(--admin-border);
+}
+
+.admin-app .admin-ui-order-details > summary {
+  padding: 11px 16px;
+  color: var(--admin-brand-hover);
+  font-size: 12px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.admin-app .admin-ui-order-details .admin-order-row {
+  border: 0;
+  border-top: 1px solid var(--admin-border);
+  border-radius: 0;
+  box-shadow: none;
+}
+
 @media (max-width: 1100px) {
   .admin-app .admin-ui-dashboard-stats {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1141,6 +1236,10 @@
 
   .admin-app .admin-ui-dashboard-grid {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .admin-app .admin-ui-orders-filters-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
@@ -1155,5 +1254,27 @@
 
   .admin-app .admin-ui-dashboard-actions > button {
     flex: 1;
+  }
+
+  .admin-app .admin-ui-orders-filters-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .admin-app .admin-ui-order-summary {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: start;
+    gap: 10px;
+    padding: 14px;
+  }
+
+  .admin-app .admin-ui-order-summary-meta {
+    align-items: center;
+    justify-content: flex-start;
+  }
+
+  .admin-app .admin-ui-order-summary-meta time {
+    flex-basis: auto;
+    margin-left: auto;
+    text-align: right;
   }
 }

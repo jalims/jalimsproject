@@ -2,13 +2,15 @@
 
 import Image from 'next/image'
 import Link from 'next/link'
-import { useEffect, useState } from 'react'
+import { Suspense, useEffect, useMemo, useState } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { canAccessAdminPath, type StaffRole } from '../../../lib/admin-staff-client'
 import { isOrderMessageTemplateKey, ORDER_MESSAGE_TEMPLATE_KEYS, type OrderMessageTemplateKey } from '../../../lib/order-messages'
-import { importOrderStatusOptions, localOrderStatusOptions } from '../../../lib/order-tracking'
+import { getOrderStatusLabel, importOrderStatusOptions, localOrderStatusOptions } from '../../../lib/order-tracking'
 import { logClientError } from '../../../lib/user-facing-errors'
 import { supabase } from '../../../lib/supabase'
 import { useAdminSession } from '../admin-session-provider'
+import { Badge, Button, Card, EmptyState, PageHeader, Pagination, SearchInput, Select, Skeleton, type BadgeVariant } from '../_components'
 
 type SupplierCost = { purchase_price: number | null; currency: 'FCFA' | 'CNY' | null }
 type AdminOrder = {
@@ -118,6 +120,21 @@ const partnerNotificationStatuses = new Set<string>(localOrderStatusOptions
   .map(([status]) => status)
   .filter((status) => status !== 'pending_payment' && status !== 'cancelled'))
 
+const orderStatusFilterOptions = [
+  ...localOrderStatusOptions.map(([status]) => ({ origin: 'local' as const, status })),
+  ...importOrderStatusOptions.map(([status]) => ({ origin: 'import' as const, status })),
+]
+
+const ordersPageSize = 10
+
+function getOrderBadgeVariant(status: string): BadgeVariant {
+  if (status === 'pending_payment') return 'warning'
+  if (status === 'cancelled') return 'danger'
+  if (status === 'récupéré') return 'success'
+  if (status === 'payé') return 'info'
+  return 'neutral'
+}
+
 async function readApiBody(response: Response): Promise<Record<string, unknown>> {
   const body: unknown = await response.json()
   if (typeof body !== 'object' || body === null || Array.isArray(body)) {
@@ -178,7 +195,10 @@ async function updateOrderStatus(orderId: string, status: string) {
   }
 }
 
-export default function AdminOrdersPage() {
+function AdminOrdersPageContent() {
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  const globalQuery = searchParams.get('q') ?? ''
   const { userId, role, loading: sessionLoading } = useAdminSession()
   const [checking, setChecking] = useState(true)
   const [authorized, setAuthorized] = useState(false)
@@ -204,6 +224,57 @@ export default function AdminOrdersPage() {
   const [supplierCostsLoadError, setSupplierCostsLoadError] = useState(false)
   const [supplierCostDrafts, setSupplierCostDrafts] = useState<Record<string, { price: string; currency: 'FCFA' | 'CNY' }>>({})
   const [savingSupplierCostProductId, setSavingSupplierCostProductId] = useState('')
+  const [searchState, setSearchState] = useState({ query: globalQuery, value: globalQuery })
+  const [originFilter, setOriginFilter] = useState<'all' | 'local' | 'import'>('all')
+  const [statusFilter, setStatusFilter] = useState('all')
+  const [periodFilter, setPeriodFilter] = useState<'all' | '7' | '30' | '90'>('all')
+  const [pageState, setPageState] = useState({ query: globalQuery, page: 1 })
+  const searchValue = searchState.query === globalQuery ? searchState.value : globalQuery
+  const page = pageState.query === globalQuery ? pageState.page : 1
+
+  const availableStatusOptions = orderStatusFilterOptions.filter((option) => (
+    originFilter === 'all' || option.origin === originFilter
+  ))
+  const filteredOrders = useMemo(() => {
+    const query = searchValue.trim().toLocaleLowerCase('fr-FR')
+    const periodDays = periodFilter === 'all' ? null : Number(periodFilter)
+    const minCreatedAt = periodDays === null || now === 0
+      ? null
+      : now - periodDays * 24 * 60 * 60 * 1000
+
+    return orders.filter((order) => {
+      if (originFilter !== 'all' && order.origin !== originFilter) return false
+      if (statusFilter !== 'all' && `${order.origin}|${order.status}` !== statusFilter) return false
+      if (minCreatedAt !== null) {
+        const createdAt = Date.parse(order.created_at)
+        if (!Number.isFinite(createdAt) || createdAt < minCreatedAt) return false
+      }
+      if (!query) return true
+
+      return [
+        order.jalims_code,
+        order.products?.name,
+        order.customer_name,
+        order.customer_phone,
+        order.pickup_points?.name,
+        order.pickup_points?.city,
+      ].some((value) => value?.toLocaleLowerCase('fr-FR').includes(query))
+    })
+  }, [now, orders, originFilter, periodFilter, searchValue, statusFilter])
+  const pageCount = Math.max(1, Math.ceil(filteredOrders.length / ordersPageSize))
+  const currentPage = Math.min(page, pageCount)
+  const visibleOrders = filteredOrders.slice(
+    (currentPage - 1) * ordersPageSize,
+    currentPage * ordersPageSize,
+  )
+
+  function resetPage() {
+    setPageState({ query: globalQuery, page: 1 })
+  }
+
+  function changePage(nextPage: number) {
+    setPageState({ query: globalQuery, page: nextPage })
+  }
 
   useEffect(() => {
     const initialUpdate = window.setTimeout(() => setNow(Date.now()), 0)
@@ -674,7 +745,16 @@ export default function AdminOrdersPage() {
     }
   }
 
-  if (sessionLoading || checking) return <main className="admin-page"><div className="admin-state">Vérification de l’accès...</div></main>
+  if (sessionLoading || checking) {
+    return (
+      <main className="admin-page" aria-busy="true">
+        <PageHeader level={1} eyebrow="Ventes" title="Commandes" />
+        <Skeleton variant="rect" width="100%" height={180} />
+        <Skeleton variant="rect" width="100%" height={320} />
+      </main>
+    )
+  }
+
   if (!hasSession) {
     return (
       <main className="admin-page"><section className="admin-access-state">
@@ -696,16 +776,99 @@ export default function AdminOrdersPage() {
   return (
     <main className="admin-page">
       <div className="admin-shell">
-        <header className="admin-header">
-          <div><p className="eyebrow">JALIMS · ADMINISTRATION</p><h1>Commandes</h1><p>Actualisez le statut après chaque étape du parcours.</p></div>
-          <Link className="admin-catalog-link" href="/admin/produits">Gestion des produits →</Link>
-        </header>
+        <PageHeader
+          level={1}
+          eyebrow="Ventes"
+          title="Commandes"
+          description="Retrouvez et suivez les commandes récentes."
+          actions={<Button variant="outline" onClick={() => router.push('/admin/produits')}>Gestion des produits</Button>}
+        />
+        <Card title="Recherche et filtres" className="admin-ui-orders-filters">
+          <div className="admin-ui-orders-filters-grid">
+            <SearchInput
+              value={searchValue}
+              onChange={(value) => {
+                setSearchState({ query: globalQuery, value })
+                resetPage()
+                if (!value && globalQuery) router.replace('/admin/commandes')
+              }}
+              label="Rechercher une commande"
+              placeholder="Client, code Jalims ou produit"
+              className="admin-ui-orders-search"
+            />
+            <Select
+              label="Origine"
+              value={originFilter}
+              onChange={(event) => {
+                setOriginFilter(event.currentTarget.value as 'all' | 'local' | 'import')
+                setStatusFilter('all')
+                resetPage()
+              }}
+            >
+              <option value="all">Toutes les origines</option>
+              <option value="import">Import</option>
+              <option value="local">Local</option>
+            </Select>
+            <Select
+              label="Statut"
+              value={statusFilter}
+              onChange={(event) => {
+                setStatusFilter(event.currentTarget.value)
+                resetPage()
+              }}
+            >
+              <option value="all">Tous les statuts</option>
+              {availableStatusOptions.map(({ origin, status }) => (
+                <option key={`${origin}|${status}`} value={`${origin}|${status}`}>
+                  {origin === 'local' ? 'Local' : 'Import'} · {getOrderStatusLabel(status, origin)}
+                </option>
+              ))}
+            </Select>
+            <Select
+              label="Période"
+              value={periodFilter}
+              onChange={(event) => {
+                setPeriodFilter(event.currentTarget.value as 'all' | '7' | '30' | '90')
+                resetPage()
+              }}
+            >
+              <option value="all">Toutes les dates</option>
+              <option value="7">7 derniers jours</option>
+              <option value="30">30 derniers jours</option>
+              <option value="90">90 derniers jours</option>
+            </Select>
+          </div>
+          <p className="admin-ui-orders-result-count" aria-live="polite">
+            {filteredOrders.length} commande{filteredOrders.length === 1 ? '' : 's'}
+          </p>
+        </Card>
         {errorMessage && <p className="admin-feedback error" role="alert">{errorMessage}</p>}
-        {orders.length === 0 ? (
-          <div className="orders-state">Aucune commande enregistrée pour le moment.</div>
-        ) : (
-          <div className="admin-orders-list">
-            {orders.map((order) => {
+        {orders.length === 0 && !errorMessage ? (
+          <EmptyState title="Aucune commande enregistrée" description="Les nouvelles commandes apparaîtront ici." />
+        ) : orders.length > 0 && filteredOrders.length === 0 ? (
+          <EmptyState
+            title="Aucune commande ne correspond"
+            description="Modifiez la recherche ou les filtres pour afficher des commandes."
+            action={(
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setSearchState({ query: globalQuery, value: '' })
+                  setOriginFilter('all')
+                  setStatusFilter('all')
+                  setPeriodFilter('all')
+                  resetPage()
+                  router.replace('/admin/commandes')
+                }}
+              >
+                Effacer les filtres
+              </Button>
+            )}
+          />
+        ) : orders.length === 0 ? null : (
+          <>
+            <div className="admin-ui-orders-list">
+              {visibleOrders.map((order) => {
               const orderLogs = messageLogs.filter((log) => log.order_id === order.id)
               const stalledThreshold = now - 5 * 60 * 1000
               const confirmationAlerts = orderLogs.filter((log) =>
@@ -719,8 +882,30 @@ export default function AdminOrdersPage() {
               const partnerFeedback = partnerNotificationFeedback?.orderId === order.id ? partnerNotificationFeedback : null
               const productLabel = order.products?.name ?? 'Produit Jalims'
               const productHref = order.product_id && order.products ? `/products/${encodeURIComponent(order.product_id)}` : null
+              const summaryCustomer = order.origin === 'local'
+                ? `Client : ${order.customer_name || 'Nom non renseigné'}`
+                : `Retrait : ${order.pickup_points ? `${order.pickup_points.name}, ${order.pickup_points.city}` : 'Point à confirmer'}`
               return (
-                <article className="admin-order-row admin-order-message-row" key={order.id}>
+                <Card key={order.id} className="admin-ui-order-card">
+                  <div className="admin-ui-order-summary">
+                    <div className="admin-ui-order-summary-main">
+                      <strong>{productLabel}</strong>
+                      <span>{order.jalims_code} · {order.quantity} unité{order.quantity === 1 ? '' : 's'}</span>
+                      <span>{summaryCustomer}</span>
+                    </div>
+                    <div className="admin-ui-order-summary-meta">
+                      <strong>{Number(order.total_price).toLocaleString('fr-FR')} FCFA</strong>
+                      <Badge variant={getOrderBadgeVariant(order.status)}>
+                        {getOrderStatusLabel(order.status, order.origin)}
+                      </Badge>
+                      <time dateTime={order.created_at}>
+                        {new Date(order.created_at).toLocaleString('fr-FR', { dateStyle: 'medium', timeStyle: 'short' })}
+                      </time>
+                    </div>
+                  </div>
+                  <details className="admin-ui-order-details">
+                    <summary>Détails et actions</summary>
+                    <article className="admin-order-row admin-order-message-row">
                   {productHref ? (
                     <Link
                       className="order-product-thumb"
@@ -1009,12 +1194,35 @@ export default function AdminOrdersPage() {
                       </ul>
                     </details>
                   )}
-                </article>
+                    </article>
+                  </details>
+                </Card>
               )
             })}
-          </div>
+            </div>
+            <Pagination
+              page={currentPage}
+              pageSize={ordersPageSize}
+              totalItems={filteredOrders.length}
+              onPageChange={changePage}
+              label="Pagination des commandes"
+            />
+          </>
         )}
       </div>
     </main>
+  )
+}
+
+export default function AdminOrdersPage() {
+  return (
+    <Suspense fallback={(
+      <main className="admin-page" aria-busy="true">
+        <PageHeader level={1} eyebrow="Ventes" title="Commandes" />
+        <Skeleton variant="rect" width="100%" height={180} />
+      </main>
+    )}>
+      <AdminOrdersPageContent />
+    </Suspense>
   )
 }
