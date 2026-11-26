@@ -3,6 +3,7 @@ import { Truck } from 'lucide-react'
 import { notFound } from 'next/navigation'
 import { supabase } from '../../../lib/supabase'
 import { hasFreshLocalStock } from '../../../lib/product-origin'
+import { getDisplayedUnitPrice, normalizeAppPricingSettings } from '../../../lib/imported-product-pricing'
 import ProductImageGallery from './product-image-gallery'
 import ProductPurchaseControls from './product-purchase-controls'
 import ProductOriginBadge from '../../ui/product-origin-badge'
@@ -15,12 +16,20 @@ type ProductPageProps = {
 export default async function ProductPage({ params, searchParams }: ProductPageProps) {
   const { id } = await params
   const { quantity: quantityParam } = await searchParams
-  const { data: product, error: productError } = await supabase
-    .from('products')
-    .select('id, name, description, price, delivery_estimate, image_url, category, moq, stock_status, active, origin, local_stock, city, delivery_delay, stock_updated_at')
-    .eq('id', id)
-    .eq('active', true)
-    .maybeSingle()
+  const [{ data: product, error: productError }, { data: appSettingsRow }] = await Promise.all([
+    supabase
+      .from('products')
+      .select('id, name, description, price, delivery_estimate, image_url, category, moq, stock_status, active, origin, local_stock, city, delivery_delay, stock_updated_at, import_base_price, import_base_currency, import_weight_kg, import_other_fees_fcfa')
+      .eq('id', id)
+      .eq('active', true)
+      .maybeSingle(),
+    supabase
+      .from('app_settings')
+      .select('transport_price_per_kg_fcfa, commission_percent, customs_percent, cny_to_fcfa_rate')
+      .eq('id', 1)
+      .maybeSingle(),
+  ])
+  const appSettings = normalizeAppPricingSettings(appSettingsRow)
 
   if (productError) {
     console.error('Échec du chargement de la fiche produit.', productError)
@@ -77,6 +86,7 @@ export default async function ProductPage({ params, searchParams }: ProductPageP
   const images = galleryImages?.length
     ? galleryImages
     : product.image_url ? [{ id: 'legacy-main', image_url: product.image_url, display_order: 0 }] : []
+  const displayedUnitPrice = getDisplayedUnitPrice(product, appSettings)
 
   return (
     <main className="detail-page">
@@ -94,7 +104,7 @@ export default async function ProductPage({ params, searchParams }: ProductPageP
               deliveryDelay={product.delivery_delay}
               stockUpdatedAt={product.stock_updated_at}
             />
-            <p className="detail-price">{Number(product.price).toLocaleString('fr-FR')} <span>FCFA</span></p>
+            <p className="detail-price">{Number(displayedUnitPrice).toLocaleString('fr-FR')} <span>FCFA</span></p>
             {!hasLocalStock && deliveryEstimate && (
               <p className="product-delivery-estimate">
                 <Truck aria-hidden="true" size={16} strokeWidth={1.8} />
@@ -116,7 +126,7 @@ export default async function ProductPage({ params, searchParams }: ProductPageP
             )}
             <ProductPurchaseControls
               attributes={variantAttributes}
-              basePrice={Number(product.price)}
+              basePrice={Number(displayedUnitPrice)}
               colorValues={colorValues}
               initialQuantity={Number(quantityParam) || product.moq || 1}
               minimumQuantity={product.moq ?? 1}

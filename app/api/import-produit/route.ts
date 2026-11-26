@@ -1,5 +1,6 @@
 ﻿import { NextResponse } from 'next/server'
 import { randomUUID } from 'node:crypto'
+import { getDisplayedUnitPrice, normalizeAppPricingSettings } from '../../../lib/imported-product-pricing'
 import { createSupabaseAdminClient } from '../../../lib/supabase-admin'
 
 const CORS_HEADERS: Record<string, string> = {
@@ -100,7 +101,7 @@ export async function POST(request: Request) {
 
   const { data: settingsRow, error: settingsError } = await supabase
     .from('app_settings')
-    .select('transport_price_per_kg_fcfa, commission_percent, cny_to_fcfa_rate')
+    .select('transport_price_per_kg_fcfa, commission_percent, customs_percent, cny_to_fcfa_rate')
     .eq('id', 1)
     .maybeSingle()
 
@@ -110,6 +111,7 @@ export async function POST(request: Request) {
 
   const rawTransport = settingsRow?.transport_price_per_kg_fcfa
   const rawCommission = settingsRow?.commission_percent
+  const rawCustoms = settingsRow?.customs_percent
   const transportPerKg =
     rawTransport === null || rawTransport === undefined || rawTransport === ''
       ? Number.NaN
@@ -118,13 +120,19 @@ export async function POST(request: Request) {
     rawCommission === null || rawCommission === undefined || rawCommission === ''
       ? Number.NaN
       : Number(rawCommission)
+  const customsPercent =
+    rawCustoms === null || rawCustoms === undefined || rawCustoms === ''
+      ? Number.NaN
+      : Number(rawCustoms)
   const cnyToFcfaRate = settingsRow?.cny_to_fcfa_rate == null ? null : Number(settingsRow.cny_to_fcfa_rate)
 
   if (
     !Number.isFinite(transportPerKg) ||
     transportPerKg <= 0 ||
     !Number.isFinite(commissionPercent) ||
-    commissionPercent <= 0
+    commissionPercent <= 0 ||
+    !Number.isFinite(customsPercent) ||
+    customsPercent < 0
   ) {
     return corsJson({ ok: false, error: 'Réglages de prix non configurés' }, { status: 400 })
   }
@@ -133,9 +141,20 @@ export async function POST(request: Request) {
     return corsJson({ ok: false, error: 'CNY to FCFA rate is not configured' }, { status: 400 })
   }
 
-  const prixAchatFcfa = devise === 'CNY' ? prixChine * (cnyToFcfaRate as number) : prixChine
-  const prixVenteCalcule = (prixAchatFcfa + poidsKg * transportPerKg) * (1 + commissionPercent / 100)
-  const prixVente = Math.ceil(prixVenteCalcule / 10) * 10
+  const pricingSettings = normalizeAppPricingSettings({
+    transport_price_per_kg_fcfa: transportPerKg,
+    commission_percent: commissionPercent,
+    customs_percent: customsPercent,
+    cny_to_fcfa_rate: cnyToFcfaRate,
+  })
+  const prixVente = getDisplayedUnitPrice({
+    origin: 'import',
+    price: 0,
+    import_base_price: prixChine,
+    import_base_currency: devise,
+    import_weight_kg: poidsKg,
+    import_other_fees_fcfa: 0,
+  }, pricingSettings)
 
   if (!Number.isFinite(prixVente) || prixVente < 0) {
     return corsJson({ ok: false, error: 'Unable to compute sale price' }, { status: 400 })

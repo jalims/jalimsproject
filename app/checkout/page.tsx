@@ -2,6 +2,7 @@ import Image from 'next/image'
 import Link from 'next/link'
 import { notFound, redirect } from 'next/navigation'
 import { supabase } from '../../lib/supabase'
+import { getDisplayedUnitPrice, normalizeAppPricingSettings } from '../../lib/imported-product-pricing'
 import { getLatestPublishedLegalPage } from '../../lib/legal-pages'
 import PlaceOrderForm from './place-order-form'
 
@@ -14,12 +15,20 @@ export default async function CheckoutPage({ searchParams }: CheckoutPageProps) 
 
   if (!productId) notFound()
 
-  const { data: product } = await supabase
-    .from('products')
-    .select('id, name, price, image_url, category, moq, active, origin')
-    .eq('id', productId)
-    .eq('active', true)
-    .maybeSingle()
+  const [{ data: product }, { data: appSettingsRow }] = await Promise.all([
+    supabase
+      .from('products')
+      .select('id, name, price, image_url, category, moq, active, origin, import_base_price, import_base_currency, import_weight_kg, import_other_fees_fcfa')
+      .eq('id', productId)
+      .eq('active', true)
+      .maybeSingle(),
+    supabase
+      .from('app_settings')
+      .select('transport_price_per_kg_fcfa, commission_percent, customs_percent, cny_to_fcfa_rate')
+      .eq('id', 1)
+      .maybeSingle(),
+  ])
+  const appSettings = normalizeAppPricingSettings(appSettingsRow)
 
   if (!product) notFound()
 
@@ -83,7 +92,7 @@ export default async function CheckoutPage({ searchParams }: CheckoutPageProps) 
     .eq('active', true)
     .order('city')
 
-  const unitPrice = Number(product.price) + (selectedVariant?.price_adjustment ?? 0)
+  const unitPrice = getDisplayedUnitPrice(product, appSettings, selectedVariant?.price_adjustment ?? 0)
   const total = unitPrice * quantity
   const variantUnavailable = selectedVariant !== null
     && selectedVariant.stock !== null

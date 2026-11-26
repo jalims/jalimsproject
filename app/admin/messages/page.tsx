@@ -207,6 +207,7 @@ export default function AdminMessagesPage() {
           <Link className="admin-nav-item" href="/admin">Produits</Link>
           <Link className="admin-nav-item" href="/admin/commandes">Commandes</Link>
           {(role === 'owner' || role === 'admin') && <Link className="admin-nav-item" href="/admin/equipe">Équipe</Link>}
+          {(role === 'owner' || role === 'admin') && <Link className="admin-nav-item" href="/admin/parametres">Paramètres</Link>}
           <Link className="admin-nav-item current" href="/admin/messages">Messages</Link>
           <Link className="admin-nav-item" href="/admin/retraits">Points de retrait</Link>
           <Link className="admin-nav-item" href="/admin/accueil">Textes accueil</Link>

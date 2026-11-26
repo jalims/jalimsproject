@@ -264,11 +264,19 @@ async function registerImages(body: Record<string, unknown>, serviceClient: Admi
     return jsonError('Le SKU ou la liste de photos est invalide. Utilisez uniquement des fichiers JPG, PNG ou WebP.', 400)
   }
 
-  const { data: productCost, error: lookupError } = await serviceClient
-    .from('product_costs')
+  let { data: productCost, error: lookupError } = await serviceClient
+    .from('product_import_costs')
     .select('product_id, sku')
     .eq('sku', sku)
     .maybeSingle()
+
+  if (lookupError && (lookupError.code === '42P01' || /relation .*product_import_costs.* does not exist/i.test(lookupError.message ?? ''))) {
+    ;({ data: productCost, error: lookupError } = await serviceClient
+      .from('product_costs')
+      .select('product_id, sku')
+      .eq('sku', sku)
+      .maybeSingle())
+  }
 
   if (lookupError) {
     console.error('[Product import] Product lookup failed', { code: lookupError.code, message: lookupError.message })
