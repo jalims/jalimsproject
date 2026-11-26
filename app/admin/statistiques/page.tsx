@@ -2,8 +2,9 @@
 
 import Link from 'next/link'
 import { useEffect, useState } from 'react'
-import { canAccessAdminPath, getStaffRoleForUser, type StaffRole } from '../../../lib/admin-staff-client'
+import { canAccessAdminPath } from '../../../lib/admin-staff-client'
 import { supabase } from '../../../lib/supabase'
+import { useAdminSession } from '../admin-session-provider'
 
 type Overview = {
   revenue: number
@@ -162,9 +163,8 @@ function AnalyticsSearchTable({ title, rows, empty }: { title: string; rows: Sea
 }
 
 export default function AdminStatisticsPage() {
-  const [checking, setChecking] = useState(true)
-  const [hasSession, setHasSession] = useState(false)
-  const [role, setRole] = useState<StaffRole | null>(null)
+  const { userId, role, loading: checking } = useAdminSession()
+  const hasSession = Boolean(userId)
   const [period, setPeriod] = useState('30')
   const [stats, setStats] = useState<StatsPayload | null>(null)
   const [analytics, setAnalytics] = useState<AnalyticsPayload | null>(null)
@@ -172,24 +172,6 @@ export default function AdminStatisticsPage() {
   const [analyticsLoading, setAnalyticsLoading] = useState(true)
   const [errorMessage, setErrorMessage] = useState('')
   const [analyticsError, setAnalyticsError] = useState('')
-
-  useEffect(() => {
-    let active = true
-    void supabase.auth.getUser().then(async ({ data, error }) => {
-      if (!active) return
-      if (error || !data.user) {
-        setHasSession(false)
-        setRole(null)
-      } else {
-        setHasSession(true)
-        const staffRole = await getStaffRoleForUser(data.user)
-        if (!active) return
-        setRole(staffRole)
-      }
-      if (active) setChecking(false)
-    })
-    return () => { active = false }
-  }, [])
 
   const allowed = canAccessAdminPath(role, '/admin/statistiques')
 
@@ -310,15 +292,6 @@ export default function AdminStatisticsPage() {
             </select>
           </label>
         </header>
-        <nav className="admin-shortcuts" aria-label="Outils d’administration">
-          <Link className="admin-nav-item" href="/admin"><span className="admin-nav-icon" aria-hidden="true">▦</span> Produits</Link>
-          <Link className="admin-nav-item" href="/admin/commandes"><span className="admin-nav-icon" aria-hidden="true">↗</span> Commandes</Link>
-          {(role === 'owner' || role === 'admin') && <Link className="admin-nav-item" href="/admin/equipe"><span className="admin-nav-icon" aria-hidden="true">⚙</span> Équipe</Link>}
-          <Link className="admin-nav-item" href="/admin/clients"><span className="admin-nav-icon" aria-hidden="true">♙</span> Clients</Link>
-          <Link className="admin-nav-item current" href="/admin/statistiques"><span className="admin-nav-icon" aria-hidden="true">▤</span> Statistiques</Link>
-          <Link className="admin-nav-item" href="/admin/accueil"><span className="admin-nav-icon" aria-hidden="true">T</span> Textes accueil</Link>
-        </nav>
-
         {loading ? <Skeletons /> : errorMessage ? (
           <section className="admin-stats-error" role="alert">
             <h2>Les statistiques sont indisponibles</h2>

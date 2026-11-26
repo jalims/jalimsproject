@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { ImagePlus, RotateCcw, Save, Trash2 } from 'lucide-react'
-import { canAccessAdminPath, getStaffRoleForUser, type StaffRole } from '../../../lib/admin-staff-client'
+import { canAccessAdminPath } from '../../../lib/admin-staff-client'
 import { logClientError } from '../../../lib/user-facing-errors'
 import {
   defaultHomepageContent,
@@ -17,6 +17,7 @@ import {
 } from '../../../lib/homepage-content'
 import { supabase } from '../../../lib/supabase'
 import { HomepageDesignPreview } from '../../ui/homepage-redesign-sections'
+import { useAdminSession } from '../admin-session-provider'
 
 const footerFields: { key: keyof HomepageContent; label: string; hint: string; multiline?: boolean }[] = [
   { key: 'footer_about_title', label: 'Pied de page · titre à propos', hint: 'Ex. À propos de Jalims' },
@@ -95,9 +96,9 @@ async function compressImage(file: File) {
 }
 
 export default function AdminHomepageSettingsPage() {
+  const { userId, role, loading: sessionLoading } = useAdminSession()
   const [checking, setChecking] = useState(true)
-  const [hasSession, setHasSession] = useState(false)
-  const [role, setRole] = useState<StaffRole | null>(null)
+  const hasSession = Boolean(userId)
   const [content, setContent] = useState<HomepageContent>(defaultHomepageContent)
   const [designContent, setDesignContent] = useState<HomepageDesignContent>(defaultHomepageDesignContent)
   const [saving, setSaving] = useState(false)
@@ -108,23 +109,16 @@ export default function AdminHomepageSettingsPage() {
   const pendingRemovalsRef = useRef<string[]>([])
 
   useEffect(() => {
+    if (sessionLoading) return
     let active = true
 
     async function loadSettings() {
-      const { data: userData, error: authError } = await supabase.auth.getUser()
-      if (!active) return
-      if (authError || !userData.user) {
-        setHasSession(false)
-        setRole(null)
+      if (!userId) {
         setChecking(false)
         return
       }
 
-      setHasSession(true)
-      const staffRole = await getStaffRoleForUser(userData.user)
-      if (!active) return
-      setRole(staffRole)
-      if (!canAccessAdminPath(staffRole, '/admin/accueil')) {
+      if (!canAccessAdminPath(role, '/admin/accueil')) {
         setChecking(false)
         return
       }
@@ -158,7 +152,7 @@ export default function AdminHomepageSettingsPage() {
     return () => {
       active = false
     }
-  }, [])
+  }, [role, sessionLoading, userId])
 
   function updateDesign<K extends keyof HomepageDesignContent>(key: K, value: HomepageDesignContent[K]) {
     setDesignContent((current) => ({ ...current, [key]: value }))
@@ -256,7 +250,7 @@ export default function AdminHomepageSettingsPage() {
     setFeedback({ kind: 'success', text: 'Valeurs par défaut rétablies dans l’aperçu. Enregistrez pour les appliquer.' })
   }
 
-  if (checking) return <main className="admin-page"><div className="admin-state">Vérification de l’accès...</div></main>
+  if (sessionLoading || checking) return <main className="admin-page"><div className="admin-state">Vérification de l’accès...</div></main>
   if (!hasSession) {
     return (
       <main className="admin-page"><section className="admin-access-state">
@@ -285,18 +279,6 @@ export default function AdminHomepageSettingsPage() {
           <div><p className="eyebrow">JALIMS <span className="admin-header-divider">/</span> ESPACE ADMIN</p><h1>Accueil de la boutique</h1><p>Modifiez chaque section, vérifiez l’aperçu, puis enregistrez.</p></div>
           <Link className="admin-catalog-link" href="/">Voir la boutique <span aria-hidden="true">↗</span></Link>
         </header>
-        <nav className="admin-shortcuts" aria-label="Outils d’administration">
-          <Link className="admin-nav-item" href="/admin"><span className="admin-nav-icon" aria-hidden="true">▦</span> Produits</Link>
-          <Link className="admin-nav-item" href="/admin/commandes"><span className="admin-nav-icon" aria-hidden="true">↗</span> Commandes</Link>
-          {(role === 'owner' || role === 'admin') && <Link className="admin-nav-item" href="/admin/equipe"><span className="admin-nav-icon" aria-hidden="true">⚙</span> Équipe</Link>}
-          <Link className="admin-nav-item" href="/admin/clients"><span className="admin-nav-icon" aria-hidden="true">♙</span> Clients</Link>
-          <Link className="admin-nav-item" href="/admin/statistiques"><span className="admin-nav-icon" aria-hidden="true">▤</span> Statistiques</Link>
-          <Link className="admin-nav-item" href="/admin/messages"><span className="admin-nav-icon" aria-hidden="true">✉</span> Messages</Link>
-          <Link className="admin-nav-item" href="/admin/retraits"><span className="admin-nav-icon" aria-hidden="true">⌖</span> Points de retrait</Link>
-          <Link className="admin-nav-item current" href="/admin/accueil"><span className="admin-nav-icon" aria-hidden="true">T</span> Accueil</Link>
-          <Link className="admin-nav-item" href="/admin/conditions"><span className="admin-nav-icon" aria-hidden="true">§</span> Conditions</Link>
-        </nav>
-
         <div className="home-redesign-admin-layout">
           <form className="home-redesign-editor" onSubmit={saveSettings}>
             <section className="home-redesign-editor-section">

@@ -2,9 +2,10 @@
 
 import Link from 'next/link'
 import { FormEvent, useCallback, useEffect, useState } from 'react'
-import { canAccessAdminPath, getStaffRoleForUser, type StaffRole } from '../../../lib/admin-staff-client'
+import { canAccessAdminPath } from '../../../lib/admin-staff-client'
 import { logClientError } from '../../../lib/user-facing-errors'
 import { supabase } from '../../../lib/supabase'
+import { useAdminSession } from '../admin-session-provider'
 
 type Partner = {
   id: string
@@ -18,9 +19,8 @@ type Partner = {
 const emptyForm = { name: '', whatsapp_phone: '', city: '' }
 
 export default function AdminPartnersPage() {
-  const [checking, setChecking] = useState(true)
-  const [hasSession, setHasSession] = useState(false)
-  const [role, setRole] = useState<StaffRole | null>(null)
+  const { userId, role, loading: checking } = useAdminSession()
+  const hasSession = Boolean(userId)
   const [partners, setPartners] = useState<Partner[]>([])
   const [form, setForm] = useState(emptyForm)
   const [editingId, setEditingId] = useState('')
@@ -72,26 +72,12 @@ export default function AdminPartnersPage() {
   }, [requestPartners])
 
   useEffect(() => {
-    let active = true
-    void supabase.auth.getUser().then(async ({ data, error }) => {
-      if (!active) return
-      if (error || !data.user) {
-        setHasSession(false)
-        setRole(null)
-        setChecking(false)
-        return
-      }
-      setHasSession(true)
-      const staffRole = await getStaffRoleForUser(data.user)
-      if (!active) return
-      setRole(staffRole)
-      setChecking(false)
-      if (canAccessAdminPath(staffRole, '/admin/partenaires')) await loadPartners()
-    })
-    return () => {
-      active = false
+    if (!checking && hasSession && canAccessAdminPath(role, '/admin/partenaires')) {
+      void (async () => {
+        await loadPartners()
+      })()
     }
-  }, [loadPartners])
+  }, [checking, hasSession, loadPartners, role])
 
   async function savePartner(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -152,16 +138,8 @@ export default function AdminPartnersPage() {
       <div className="admin-shell">
         <header className="admin-header">
           <div><p className="eyebrow">JALIMS · ADMINISTRATION</p><h1>Partenaires</h1><p>Gérez les partenaires chargés des livraisons locales.</p></div>
-          <Link className="admin-catalog-link" href="/admin">Gestion des produits →</Link>
+          <Link className="admin-catalog-link" href="/admin/produits">Gestion des produits →</Link>
         </header>
-        <nav className="admin-shortcuts" aria-label="Outils d’administration">
-          <Link className="admin-nav-item" href="/admin">Produits</Link>
-          <Link className="admin-nav-item" href="/admin/commandes">Commandes</Link>
-          {(role === 'owner' || role === 'admin') && <Link className="admin-nav-item" href="/admin/equipe">Équipe</Link>}
-          {(role === 'owner' || role === 'admin') && <Link className="admin-nav-item" href="/admin/parametres">Paramètres</Link>}
-          <Link className="admin-nav-item current" href="/admin/partenaires">Partenaires</Link>
-          <Link className="admin-nav-item" href="/admin/retraits">Points de retrait</Link>
-        </nav>
         <div className="admin-layout pickup-admin-layout">
           <section className="admin-form-panel">
             <div className="admin-section-heading"><div><p className="eyebrow">LIVRAISON LOCALE</p><h2>{editingId ? 'Modifier le partenaire' : 'Ajouter un partenaire'}</h2></div></div>

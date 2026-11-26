@@ -2,8 +2,9 @@
 
 import Link from 'next/link'
 import { useCallback, useEffect, useState } from 'react'
-import { canAccessAdminPath, getStaffRoleForUser, type StaffRole } from '../../../lib/admin-staff-client'
+import { canAccessAdminPath } from '../../../lib/admin-staff-client'
 import { supabase } from '../../../lib/supabase'
+import { useAdminSession } from '../admin-session-provider'
 
 type SearchMetric = { term: string; searches: number; visitors: number }
 
@@ -76,9 +77,8 @@ function isSearchMetricArray(value: unknown): value is SearchMetric[] {
 }
 
 export default function AdminDemandesPage() {
-  const [checking, setChecking] = useState(true)
-  const [hasSession, setHasSession] = useState(false)
-  const [role, setRole] = useState<StaffRole | null>(null)
+  const { userId, role, loading: checking } = useAdminSession()
+  const hasSession = Boolean(userId)
   const [statusFilter, setStatusFilter] = useState<(typeof STATUS_OPTIONS)[number]['value']>('all')
   const [requests, setRequests] = useState<ProductRequest[]>([])
   const [newCount, setNewCount] = useState(0)
@@ -88,23 +88,6 @@ export default function AdminDemandesPage() {
   const [savingId, setSavingId] = useState<string | null>(null)
   const [saveError, setSaveError] = useState<Record<string, string>>({})
   const [savedId, setSavedId] = useState<string | null>(null)
-
-  useEffect(() => {
-    let active = true
-    async function checkAccess() {
-      const { data } = await supabase.auth.getSession()
-      const user = data.session?.user
-      if (!active) return
-      setHasSession(Boolean(user))
-      if (user) {
-        const staffRole = await getStaffRoleForUser(user)
-        if (active) setRole(staffRole)
-      }
-      if (active) setChecking(false)
-    }
-    void checkAccess()
-    return () => { active = false }
-  }, [])
 
   const loadRequests = useCallback(async (filter: string) => {
     const { data } = await supabase.auth.getSession()

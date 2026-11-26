@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { useEffect, useState, type FormEvent } from 'react'
-import { canAccessAdminPath, getStaffRoleForUser, type StaffRole } from '../../../lib/admin-staff-client'
+import { canAccessAdminPath } from '../../../lib/admin-staff-client'
 import {
   ORDER_MESSAGE_SAMPLE_VARIABLES,
   ORDER_MESSAGE_TEMPLATE_KEYS,
@@ -12,6 +12,7 @@ import {
   type OrderMessageTemplateKey,
 } from '../../../lib/order-messages'
 import { supabase } from '../../../lib/supabase'
+import { useAdminSession } from '../admin-session-provider'
 
 type MessageSettings = {
   pickup_address: string
@@ -69,30 +70,23 @@ function getPreview(template: TemplateEditor) {
 }
 
 export default function AdminMessagesPage() {
+  const { userId, role, loading: sessionLoading } = useAdminSession()
   const [checking, setChecking] = useState(true)
-  const [hasSession, setHasSession] = useState(false)
-  const [role, setRole] = useState<StaffRole | null>(null)
+  const hasSession = Boolean(userId)
   const [templates, setTemplates] = useState<TemplateEditor[]>([])
   const [settings, setSettings] = useState<MessageSettings>(defaultSettings)
   const [saving, setSaving] = useState(false)
   const [feedback, setFeedback] = useState<{ kind: 'success' | 'error'; text: string } | null>(null)
 
   useEffect(() => {
+    if (sessionLoading) return
     let active = true
     async function load() {
-      const { data: userData, error: authError } = await supabase.auth.getUser()
-      if (!active) return
-      if (authError || !userData.user) {
-        setHasSession(false)
-        setRole(null)
+      if (!userId) {
         setChecking(false)
         return
       }
-      setHasSession(true)
-      const staffRole = await getStaffRoleForUser(userData.user)
-      if (!active) return
-      setRole(staffRole)
-      if (!canAccessAdminPath(staffRole, '/admin/messages')) {
+      if (!canAccessAdminPath(role, '/admin/messages')) {
         setChecking(false)
         return
       }
@@ -128,7 +122,7 @@ export default function AdminMessagesPage() {
     return () => {
       active = false
     }
-  }, [])
+  }, [role, sessionLoading, userId])
 
   function updateTemplate(templateKey: OrderMessageTemplateKey, patch: Partial<TemplateEditor>) {
     setTemplates((current) => current.map((template) => template.template_key === templateKey
@@ -176,7 +170,7 @@ export default function AdminMessagesPage() {
     }
   }
 
-  if (checking) return <main className="admin-page"><div className="admin-state">Vérification de l’accès...</div></main>
+  if (sessionLoading || checking) return <main className="admin-page"><div className="admin-state">Vérification de l’accès...</div></main>
   if (!hasSession) {
     return (
       <main className="admin-page"><section className="admin-access-state">
@@ -201,19 +195,8 @@ export default function AdminMessagesPage() {
       <div className="admin-shell order-message-settings-page">
         <header className="admin-header">
           <div><p className="eyebrow">JALIMS · ADMINISTRATION</p><h1>Messages clients</h1><p>Modèles e-mail et coordonnées utilisées pour le suivi des commandes.</p></div>
-          <Link className="admin-catalog-link" href="/admin">Gestion des produits →</Link>
+          <Link className="admin-catalog-link" href="/admin/produits">Gestion des produits →</Link>
         </header>
-        <nav className="admin-shortcuts" aria-label="Outils d’administration">
-          <Link className="admin-nav-item" href="/admin">Produits</Link>
-          <Link className="admin-nav-item" href="/admin/commandes">Commandes</Link>
-          {(role === 'owner' || role === 'admin') && <Link className="admin-nav-item" href="/admin/equipe">Équipe</Link>}
-          {(role === 'owner' || role === 'admin') && <Link className="admin-nav-item" href="/admin/parametres">Paramètres</Link>}
-          <Link className="admin-nav-item current" href="/admin/messages">Messages</Link>
-          <Link className="admin-nav-item" href="/admin/retraits">Points de retrait</Link>
-          <Link className="admin-nav-item" href="/admin/accueil">Textes accueil</Link>
-          <Link className="admin-nav-item" href="/admin/conditions">Conditions</Link>
-        </nav>
-
         {feedback && <p className={`admin-feedback ${feedback.kind}`} role={feedback.kind === 'error' ? 'alert' : 'status'}>{feedback.text}</p>}
         <form onSubmit={save}>
           <section className="admin-form-panel order-message-settings-panel">

@@ -2,8 +2,9 @@
 
 import Link from 'next/link'
 import { FormEvent, useCallback, useEffect, useState } from 'react'
-import { canAccessAdminPath, getStaffRoleForUser, type StaffRole } from '../../../lib/admin-staff-client'
+import { canAccessAdminPath, type StaffRole } from '../../../lib/admin-staff-client'
 import { supabase } from '../../../lib/supabase'
+import { useAdminSession } from '../admin-session-provider'
 
 type TeamMember = {
   user_id: string
@@ -55,10 +56,8 @@ async function requestTeam(method: 'GET' | 'POST' | 'PATCH', payload?: Record<st
 }
 
 export default function AdminTeamPage() {
-  const [checking, setChecking] = useState(true)
-  const [hasSession, setHasSession] = useState(false)
-  const [pageRole, setPageRole] = useState<StaffRole | null>(null)
-  const [actorUserId, setActorUserId] = useState('')
+  const { userId: actorUserId, role: pageRole, loading: checking } = useAdminSession()
+  const hasSession = Boolean(actorUserId)
   const [members, setMembers] = useState<TeamMember[]>([])
   const [loading, setLoading] = useState(true)
   const [email, setEmail] = useState('')
@@ -68,15 +67,10 @@ export default function AdminTeamPage() {
   const [feedback, setFeedback] = useState<{ text: string; error: boolean } | null>(null)
 
   const loadMembers = useCallback(async () => {
-    setLoading(true)
     try {
       const result = await requestTeam('GET')
       const list = Array.isArray(result.members) ? (result.members as TeamMember[]) : []
       setMembers(list)
-      if (typeof result.actorUserId === 'string') setActorUserId(result.actorUserId)
-      if (result.actorRole === 'owner' || result.actorRole === 'admin' || result.actorRole === 'order_manager') {
-        setPageRole(result.actorRole)
-      }
     } catch (error) {
       setFeedback({ text: error instanceof Error ? error.message : 'Impossible de charger l’équipe.', error: true })
     } finally {
@@ -85,27 +79,12 @@ export default function AdminTeamPage() {
   }, [])
 
   useEffect(() => {
-    let active = true
-    void supabase.auth.getUser().then(async ({ data, error }) => {
-      if (!active) return
-      if (error || !data.user) {
-        setHasSession(false)
-        setPageRole(null)
-        setChecking(false)
-        return
-      }
-      setHasSession(true)
-      setActorUserId(data.user.id)
-      const role = await getStaffRoleForUser(data.user)
-      if (!active) return
-      setPageRole(role)
-      setChecking(false)
-      if (canAccessAdminPath(role, '/admin/equipe')) {
+    if (!checking && hasSession && canAccessAdminPath(pageRole, '/admin/equipe')) {
+      void (async () => {
         await loadMembers()
-      }
-    })
-    return () => { active = false }
-  }, [loadMembers])
+      })()
+    }
+  }, [checking, hasSession, loadMembers, pageRole])
 
   const allowed = canAccessAdminPath(pageRole, '/admin/equipe')
   const canManageTeam = pageRole === 'owner' || pageRole === 'admin'
@@ -206,12 +185,6 @@ export default function AdminTeamPage() {
           <div><p className="eyebrow">JALIMS · ADMINISTRATION</p><h1>Équipe</h1><p>Gérez les accès à l’espace d’administration.</p></div>
           <Link className="admin-catalog-link" href="/admin">Retour à l’administration →</Link>
         </header>
-        <nav className="admin-shortcuts" aria-label="Outils d’administration">
-          <Link className="admin-nav-item" href="/admin">Produits</Link>
-          <Link className="admin-nav-item" href="/admin/commandes">Commandes</Link>
-          <Link className="admin-nav-item current" href="/admin/equipe">Équipe</Link>
-        </nav>
-
         {feedback && <p className={`admin-feedback ${feedback.error ? 'error' : 'success'}`} role={feedback.error ? 'alert' : 'status'}>{feedback.text}</p>}
 
         {canManageTeam && (

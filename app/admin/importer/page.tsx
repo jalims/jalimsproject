@@ -3,8 +3,9 @@
 import Link from 'next/link'
 import { ChangeEvent, DragEvent, useEffect, useMemo, useState } from 'react'
 import { supabase } from '../../../lib/supabase'
-import { canAccessAdminPath, getStaffRoleForUser, type StaffRole } from '../../../lib/admin-staff-client'
+import { canAccessAdminPath } from '../../../lib/admin-staff-client'
 import { logClientError } from '../../../lib/user-facing-errors'
+import { useAdminSession } from '../admin-session-provider'
 
 const MAX_IMAGE_SIZE = 6 * 1024 * 1024
 const imageTypes = {
@@ -62,7 +63,7 @@ type ImportResponse = {
   error?: string
 }
 
-type AccessState = 'checking' | 'signed-out' | 'not-admin' | 'denied' | 'ready' | 'error'
+type AccessState = 'checking' | 'ready'
 
 const requiredHeaders = [
   'sku',
@@ -335,9 +336,8 @@ function csvCell(value: string | number) {
 }
 
 export default function ProductImportPage() {
+  const { userId, email: adminEmail, role: staffRole, loading: sessionLoading, error: sessionError } = useAdminSession()
   const [access, setAccess] = useState<AccessState>('checking')
-  const [adminEmail, setAdminEmail] = useState('')
-  const [staffRole, setStaffRole] = useState<StaffRole | null>(null)
   const [spreadsheetName, setSpreadsheetName] = useState('')
   const [spreadsheetReady, setSpreadsheetReady] = useState(false)
   const [photoArchiveName, setPhotoArchiveName] = useState('')
@@ -353,26 +353,13 @@ export default function ProductImportPage() {
   const [report, setReport] = useState<ReportRow[]>([])
 
   useEffect(() => {
+    if (sessionLoading) return
+    if (sessionError) return
+    if (!userId || !canAccessAdminPath(staffRole, '/admin/importer')) return
+
     let mounted = true
 
-    async function checkAccess() {
-      const { data, error } = await supabase.auth.getUser()
-      if (!mounted) return
-      if (error || !data.user) {
-        if (error?.name !== 'AuthSessionMissingError' && error) logClientError('Product import authentication failed', error)
-        setAccess(error?.name === 'AuthSessionMissingError' || !data.user ? 'signed-out' : 'error')
-        return
-      }
-
-      setAdminEmail(data.user.email ?? '')
-      const role = await getStaffRoleForUser(data.user)
-      if (!mounted) return
-      setStaffRole(role)
-      if (!canAccessAdminPath(role, '/admin/importer')) {
-        setAccess(role ? 'denied' : 'not-admin')
-        return
-      }
-
+    async function loadConfiguration() {
       setAccess('ready')
       const { data: sessionData, error: sessionError } = await supabase.auth.getSession()
       if (sessionError || !sessionData.session) {
@@ -394,9 +381,9 @@ export default function ProductImportPage() {
       }
     }
 
-    void checkAccess()
+    void loadConfiguration()
     return () => { mounted = false }
-  }, [])
+  }, [sessionError, sessionLoading, staffRole, userId])
 
   const validRows = useMemo(
     () => rows.filter((entry) => entry.row && (!testMode || entry.sku.startsWith('TEST'))),
@@ -823,22 +810,22 @@ export default function ProductImportPage() {
     URL.revokeObjectURL(url)
   }
 
-  if (access === 'checking') return <main className="product-import-page"><p>Vérification de l’accès administrateur…</p></main>
-  if (access !== 'ready') {
-    const message = access === 'signed-out'
-      ? 'Connectez-vous avec un compte autorisé pour accéder à l’import.'
-      : access === 'denied'
-        ? 'Votre rôle ne permet pas d’accéder à cette page.'
-        : access === 'not-admin'
-          ? 'Ce compte ne dispose pas des droits nécessaires.'
-          : 'Impossible de vérifier votre accès administrateur.'
+  if (sessionLoading) return <main className="product-import-page"><p>Vérification de l’accès administrateur…</p></main>
+  if (sessionError || !userId || !canAccessAdminPath(staffRole, '/admin/importer') || access !== 'ready') {
+    const message = sessionError
+      ?? (!userId
+        ? 'Connectez-vous avec un compte autorisé pour accéder à l’import.'
+        : staffRole
+          ? 'Votre rôle ne permet pas d’accéder à cette page.'
+          : 'Ce compte ne dispose pas des droits nécessaires.')
+    const denied = Boolean(userId && staffRole)
     return (
       <main className="product-import-page">
         <section className="product-import-card">
-          <h1>{access === 'denied' ? 'Accès refusé' : 'Importer des produits'}</h1>
+          <h1>{denied ? 'Accès refusé' : 'Importer des produits'}</h1>
           <p role="alert">{message}</p>
-          {access === 'signed-out' && <Link href="/login?next=%2Fadmin%2Fimporter">Se connecter</Link>}
-          {access === 'denied' && staffRole === 'order_manager' && <Link href="/admin/commandes">Aller aux commandes</Link>}
+          {!userId && <Link href="/login?next=%2Fadmin%2Fimporter">Se connecter</Link>}
+          {denied && staffRole === 'order_manager' && <Link href="/admin/commandes">Aller aux commandes</Link>}
         </section>
       </main>
     )
@@ -857,7 +844,6 @@ export default function ProductImportPage() {
           </div>
           <div className="product-import-session">
             <span>{adminEmail}</span>
-            <Link href="/admin">Retour aux produits</Link>
           </div>
         </header>
 

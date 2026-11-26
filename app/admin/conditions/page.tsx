@@ -2,10 +2,11 @@
 
 import Link from 'next/link'
 import { useEffect, useState } from 'react'
-import { canAccessAdminPath, getStaffRoleForUser, type StaffRole } from '../../../lib/admin-staff-client'
+import { canAccessAdminPath } from '../../../lib/admin-staff-client'
 import { LegalPageBody } from '../../../lib/legal-page-body'
 import type { LegalPageVersion } from '../../../lib/legal-page-types'
 import { supabase } from '../../../lib/supabase'
+import { useAdminSession } from '../admin-session-provider'
 
 type EditorResponse = {
   draft: LegalPageVersion | null
@@ -33,9 +34,9 @@ function formatPublicationDate(value: string | null) {
 }
 
 export default function AdminConditionsPage() {
+  const { userId, role, loading: sessionLoading } = useAdminSession()
   const [checking, setChecking] = useState(true)
-  const [hasSession, setHasSession] = useState(false)
-  const [role, setRole] = useState<StaffRole | null>(null)
+  const hasSession = Boolean(userId)
   const [title, setTitle] = useState('')
   const [body, setBody] = useState('')
   const [draft, setDraft] = useState<LegalPageVersion | null>(null)
@@ -44,22 +45,15 @@ export default function AdminConditionsPage() {
   const [feedback, setFeedback] = useState<{ kind: 'success' | 'error'; text: string } | null>(null)
 
   useEffect(() => {
+    if (sessionLoading) return
     let active = true
 
     async function load() {
-      const { data: userData, error: authError } = await supabase.auth.getUser()
-      if (!active) return
-      if (authError || !userData.user) {
-        setHasSession(false)
-        setRole(null)
+      if (!userId) {
         setChecking(false)
         return
       }
-      setHasSession(true)
-      const staffRole = await getStaffRoleForUser(userData.user)
-      if (!active) return
-      setRole(staffRole)
-      if (!canAccessAdminPath(staffRole, '/admin/conditions')) {
+      if (!canAccessAdminPath(role, '/admin/conditions')) {
         setChecking(false)
         return
       }
@@ -100,7 +94,7 @@ export default function AdminConditionsPage() {
     return () => {
       active = false
     }
-  }, [])
+  }, [role, sessionLoading, userId])
 
   async function submit(action: 'save' | 'publish') {
     setFeedback(null)
@@ -164,7 +158,7 @@ export default function AdminConditionsPage() {
     && draft.body === latestPublished.body,
   )
 
-  if (checking) return <main className="admin-page"><div className="admin-state">Vérification de l’accès...</div></main>
+  if (sessionLoading || checking) return <main className="admin-page"><div className="admin-state">Vérification de l’accès...</div></main>
   if (!hasSession) {
     return (
       <main className="admin-page"><section className="admin-access-state">
@@ -193,16 +187,6 @@ export default function AdminConditionsPage() {
           <div><p className="eyebrow">JALIMS · ADMINISTRATION</p><h1>Conditions générales</h1><p>Modifiez le brouillon puis publiez une nouvelle version.</p></div>
           <Link className="admin-catalog-link" href="/conditions">Voir la page publique →</Link>
         </header>
-        <nav className="admin-shortcuts" aria-label="Outils d’administration">
-          <Link className="admin-nav-item" href="/admin">Produits</Link>
-          <Link className="admin-nav-item" href="/admin/commandes">Commandes</Link>
-          {(role === 'owner' || role === 'admin') && <Link className="admin-nav-item" href="/admin/equipe">Équipe</Link>}
-          <Link className="admin-nav-item" href="/admin/messages">Messages</Link>
-          <Link className="admin-nav-item" href="/admin/retraits">Points de retrait</Link>
-          <Link className="admin-nav-item" href="/admin/accueil">Textes accueil</Link>
-          <Link className="admin-nav-item current" href="/admin/conditions">Conditions</Link>
-        </nav>
-
         {feedback && <p className={`admin-feedback ${feedback.kind}`} role={feedback.kind === 'error' ? 'alert' : 'status'}>{feedback.text}</p>}
         <form className="legal-admin-layout" onSubmit={(event) => {
           event.preventDefault()

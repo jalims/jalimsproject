@@ -2,8 +2,9 @@
 
 import Link from 'next/link'
 import { FormEvent, useEffect, useState } from 'react'
-import { canAccessAdminPath, getStaffRoleForUser, type StaffRole } from '../../../lib/admin-staff-client'
+import { canAccessAdminPath } from '../../../lib/admin-staff-client'
 import { supabase } from '../../../lib/supabase'
+import { useAdminSession } from '../admin-session-provider'
 
 type Settings = {
   transport_price_per_kg_fcfa: number
@@ -14,9 +15,9 @@ type Settings = {
 }
 
 export default function AdminSettingsPage() {
+  const { userId, role, loading: sessionLoading } = useAdminSession()
   const [checking, setChecking] = useState(true)
-  const [hasSession, setHasSession] = useState(false)
-  const [role, setRole] = useState<StaffRole | null>(null)
+  const hasSession = Boolean(userId)
   const [settings, setSettings] = useState<Settings>({
     transport_price_per_kg_fcfa: 0,
     commission_percent: 0,
@@ -27,24 +28,19 @@ export default function AdminSettingsPage() {
   const [feedback, setFeedback] = useState<{ text: string; error: boolean } | null>(null)
 
   useEffect(() => {
+    if (sessionLoading) return
     let active = true
     async function init() {
-      const { data } = await supabase.auth.getSession()
-      const user = data.session?.user
-      if (!active) return
-      setHasSession(Boolean(user))
-      if (!user) {
+      if (!userId) {
         setChecking(false)
         return
       }
-      const staffRole = await getStaffRoleForUser(user)
-      if (!active) return
-      setRole(staffRole)
-      if (!canAccessAdminPath(staffRole, '/admin/parametres')) {
+      if (!canAccessAdminPath(role, '/admin/parametres')) {
         setChecking(false)
         return
       }
       try {
+        const { data } = await supabase.auth.getSession()
         const token = data.session?.access_token
         const res = await fetch('/api/admin/app-settings', {
           headers: token ? { Authorization: `Bearer ${token}` } : {},
@@ -67,7 +63,7 @@ export default function AdminSettingsPage() {
     }
     void init()
     return () => { active = false }
-  }, [])
+  }, [role, sessionLoading, userId])
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -101,7 +97,7 @@ export default function AdminSettingsPage() {
     }
   }
 
-  if (checking) return <main className="admin-page"><div className="admin-state">Vérification de l’accès…</div></main>
+  if (sessionLoading || checking) return <main className="admin-page"><div className="admin-state">Vérification de l’accès…</div></main>
   if (!hasSession) return <main className="admin-page"><section className="admin-access-state"><h1>Accès réservé</h1><p>Connectez-vous avec un compte autorisé.</p><Link className="admin-primary-link" href="/login?next=%2Fadmin%2Fparametres">Se connecter</Link></section></main>
   if (!canAccessAdminPath(role, '/admin/parametres')) {
     return (
@@ -124,20 +120,8 @@ export default function AdminSettingsPage() {
             <h1>Paramètres</h1>
             <p>Paramètres de calcul du prix des produits importés (origine Chine). Les produits locaux ne sont pas impactés.</p>
           </div>
-          <Link className="admin-catalog-link" href="/admin">Gestion des produits →</Link>
+          <Link className="admin-catalog-link" href="/admin/produits">Gestion des produits →</Link>
         </header>
-        <nav className="admin-shortcuts" aria-label="Outils d’administration">
-          <Link className="admin-nav-item" href="/admin">Produits</Link>
-          <Link className="admin-nav-item" href="/admin/commandes">Commandes</Link>
-          {(role === 'owner' || role === 'admin') && <Link className="admin-nav-item" href="/admin/equipe">Équipe</Link>}
-          {(role === 'owner' || role === 'admin') && <Link className="admin-nav-item current" href="/admin/parametres">Paramètres</Link>}
-          <Link className="admin-nav-item" href="/admin/partenaires">Partenaires</Link>
-          <Link className="admin-nav-item" href="/admin/clients">Clients</Link>
-          <Link className="admin-nav-item" href="/admin/statistiques">Statistiques</Link>
-          <Link className="admin-nav-item" href="/admin/messages">Messages</Link>
-          <Link className="admin-nav-item" href="/admin/retraits">Points de retrait</Link>
-        </nav>
-
         <div className="admin-layout" style={{ gridTemplateColumns: 'minmax(0, 720px)' }}>
           <section className="admin-form-panel">
             <div className="admin-section-heading">

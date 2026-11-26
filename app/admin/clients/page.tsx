@@ -2,9 +2,10 @@
 
 import Link from 'next/link'
 import { useEffect, useState } from 'react'
-import { canAccessAdminPath, getStaffRoleForUser, type StaffRole } from '../../../lib/admin-staff-client'
+import { canAccessAdminPath } from '../../../lib/admin-staff-client'
 import { normalizeSenegalPhone } from '../../../lib/order-messages'
 import { supabase } from '../../../lib/supabase'
+import { useAdminSession } from '../admin-session-provider'
 
 type Client = {
   id: string
@@ -49,9 +50,8 @@ function Skeletons() {
 }
 
 export default function AdminClientsPage() {
-  const [checking, setChecking] = useState(true)
-  const [hasSession, setHasSession] = useState(false)
-  const [role, setRole] = useState<StaffRole | null>(null)
+  const { userId, role, loading: checking } = useAdminSession()
+  const hasSession = Boolean(userId)
   const [search, setSearch] = useState('')
   const [withoutOrder, setWithoutOrder] = useState(false)
   const [page, setPage] = useState(1)
@@ -61,24 +61,6 @@ export default function AdminClientsPage() {
   const [errorMessage, setErrorMessage] = useState('')
   const [welcomeMessages, setWelcomeMessages] = useState<Record<string, string>>({})
   const [exporting, setExporting] = useState(false)
-
-  useEffect(() => {
-    let active = true
-    void supabase.auth.getUser().then(async ({ data, error }) => {
-      if (!active) return
-      if (error || !data.user) {
-        setHasSession(false)
-        setRole(null)
-      } else {
-        setHasSession(true)
-        const staffRole = await getStaffRoleForUser(data.user)
-        if (!active) return
-        setRole(staffRole)
-      }
-      if (active) setChecking(false)
-    })
-    return () => { active = false }
-  }, [])
 
   const allowed = canAccessAdminPath(role, '/admin/clients')
 
@@ -197,15 +179,6 @@ export default function AdminClientsPage() {
             {exporting ? 'Préparation…' : 'Exporter en CSV'}
           </button>
         </header>
-        <nav className="admin-shortcuts" aria-label="Outils d’administration">
-          <Link className="admin-nav-item" href="/admin"><span className="admin-nav-icon" aria-hidden="true">▦</span> Produits</Link>
-          <Link className="admin-nav-item" href="/admin/commandes"><span className="admin-nav-icon" aria-hidden="true">↗</span> Commandes</Link>
-          {(role === 'owner' || role === 'admin') && <Link className="admin-nav-item" href="/admin/equipe"><span className="admin-nav-icon" aria-hidden="true">⚙</span> Équipe</Link>}
-          <Link className="admin-nav-item current" href="/admin/clients"><span className="admin-nav-icon" aria-hidden="true">♙</span> Clients</Link>
-          <Link className="admin-nav-item" href="/admin/statistiques"><span className="admin-nav-icon" aria-hidden="true">▤</span> Statistiques</Link>
-          <Link className="admin-nav-item" href="/admin/accueil"><span className="admin-nav-icon" aria-hidden="true">T</span> Textes accueil</Link>
-        </nav>
-
         <section className="admin-clients-panel">
           <div className="admin-clients-filters">
             <label className="admin-clients-search">

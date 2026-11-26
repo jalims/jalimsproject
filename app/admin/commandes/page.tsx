@@ -3,11 +3,12 @@
 import Image from 'next/image'
 import Link from 'next/link'
 import { useEffect, useState } from 'react'
-import { canAccessAdminPath, getStaffRoleForUser, type StaffRole } from '../../../lib/admin-staff-client'
+import { canAccessAdminPath, type StaffRole } from '../../../lib/admin-staff-client'
 import { isOrderMessageTemplateKey, ORDER_MESSAGE_TEMPLATE_KEYS, type OrderMessageTemplateKey } from '../../../lib/order-messages'
 import { importOrderStatusOptions, localOrderStatusOptions } from '../../../lib/order-tracking'
 import { logClientError } from '../../../lib/user-facing-errors'
 import { supabase } from '../../../lib/supabase'
+import { useAdminSession } from '../admin-session-provider'
 
 type SupplierCost = { purchase_price: number | null; currency: 'FCFA' | 'CNY' | null }
 type AdminOrder = {
@@ -178,6 +179,7 @@ async function updateOrderStatus(orderId: string, status: string) {
 }
 
 export default function AdminOrdersPage() {
+  const { userId, role, loading: sessionLoading } = useAdminSession()
   const [checking, setChecking] = useState(true)
   const [authorized, setAuthorized] = useState(false)
   const [hasSession, setHasSession] = useState(false)
@@ -213,11 +215,10 @@ export default function AdminOrdersPage() {
   }, [])
 
   useEffect(() => {
+    if (sessionLoading) return
     let active = true
     async function load() {
-      const { data: userData, error: authError } = await supabase.auth.getUser()
-      if (!active) return
-      if (authError || !userData.user) {
+      if (!userId) {
         setHasSession(false)
         setStaffRole(null)
         setAuthorized(false)
@@ -225,8 +226,6 @@ export default function AdminOrdersPage() {
         return
       }
       setHasSession(true)
-      const role = await getStaffRoleForUser(userData.user)
-      if (!active) return
       setStaffRole(role)
       if (!canAccessAdminPath(role, '/admin/commandes')) {
         setAuthorized(false)
@@ -349,7 +348,7 @@ export default function AdminOrdersPage() {
     return () => {
       active = false
     }
-  }, [])
+  }, [role, sessionLoading, userId])
 
   function supplierCostToFcfa(cost: SupplierCost | undefined, rate: number | null | undefined) {
     if (!cost || cost.purchase_price == null || !Number.isFinite(cost.purchase_price)) return null
@@ -675,7 +674,7 @@ export default function AdminOrdersPage() {
     }
   }
 
-  if (checking) return <main className="admin-page"><div className="admin-state">Vérification de l’accès...</div></main>
+  if (sessionLoading || checking) return <main className="admin-page"><div className="admin-state">Vérification de l’accès...</div></main>
   if (!hasSession) {
     return (
       <main className="admin-page"><section className="admin-access-state">
@@ -699,19 +698,8 @@ export default function AdminOrdersPage() {
       <div className="admin-shell">
         <header className="admin-header">
           <div><p className="eyebrow">JALIMS · ADMINISTRATION</p><h1>Commandes</h1><p>Actualisez le statut après chaque étape du parcours.</p></div>
-          <Link className="admin-catalog-link" href="/admin">Gestion des produits →</Link>
+          <Link className="admin-catalog-link" href="/admin/produits">Gestion des produits →</Link>
         </header>
-        <nav className="admin-shortcuts" aria-label="Outils d’administration">
-          <Link className="admin-nav-item" href="/admin">Produits</Link>
-          <Link className="admin-nav-item current" href="/admin/commandes">Commandes</Link>
-          {(staffRole === 'owner' || staffRole === 'admin') && <Link className="admin-nav-item" href="/admin/equipe">Équipe</Link>}
-          {(staffRole === 'owner' || staffRole === 'admin') && <Link className="admin-nav-item" href="/admin/parametres">Paramètres</Link>}
-          <Link className="admin-nav-item" href="/admin/partenaires">Partenaires</Link>
-          <Link className="admin-nav-item" href="/admin/clients">Clients</Link>
-          <Link className="admin-nav-item" href="/admin/statistiques">Statistiques</Link>
-          <Link className="admin-nav-item" href="/admin/messages">Messages</Link>
-          <Link className="admin-nav-item" href="/admin/retraits">Points de retrait</Link>
-        </nav>
         {errorMessage && <p className="admin-feedback error" role="alert">{errorMessage}</p>}
         {orders.length === 0 ? (
           <div className="orders-state">Aucune commande enregistrée pour le moment.</div>

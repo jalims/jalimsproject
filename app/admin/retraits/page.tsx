@@ -3,8 +3,9 @@
 import Link from 'next/link'
 import { FormEvent, useEffect, useState } from 'react'
 import { supabase } from '../../../lib/supabase'
-import { canAccessAdminPath, getStaffRoleForUser, type StaffRole } from '../../../lib/admin-staff-client'
+import { canAccessAdminPath } from '../../../lib/admin-staff-client'
 import { logClientError } from '../../../lib/user-facing-errors'
+import { useAdminSession } from '../admin-session-provider'
 
 type PickupPoint = {
   id: string
@@ -17,9 +18,8 @@ type PickupPoint = {
 const emptyForm = { name: '', address: '', city: 'Dakar', active: true }
 
 export default function AdminPickupPointsPage() {
-  const [checking, setChecking] = useState(true)
-  const [hasSession, setHasSession] = useState(false)
-  const [role, setRole] = useState<StaffRole | null>(null)
+  const { userId, role, loading: checking } = useAdminSession()
+  const hasSession = Boolean(userId)
   const [points, setPoints] = useState<PickupPoint[]>([])
   const [form, setForm] = useState(emptyForm)
   const [editingId, setEditingId] = useState('')
@@ -35,26 +35,12 @@ export default function AdminPickupPointsPage() {
   }
 
   useEffect(() => {
-    let active = true
-    void supabase.auth.getUser().then(async ({ data, error }) => {
-      if (!active) return
-      if (error || !data.user) {
-        setHasSession(false)
-        setRole(null)
-        setChecking(false)
-        return
-      }
-      setHasSession(true)
-      const staffRole = await getStaffRoleForUser(data.user)
-      if (!active) return
-      setRole(staffRole)
-      setChecking(false)
-      if (canAccessAdminPath(staffRole, '/admin/retraits')) await loadPoints()
-    })
-    return () => {
-      active = false
+    if (!checking && userId && canAccessAdminPath(role, '/admin/retraits')) {
+      void (async () => {
+        await loadPoints()
+      })()
     }
-  }, [])
+  }, [checking, role, userId])
 
   async function savePoint(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -101,7 +87,7 @@ export default function AdminPickupPointsPage() {
   return (
     <main className="admin-page">
       <div className="admin-shell">
-        <header className="admin-header"><div><p className="eyebrow">JALIMS · ADMINISTRATION</p><h1>Points de retrait</h1><p>Les points actifs sont proposés au moment de la commande.</p></div><Link className="admin-catalog-link" href="/admin">Retour aux produits →</Link></header>
+        <header className="admin-header"><div><p className="eyebrow">JALIMS · ADMINISTRATION</p><h1>Points de retrait</h1><p>Les points actifs sont proposés au moment de la commande.</p></div><Link className="admin-catalog-link" href="/admin/produits">Retour aux produits →</Link></header>
         <div className="admin-layout pickup-admin-layout">
           <section className="admin-form-panel">
             <div className="admin-section-heading"><div><p className="eyebrow">NOUVEAU POINT RELAIS</p><h2>{editingId ? 'Modifier le point' : 'Informations du point'}</h2></div></div>
