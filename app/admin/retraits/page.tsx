@@ -1,11 +1,22 @@
 'use client'
 
 import Link from 'next/link'
-import { FormEvent, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { supabase } from '../../../lib/supabase'
 import { canAccessAdminPath } from '../../../lib/admin-staff-client'
 import { logClientError } from '../../../lib/user-facing-errors'
 import { useAdminSession } from '../admin-session-provider'
+import {
+  Badge,
+  Button,
+  Card,
+  EmptyState,
+  Input,
+  PageHeader,
+  Skeleton,
+  Switch,
+  useToast,
+} from '../_components'
 
 type PickupPoint = {
   id: string
@@ -19,20 +30,32 @@ const emptyForm = { name: '', address: '', city: 'Dakar', active: true }
 
 export default function AdminPickupPointsPage() {
   const { userId, role, loading: checking } = useAdminSession()
+  const { toast } = useToast()
   const hasSession = Boolean(userId)
   const [points, setPoints] = useState<PickupPoint[]>([])
+  const [listLoading, setListLoading] = useState(true)
+  const [listError, setListError] = useState('')
   const [form, setForm] = useState(emptyForm)
   const [editingId, setEditingId] = useState('')
   const [saving, setSaving] = useState(false)
-  const [feedback, setFeedback] = useState('')
+  const [formError, setFormError] = useState('')
+  const [toggleError, setToggleError] = useState('')
+  const [updatingPointId, setUpdatingPointId] = useState('')
 
-  async function loadPoints() {
-    const { data, error } = await supabase.from('pickup_points').select('id, name, address, city, active').order('city')
-    if (error) {
+  const loadPoints = useCallback(async () => {
+    setListLoading(true)
+    setListError('')
+    try {
+      const { data, error } = await supabase.from('pickup_points').select('id, name, address, city, active').order('city')
+      if (error) throw error
+      setPoints((data ?? []) as PickupPoint[])
+    } catch (error) {
       logClientError('Pickup point list load failed', error)
-      setFeedback('Impossible de charger les points de retrait.')
-    } else setPoints((data ?? []) as PickupPoint[])
-  }
+      setListError('Impossible de charger les points de retrait.')
+    } finally {
+      setListLoading(false)
+    }
+  }, [])
 
   useEffect(() => {
     if (!checking && userId && canAccessAdminPath(role, '/admin/retraits')) {
@@ -40,34 +63,49 @@ export default function AdminPickupPointsPage() {
         await loadPoints()
       })()
     }
-  }, [checking, role, userId])
+  }, [checking, loadPoints, role, userId])
 
   async function savePoint(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setSaving(true)
-    setFeedback('')
+    setFormError('')
     const values = { name: form.name.trim(), address: form.address.trim(), city: form.city.trim(), active: form.active }
-    const result = editingId
-      ? await supabase.from('pickup_points').update(values).eq('id', editingId)
-      : await supabase.from('pickup_points').insert(values)
-    setSaving(false)
-    if (result.error) {
-      logClientError('Pickup point save failed', result.error)
-      setFeedback('Le point de retrait n’a pas pu être enregistré.')
-      return
+    try {
+      const result = editingId
+        ? await supabase.from('pickup_points').update(values).eq('id', editingId)
+        : await supabase.from('pickup_points').insert(values)
+      if (result.error) throw result.error
+      const wasEditing = Boolean(editingId)
+      setForm(emptyForm)
+      setEditingId('')
+      toast({ title: wasEditing ? 'Point de retrait modifié' : 'Point de retrait ajouté', variant: 'success' })
+      await loadPoints()
+    } catch (error) {
+      logClientError('Pickup point save failed', error)
+      const message = 'Le point de retrait n’a pas pu être enregistré.'
+      setFormError(message)
+      toast({ title: 'Enregistrement impossible', description: message, variant: 'danger' })
+    } finally {
+      setSaving(false)
     }
-    setForm(emptyForm)
-    setEditingId('')
-    setFeedback(editingId ? 'Point de retrait modifié.' : 'Point de retrait ajouté.')
-    await loadPoints()
   }
 
-  async function togglePoint(point: PickupPoint) {
-    const { error } = await supabase.from('pickup_points').update({ active: !point.active }).eq('id', point.id)
-    if (error) {
+  async function togglePoint(point: PickupPoint, active: boolean) {
+    setToggleError('')
+    setUpdatingPointId(point.id)
+    try {
+      const { error } = await supabase.from('pickup_points').update({ active }).eq('id', point.id)
+      if (error) throw error
+      toast({ title: active ? 'Point de retrait activé' : 'Point de retrait masqué', variant: 'success' })
+      await loadPoints()
+    } catch (error) {
       logClientError('Pickup point update failed', error)
-      setFeedback('La modification du point de retrait a échoué.')
-    } else await loadPoints()
+      const message = 'La modification du point de retrait a échoué.'
+      setToggleError(message)
+      toast({ title: 'Modification impossible', description: message, variant: 'danger' })
+    } finally {
+      setUpdatingPointId('')
+    }
   }
 
   if (checking) return <main className="admin-page"><div className="admin-state">Vérification de l’accès...</div></main>
@@ -87,40 +125,132 @@ export default function AdminPickupPointsPage() {
   return (
     <main className="admin-page">
       <div className="admin-shell">
-        <header className="admin-header"><div><p className="eyebrow">JALIMS · ADMINISTRATION</p><h1>Points de retrait</h1><p>Les points actifs sont proposés au moment de la commande.</p></div><Link className="admin-catalog-link" href="/admin/produits">Retour aux produits →</Link></header>
-        <div className="admin-layout pickup-admin-layout">
-          <section className="admin-form-panel">
-            <div className="admin-section-heading"><div><p className="eyebrow">NOUVEAU POINT RELAIS</p><h2>{editingId ? 'Modifier le point' : 'Informations du point'}</h2></div></div>
-            <form className="admin-product-form" onSubmit={savePoint}>
-              <label><span>Nom</span><input required maxLength={120} value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="Ex. Boutique Plateau" /></label>
-              <label><span>Adresse</span><input required maxLength={240} value={form.address} onChange={(event) => setForm({ ...form, address: event.target.value })} placeholder="Rue, quartier, repère" /></label>
-              <label><span>Ville</span><input required maxLength={100} value={form.city} onChange={(event) => setForm({ ...form, city: event.target.value })} /></label>
-              {feedback && <p className={`admin-feedback ${feedback.includes('refusé') || feedback.includes('Erreur') ? 'error' : 'success'}`} role="status">{feedback}</p>}
-              <button className="admin-submit" disabled={saving} type="submit">{saving ? 'Enregistrement...' : editingId ? 'Enregistrer' : 'Ajouter le point'} <span aria-hidden="true">→</span></button>
-              {editingId && <button className="admin-cancel-edit" type="button" onClick={() => { setEditingId(''); setForm(emptyForm) }}>Annuler</button>}
-            </form>
-          </section>
-          <section className="admin-products-panel">
-            <div className="admin-section-heading"><div><p className="eyebrow">RETRAIT CLIENT</p><h2>Points configurés</h2></div><span className="admin-product-count">{points.filter((point) => point.active).length}</span></div>
-            {points.length === 0 ? (
-              <p className="admin-empty-list">Aucun point de retrait configuré.</p>
-            ) : (
-              <ul className="pickup-points-list">
-                {points.map((point) => (
-                  <li key={point.id}>
-                    <div>
-                      <strong>{point.name}</strong>
-                      <span>{point.address}</span>
-                      <small>{point.city} · {point.active ? 'Actif' : 'Masqué'}</small>
-                    </div>
-                    <button type="button" onClick={() => { setEditingId(point.id); setForm({ name: point.name, address: point.address, city: point.city, active: point.active }) }} aria-label={`Modifier ${point.name}`}>Modifier</button>
-                    <button type="button" onClick={() => void togglePoint(point)} aria-label={`${point.active ? 'Désactiver' : 'Activer'} ${point.name}`}>{point.active ? 'Masquer' : 'Activer'}</button>
-                  </li>
-                ))}
-              </ul>
+        <PageHeader
+          eyebrow="JALIMS · ADMINISTRATION"
+          title="Points de retrait"
+          description="Les points actifs sont proposés au moment de la commande."
+          actions={!listLoading && !listError
+            ? <Badge variant="info">{points.filter((point) => point.active).length} actifs</Badge>
+            : undefined}
+        />
+        <Card
+          title={editingId ? 'Modifier le point' : 'Ajouter un point de retrait'}
+          description="Les champs nom, adresse et ville sont obligatoires."
+        >
+          <form onSubmit={savePoint}>
+            <Input
+              label="Nom"
+              required
+              maxLength={120}
+              value={form.name}
+              onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
+              placeholder="Ex. Boutique Plateau"
+              disabled={saving}
+            />
+            <Input
+              label="Adresse"
+              required
+              maxLength={240}
+              value={form.address}
+              onChange={(event) => setForm((current) => ({ ...current, address: event.target.value }))}
+              placeholder="Rue, quartier, repère"
+              disabled={saving}
+            />
+            <Input
+              label="Ville"
+              required
+              maxLength={100}
+              value={form.city}
+              onChange={(event) => setForm((current) => ({ ...current, city: event.target.value }))}
+              disabled={saving}
+            />
+            <Switch
+              label="Proposé au moment de la commande"
+              checked={form.active}
+              onCheckedChange={(active) => setForm((current) => ({ ...current, active }))}
+              disabled={saving}
+            />
+            {formError && (
+              <Card title="Enregistrement impossible">
+                <p role="alert">{formError}</p>
+              </Card>
             )}
-          </section>
-        </div>
+            <Button type="submit" loading={saving}>
+              {editingId ? 'Enregistrer' : 'Ajouter le point'}
+            </Button>
+            {editingId && (
+              <Button
+                type="button"
+                variant="outline"
+                disabled={saving}
+                onClick={() => {
+                  setEditingId('')
+                  setForm(emptyForm)
+                  setFormError('')
+                }}
+              >
+                Annuler
+              </Button>
+            )}
+          </form>
+        </Card>
+        {toggleError && (
+          <Card title="Modification impossible">
+            <p role="alert">{toggleError}</p>
+          </Card>
+        )}
+        {listError ? (
+          <Card title="Points configurés">
+            <EmptyState
+              title="La liste des points de retrait est indisponible"
+              description={listError}
+              action={<Button onClick={() => void loadPoints()}>Réessayer</Button>}
+            />
+          </Card>
+        ) : listLoading ? (
+          <Card title="Points configurés" description="Chargement des points de retrait…">
+            <Skeleton variant="rect" width="100%" height={96} />
+            <Skeleton variant="rect" width="100%" height={96} />
+            <Skeleton variant="rect" width="100%" height={96} />
+          </Card>
+        ) : points.length === 0 ? (
+          <Card title="Points configurés">
+            <EmptyState
+              title="Aucun point de retrait configuré"
+              description="Les points de retrait ajoutés apparaîtront ici."
+            />
+          </Card>
+        ) : (
+          <Card title="Points configurés" description="Liste des points de retrait disponibles.">
+            {points.map((point) => (
+              <Card
+                key={point.id}
+                title={point.name}
+                description={`${point.address} · ${point.city}`}
+                actions={<Badge variant={point.active ? 'success' : 'neutral'}>{point.active ? 'Actif' : 'Masqué'}</Badge>}
+              >
+                <Button
+                  size="sm"
+                  variant="outline"
+                  aria-label={`Modifier ${point.name}`}
+                  onClick={() => {
+                    setEditingId(point.id)
+                    setForm({ name: point.name, address: point.address, city: point.city, active: point.active })
+                    setFormError('')
+                  }}
+                >
+                  Modifier
+                </Button>
+                <Switch
+                  label={`Proposé au retrait — ${point.name}`}
+                  checked={point.active}
+                  onCheckedChange={(active) => void togglePoint(point, active)}
+                  disabled={Boolean(updatingPointId)}
+                />
+              </Card>
+            ))}
+          </Card>
+        )}
       </div>
     </main>
   )
