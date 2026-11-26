@@ -38,6 +38,10 @@ type DashboardStats = {
     orders_to_process: number
     unpaid_carts_over_one_hour: number
   }
+  operationalCounts: {
+    orders_to_process: number
+    unpaid_carts_over_one_hour: number
+  }
   salesByDay: { date: string; revenue: number; orders: number }[]
 }
 
@@ -104,7 +108,17 @@ function isDashboardStats(value: unknown): value is DashboardStats {
   const overview = result.overview as Record<string, unknown>
   const hasOverviewMetrics = ['revenue', 'orders_to_process', 'unpaid_carts_over_one_hour']
     .every((key) => typeof overview[key] === 'number' && Number.isFinite(overview[key]))
-  if (!hasOverviewMetrics || !Array.isArray(result.salesByDay)) return false
+  if (
+    typeof result.operationalCounts !== 'object'
+    || result.operationalCounts === null
+    || Array.isArray(result.operationalCounts)
+    || !hasOverviewMetrics
+    || !Array.isArray(result.salesByDay)
+  ) return false
+  const operationalCounts = result.operationalCounts as Record<string, unknown>
+  const hasOperationalCounts = ['orders_to_process', 'unpaid_carts_over_one_hour']
+    .every((key) => typeof operationalCounts[key] === 'number' && Number.isFinite(operationalCounts[key]))
+  if (!hasOperationalCounts) return false
   return result.salesByDay.every((day) => {
     if (typeof day !== 'object' || day === null || Array.isArray(day)) return false
     const point = day as Record<string, unknown>
@@ -170,7 +184,7 @@ export default function AdminDashboardPage() {
       }
 
       try {
-        const response = await fetch('/api/admin/stats?period=7', {
+        const response = await fetch('/api/admin/stats?period=7&operationalPeriod=all', {
           headers: { Authorization: `Bearer ${data.session.access_token}` },
           cache: 'no-store',
         })
@@ -256,8 +270,8 @@ export default function AdminDashboardPage() {
   }
 
   const revenue = stats?.overview.revenue
-  const ordersToProcess = stats?.overview.orders_to_process
-  const unpaidCarts = stats?.overview.unpaid_carts_over_one_hour
+  const ordersToProcess = stats?.operationalCounts.orders_to_process
+  const unpaidCarts = stats?.operationalCounts.unpaid_carts_over_one_hour
 
   return (
     <main className="admin-page">
@@ -283,19 +297,19 @@ export default function AdminDashboardPage() {
           label="Chiffre d’affaires"
           value={statsLoading ? <Skeleton width="112px" height={28} /> : statsError ? '—' : formatMoney(revenue ?? 0)}
           icon={<TrendingUp size={19} />}
-          trend={{ label: 'Depuis le lancement', direction: 'neutral' }}
+          trend={{ label: '7 derniers jours', direction: 'neutral' }}
         />
         <StatCard
           label="Commandes à traiter"
           value={statsLoading ? <Skeleton width="64px" height={28} /> : statsError ? '—' : Number(ordersToProcess ?? 0).toLocaleString('fr-FR')}
           icon={<ClipboardList size={19} />}
-          trend={{ label: 'Au statut « Payé »', direction: 'neutral' }}
+          trend={{ label: 'Toutes périodes', direction: 'neutral' }}
         />
         <StatCard
           label="Paniers non payés"
           value={statsLoading ? <Skeleton width="64px" height={28} /> : statsError ? '—' : Number(unpaidCarts ?? 0).toLocaleString('fr-FR')}
           icon={<ShoppingBasket size={19} />}
-          trend={{ label: 'En attente depuis plus d’une heure', direction: 'neutral' }}
+          trend={{ label: 'Toutes périodes · En attente depuis plus d’une heure', direction: 'neutral' }}
         />
         <StatCard
           label="Nouvelles demandes"
@@ -305,7 +319,7 @@ export default function AdminDashboardPage() {
               ? '—'
               : Number(newRequestCount ?? 0).toLocaleString('fr-FR')}
           icon={<MessageSquareText size={19} />}
-          trend={{ label: 'À examiner', direction: 'neutral' }}
+          trend={{ label: 'Toutes demandes à examiner', direction: 'neutral' }}
         />
       </section>
 
