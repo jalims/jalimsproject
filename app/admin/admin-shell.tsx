@@ -118,6 +118,8 @@ const roleLabels: Record<StaffRole, string> = {
 }
 
 function getPageTitle(pathname: string) {
+  if (pathname === '/admin/produits/nouveau') return 'Nouveau produit'
+  if (pathname.startsWith('/admin/produits/')) return 'Modifier le produit'
   return pageTitles[pathname] ?? 'Administration'
 }
 
@@ -274,6 +276,7 @@ export default function AdminShell({ children }: { children: ReactNode }) {
               <h2>{section.label}</h2>
               {section.items.map(({ href, label, Icon }) => {
                 const isActive = pathname === href
+                  || (href === '/admin/produits' && pathname.startsWith('/admin/produits/'))
                 return (
                   <Link
                     className={`admin-nav-link${isActive ? ' is-active' : ''}`}

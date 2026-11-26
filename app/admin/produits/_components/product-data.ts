@@ -123,8 +123,3 @@ export function formatStockUpdatedAt(value: string | null) {
   if (!value || !Number.isFinite(Date.parse(value))) return 'Jamais'
   return new Date(value).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' })
 }
-
-export async function removeCreatedProduct(productId: string) {
-  const { error } = await requestAdminProducts('DELETE', { id: productId })
-  if (error) logClientError('Admin product draft cleanup failed', error)
-}

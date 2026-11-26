@@ -285,7 +285,7 @@ export default function AdminDashboardPage() {
             <Button variant="outline" leadingIcon={<Upload size={16} />} onClick={() => router.push('/admin/importer')}>
               Importer
             </Button>
-            <Button leadingIcon={<PackagePlus size={16} />} onClick={() => router.push('/admin/produits')}>
+            <Button leadingIcon={<PackagePlus size={16} />} onClick={() => router.push('/admin/produits/nouveau')}>
               Ajouter un produit
             </Button>
           </div>
