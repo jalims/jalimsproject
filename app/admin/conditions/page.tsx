@@ -7,6 +7,18 @@ import { LegalPageBody } from '../../../lib/legal-page-body'
 import type { LegalPageVersion } from '../../../lib/legal-page-types'
 import { supabase } from '../../../lib/supabase'
 import { useAdminSession } from '../admin-session-provider'
+import {
+  Badge,
+  Button,
+  Card,
+  ConfirmDialog,
+  EmptyState,
+  Input,
+  PageHeader,
+  Skeleton,
+  Textarea,
+  useToast,
+} from '../_components'
 
 type EditorResponse = {
   draft: LegalPageVersion | null
@@ -35,6 +47,7 @@ function formatPublicationDate(value: string | null) {
 
 export default function AdminConditionsPage() {
   const { userId, role, loading: sessionLoading } = useAdminSession()
+  const { toast } = useToast()
   const [checking, setChecking] = useState(true)
   const hasSession = Boolean(userId)
   const [title, setTitle] = useState('')
@@ -42,7 +55,10 @@ export default function AdminConditionsPage() {
   const [draft, setDraft] = useState<LegalPageVersion | null>(null)
   const [history, setHistory] = useState<LegalPageVersion[]>([])
   const [saving, setSaving] = useState(false)
-  const [feedback, setFeedback] = useState<{ kind: 'success' | 'error'; text: string } | null>(null)
+  const [loadError, setLoadError] = useState('')
+  const [saveError, setSaveError] = useState('')
+  const [loadAttempt, setLoadAttempt] = useState(0)
+  const [confirmPublish, setConfirmPublish] = useState(false)
 
   useEffect(() => {
     if (sessionLoading) return
@@ -58,54 +74,54 @@ export default function AdminConditionsPage() {
         return
       }
 
-      const { data: sessionData, error: sessionError } = await supabase.auth.getSession()
-      if (sessionError || !sessionData.session?.access_token) {
-        setFeedback({ kind: 'error', text: 'Votre session a expiré. Reconnectez-vous puis réessayez.' })
-        setChecking(false)
-        return
-      }
-
       try {
+        const { data: sessionData, error: sessionError } = await supabase.auth.getSession()
+        if (sessionError) throw sessionError
+        if (!sessionData.session?.access_token) {
+          throw new Error('Votre session a expiré. Reconnectez-vous puis réessayez.')
+        }
         const response = await fetch('/api/admin/conditions', {
           headers: { Authorization: `Bearer ${sessionData.session.access_token}` },
         })
         if (!response.ok) {
-          setFeedback({ kind: 'error', text: await responseError(response, 'Impossible de charger les conditions.') })
-        } else {
-          const data = await response.json() as EditorResponse
-          if (active) {
-            const latestPublished = data.history.find((version) => version.status === 'publie')
-            setDraft(data.draft)
-            setHistory(data.history)
-            setTitle(data.draft?.title ?? latestPublished?.title ?? '')
-            setBody(data.draft?.body ?? latestPublished?.body ?? '')
-          }
+          throw new Error(await responseError(response, 'Impossible de charger les conditions.'))
+        }
+        const data = await response.json() as EditorResponse
+        if (!Array.isArray(data.history)) throw new Error('L’historique des conditions reçu est invalide.')
+        if (active) {
+          const latestPublished = data.history.find((version) => version.status === 'publie')
+          setDraft(data.draft)
+          setHistory(data.history)
+          setTitle(data.draft?.title ?? latestPublished?.title ?? '')
+          setBody(data.draft?.body ?? latestPublished?.body ?? '')
+          setLoadError('')
         }
       } catch (error) {
         console.error('[Admin legal pages] Chargement impossible.', {
           errorName: error instanceof Error ? error.name : 'unknown',
         })
-        if (active) setFeedback({ kind: 'error', text: 'Impossible de joindre le serveur pour charger les conditions.' })
+        if (active) {
+          setLoadError(error instanceof Error ? error.message : 'Impossible de charger les conditions.')
+        }
+      } finally {
+        if (active) setChecking(false)
       }
-      if (active) setChecking(false)
     }
 
     void load()
     return () => {
       active = false
     }
-  }, [role, sessionLoading, userId])
+  }, [loadAttempt, role, sessionLoading, userId])
 
   async function submit(action: 'save' | 'publish') {
-    setFeedback(null)
+    setSaveError('')
     setSaving(true)
 
     try {
       const { data: sessionData, error: sessionError } = await supabase.auth.getSession()
-      if (sessionError || !sessionData.session?.access_token) {
-        setFeedback({ kind: 'error', text: 'Votre session a expiré. Reconnectez-vous puis réessayez.' })
-        return
-      }
+      if (sessionError) throw sessionError
+      if (!sessionData.session?.access_token) throw new Error('Votre session a expiré. Reconnectez-vous puis réessayez.')
 
       const response = await fetch('/api/admin/conditions', {
         method: action === 'save' ? 'PUT' : 'POST',
@@ -115,15 +131,9 @@ export default function AdminConditionsPage() {
         },
         body: JSON.stringify({ title, body }),
       })
-      if (!response.ok) {
-        setFeedback({
-          kind: 'error',
-          text: await responseError(response, action === 'save'
-            ? 'Le brouillon n’a pas pu être enregistré.'
-            : 'La nouvelle version n’a pas pu être publiée.'),
-        })
-        return
-      }
+      if (!response.ok) throw new Error(await responseError(response, action === 'save'
+        ? 'Le brouillon n’a pas pu être enregistré.'
+        : 'La nouvelle version n’a pas pu être publiée.'))
 
       const result = await response.json() as {
         message: string
@@ -138,16 +148,37 @@ export default function AdminConditionsPage() {
         const publishedVersion = result.version
         setDraft(null)
         setHistory((current) => [publishedVersion, ...current.filter((item) => item.id !== publishedVersion.id)])
+        setConfirmPublish(false)
       }
-      setFeedback({ kind: 'success', text: result.message })
+      toast({
+        title: action === 'save' ? 'Brouillon enregistré' : 'Nouvelle version publiée',
+        description: result.message,
+        variant: 'success',
+      })
     } catch (error) {
       console.error('[Admin legal pages] Enregistrement impossible.', {
         errorName: error instanceof Error ? error.name : 'unknown',
       })
-      setFeedback({ kind: 'error', text: 'Impossible de joindre le serveur pour enregistrer les conditions.' })
+      const message = error instanceof Error
+        ? error.message
+        : action === 'save'
+          ? 'Le brouillon n’a pas pu être enregistré.'
+          : 'La nouvelle version n’a pas pu être publiée.'
+      setSaveError(message)
+      toast({
+        title: action === 'save' ? 'Enregistrement impossible' : 'Publication impossible',
+        description: message,
+        variant: 'danger',
+      })
     } finally {
       setSaving(false)
     }
+  }
+
+  function retryLoad() {
+    setLoadError('')
+    setChecking(true)
+    setLoadAttempt((attempt) => attempt + 1)
   }
 
   const latestPublished = history.find((version) => version.status === 'publie')
@@ -158,7 +189,17 @@ export default function AdminConditionsPage() {
     && draft.body === latestPublished.body,
   )
 
-  if (sessionLoading || checking) return <main className="admin-page"><div className="admin-state">Vérification de l’accès...</div></main>
+  if (sessionLoading || checking) {
+    return (
+      <main className="admin-page">
+        <div className="admin-shell">
+          <PageHeader title="Conditions générales" description="Chargement du brouillon et de l’historique…" eyebrow="JALIMS · ADMINISTRATION" />
+          <Card title="Éditeur des conditions"><Skeleton variant="rect" width="100%" height={280} /></Card>
+          <Card title="Historique"><Skeleton variant="rect" width="100%" height={120} /></Card>
+        </div>
+      </main>
+    )
+  }
   if (!hasSession) {
     return (
       <main className="admin-page"><section className="admin-access-state">
@@ -180,71 +221,122 @@ export default function AdminConditionsPage() {
     )
   }
 
+  if (loadError) {
+    return (
+      <main className="admin-page">
+        <div className="admin-shell">
+          <PageHeader title="Conditions générales" description="Modifiez le brouillon puis publiez une nouvelle version." eyebrow="JALIMS · ADMINISTRATION" />
+          <Card title="Impossible de charger les conditions">
+            <EmptyState
+              title="Le brouillon et l’historique n’ont pas été chargés"
+              description={loadError}
+              action={<Button onClick={retryLoad}>Réessayer</Button>}
+            />
+          </Card>
+        </div>
+      </main>
+    )
+  }
+
   return (
     <main className="admin-page">
-      <div className="admin-shell legal-admin-shell">
-        <header className="admin-header">
-          <div><p className="eyebrow">JALIMS · ADMINISTRATION</p><h1>Conditions générales</h1><p>Modifiez le brouillon puis publiez une nouvelle version.</p></div>
-          <Link className="admin-catalog-link" href="/conditions">Voir la page publique →</Link>
-        </header>
-        {feedback && <p className={`admin-feedback ${feedback.kind}`} role={feedback.kind === 'error' ? 'alert' : 'status'}>{feedback.text}</p>}
-        <form className="legal-admin-layout" onSubmit={(event) => {
+      <div className="admin-shell">
+        <PageHeader
+          eyebrow="JALIMS · ADMINISTRATION"
+          title="Conditions générales"
+          description="Modifiez le brouillon puis publiez une nouvelle version."
+          actions={<Link className="admin-catalog-link" href="/conditions">Voir la page publique →</Link>}
+        />
+        {saveError && (
+          <Card title="Action impossible">
+            <p role="alert">{saveError}</p>
+          </Card>
+        )}
+        <form onSubmit={(event) => {
           event.preventDefault()
           void submit('save')
         }}>
-          <section className="admin-form-panel legal-editor-panel">
-            <div className="admin-section-heading">
-              <div><p className="eyebrow">ÉDITION</p><h2>{draft ? `Brouillon · version ${draft.version}` : 'Nouveau brouillon'}</h2></div>
-            </div>
+          <Card
+            title={draft ? `Brouillon · version ${draft.version}` : 'Nouveau brouillon'}
+            description="Le brouillon n’est pas visible publiquement tant qu’il n’est pas publié."
+            actions={draft && <Badge variant="warning">Brouillon</Badge>}
+          >
             {identicalDraft && (
-              <p className="legal-admin-warning" role="status">Le brouillon est identique à la dernière version publiée.</p>
+              <Card title="Brouillon identique à la version publiée">
+                <p role="status">Le brouillon est identique à la dernière version publiée.</p>
+              </Card>
             )}
-            <label className="legal-admin-field">
-              <span>Titre de la page</span>
-              <input maxLength={160} value={title} onChange={(event) => setTitle(event.target.value)} />
-            </label>
-            <label className="legal-admin-field">
-              <span>Texte des conditions</span>
-              <small>Format simple : ## titre, - élément de liste et **texte en gras**. Le HTML brut n’est pas interprété.</small>
-              <textarea rows={18} maxLength={50_000} value={body} onChange={(event) => setBody(event.target.value)} />
-              <small>{body.length.toLocaleString('fr-FR')} / 50 000 caractères</small>
-            </label>
-            <div className="legal-admin-actions">
-              <button className="admin-submit" type="submit" disabled={saving}>
-                {saving ? 'Enregistrement...' : 'Enregistrer le brouillon'}
-              </button>
-              <button className="legal-admin-publish" type="button" disabled={saving} onClick={() => void submit('publish')}>
-                {saving ? 'Publication...' : 'Publier une nouvelle version'}
-              </button>
-            </div>
-          </section>
-
-          <section className="admin-form-panel legal-preview-panel">
-            <div className="admin-section-heading"><div><p className="eyebrow">APERÇU EN DIRECT</p><h2>{title || 'Titre de la page'}</h2></div></div>
-            {body ? <LegalPageBody body={body} /> : <p className="legal-admin-placeholder">L’aperçu du texte apparaîtra ici.</p>}
-          </section>
+            <Input
+              label="Titre de la page"
+              maxLength={160}
+              value={title}
+              onChange={(event) => setTitle(event.target.value)}
+              hint={`${title.length.toLocaleString('fr-FR')} / 160 caractères`}
+              disabled={saving}
+            />
+            <Textarea
+              label="Texte des conditions"
+              rows={18}
+              maxLength={50_000}
+              value={body}
+              onChange={(event) => setBody(event.target.value)}
+              hint={(
+                <>
+                  Format simple : <code>## titre</code>, <code>- élément</code> et <code>**texte en gras**</code>. Le HTML brut n’est pas interprété.
+                  {' '}{body.length.toLocaleString('fr-FR')} / 50 000 caractères.
+                </>
+              )}
+              disabled={saving}
+            />
+            <Button type="submit" loading={saving}>Enregistrer le brouillon</Button>
+            <Button
+              type="button"
+              variant="danger"
+              disabled={saving}
+              onClick={() => setConfirmPublish(true)}
+            >
+              Publier une nouvelle version
+            </Button>
+          </Card>
+          <Card title="Aperçu direct" description="Rendu du texte tel qu’il apparaîtra sur la page publique.">
+            <h2>{title || 'Titre de la page'}</h2>
+            {body
+              ? <LegalPageBody body={body} />
+              : <EmptyState title="Aucun texte à afficher" description="L’aperçu apparaîtra dès que le corps des conditions sera renseigné." />}
+          </Card>
         </form>
 
-        <section className="admin-form-panel legal-history-panel">
-          <div className="admin-section-heading"><div><p className="eyebrow">VERSIONS</p><h2>Historique</h2></div></div>
+        <Card title="Historique des versions">
           {history.length === 0 ? (
-            <p className="legal-admin-placeholder">Aucune version enregistrée.</p>
+            <EmptyState title="Aucune version enregistrée" description="Les brouillons et versions publiées apparaîtront ici." />
           ) : (
-            <div className="legal-admin-history">
-              {history.map((version) => (
-                <details className="legal-admin-version" key={version.id}>
-                  <summary>
-                    <strong>Version {version.version}</strong>
-                    <span className={version.status === 'publie' ? 'is-published' : 'is-draft'}>{version.status === 'publie' ? 'Publiée' : 'Brouillon'}</span>
-                    <time>{formatPublicationDate(version.published_at)}</time>
-                  </summary>
+            history.map((version) => (
+              <Card
+                key={version.id}
+                title={`Version ${version.version}`}
+                description={formatPublicationDate(version.published_at)}
+                actions={<Badge variant={version.status === 'publie' ? 'success' : 'warning'}>{version.status === 'publie' ? 'Publiée' : 'Brouillon'}</Badge>}
+              >
+                <details>
+                  <summary>Ouvrir cette version</summary>
                   <h3>{version.title}</h3>
                   <LegalPageBody body={version.body} />
                 </details>
-              ))}
-            </div>
+              </Card>
+            ))
           )}
-        </section>
+        </Card>
+        <ConfirmDialog
+          open={confirmPublish}
+          onClose={() => {
+            if (!saving) setConfirmPublish(false)
+          }}
+          onConfirm={() => void submit('publish')}
+          title="Publier une nouvelle version ?"
+          description="Cette action publiera le texte actuel. Il sera visible publiquement sur la page des conditions."
+          confirmLabel="Publier la nouvelle version"
+          loading={saving}
+        />
       </div>
     </main>
   )
