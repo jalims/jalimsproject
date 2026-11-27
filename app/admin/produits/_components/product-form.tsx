@@ -99,6 +99,7 @@ export default function ProductForm({ productId }: { productId?: string }) {
   const [saving, setSaving] = useState(false)
   const [unpublishing, setUnpublishing] = useState(false)
   const [confirmUnpublish, setConfirmUnpublish] = useState(false)
+  const [pendingImageDeletion, setPendingImageDeletion] = useState<{ image: ExistingProductImage; rank: number } | null>(null)
   const [feedback, setFeedback] = useState<{ kind: 'success' | 'error'; text: string } | null>(null)
   const [initialLoading, setInitialLoading] = useState(true)
   const [productLoadError, setProductLoadError] = useState('')
@@ -594,19 +595,20 @@ export default function ProductForm({ productId }: { productId?: string }) {
 
   async function deleteExistingImage(image: ExistingProductImage) {
     if (!editingId) return
-    if (!window.confirm('Supprimer cette photo ? Le fichier sera retir? du stockage.')) return
 
     setImageActionBusy(`delete-${image.id}`)
     const { error, data } = await requestAdminProductImages('DELETE', { id: editingId, imageId: image.id })
     setImageActionBusy(null)
     if (error) {
       setFeedback({ kind: 'error', text: error })
+      setPendingImageDeletion(null)
       return
     }
 
     const images = Array.isArray(data?.images) ? (data.images as ExistingProductImage[]) : []
     setExistingImages(images)
     setForm((current) => ({ ...current, imageUrl: images[0]?.image_url ?? '' }))
+    setPendingImageDeletion(null)
     toast({ title: 'Photo supprimée', variant: 'success' })
   }
 
@@ -1293,7 +1295,7 @@ export default function ProductForm({ productId }: { productId?: string }) {
                                 variant="danger"
                                 type="button"
                                 disabled={imageActionBusy !== null}
-                                onClick={() => void deleteExistingImage(image)}
+                                onClick={() => setPendingImageDeletion({ image, rank: index + 1 })}
                               >{imageActionBusy === `delete-${image.id}` ? 'Suppression...' : 'Supprimer'}</Button>
                             </div>
                           </li>
@@ -1448,6 +1450,19 @@ export default function ProductForm({ productId }: { productId?: string }) {
           description="Le produit sera masqué du catalogue public. Ses données et ses photos seront conservées."
           confirmLabel="Dépublier"
           loading={unpublishing}
+        />
+        <ConfirmDialog
+          open={pendingImageDeletion !== null}
+          onClose={() => {
+            if (imageActionBusy !== `delete-${pendingImageDeletion?.image.id}`) setPendingImageDeletion(null)
+          }}
+          onConfirm={() => {
+            if (pendingImageDeletion) void deleteExistingImage(pendingImageDeletion.image)
+          }}
+          title={pendingImageDeletion ? `Supprimer la photo n°${pendingImageDeletion.rank} ?` : 'Supprimer cette photo ?'}
+          description="Cette action est définitive : la photo sera retirée de la galerie du produit et ne pourra pas être restaurée."
+          confirmLabel="Supprimer la photo"
+          loading={Boolean(pendingImageDeletion && imageActionBusy === `delete-${pendingImageDeletion.image.id}`)}
         />
       </div>
     </main>
