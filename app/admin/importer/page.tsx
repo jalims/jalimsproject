@@ -6,7 +6,7 @@ import { supabase } from '../../../lib/supabase'
 import { canAccessAdminPath } from '../../../lib/admin-staff-client'
 import { logClientError } from '../../../lib/user-facing-errors'
 import { useAdminSession } from '../admin-session-provider'
-import { Badge, Button, Card, EmptyState, PageHeader, Skeleton, useToast } from '../_components'
+import { Badge, Button, Card, DataTable, EmptyState, PageHeader, Skeleton, StatCard, useToast, type DataTableColumn } from '../_components'
 
 const MAX_IMAGE_SIZE = 6 * 1024 * 1024
 const imageTypes = {
@@ -45,6 +45,13 @@ type PhotoGroup = {
   errors: string[]
 }
 
+type PhotoPreviewRow = {
+  key: string
+  sku: string
+  files: string[]
+  errors: string[]
+}
+
 type ReportRow = {
   line: number | ''
   sku: string
@@ -53,6 +60,8 @@ type ReportRow = {
   price: string
   reason: string
 }
+
+type ReportTableRow = ReportRow & { tableKey: string }
 
 type ImportResponse = {
   productId?: string
@@ -411,6 +420,59 @@ export default function ProductImportPage() {
     incomplete: report.filter((entry) => entry.action !== 'Échec' && !entry.published).length,
     failed: report.filter((entry) => entry.action === 'Échec').length,
   }), [report])
+  const spreadsheetColumns: DataTableColumn<ParsedRow>[] = [
+    { key: 'line', label: 'Ligne', render: (entry) => entry.number },
+    { key: 'sku', label: 'SKU normalisé', render: (entry) => entry.sku || '—' },
+    { key: 'sourceName', label: 'Nom source', render: (entry) => entry.row?.sourceName ?? '—' },
+    { key: 'purchasePriceCny', label: 'Prix CNY', render: (entry) => entry.row?.purchasePriceCny ?? '—' },
+    { key: 'weightKg', label: 'Poids kg', render: (entry) => entry.row?.weightKg ?? '—' },
+    {
+      key: 'status',
+      label: 'État / erreurs',
+      render: (entry) => {
+        const rowErrors = [
+          ...entry.errors,
+          ...(testMode && entry.sku && !entry.sku.startsWith('TEST')
+            ? ['Mode test : le SKU doit commencer par TEST. Cette ligne ne sera pas envoyée.']
+            : []),
+        ]
+        return rowErrors.length
+          ? <Badge variant="danger">{rowErrors.join(' ')}</Badge>
+          : <Badge variant="success">Prête à importer</Badge>
+      },
+    },
+  ]
+  const photoColumns: DataTableColumn<PhotoPreviewRow>[] = [
+    { key: 'sku', label: 'Groupe SKU', render: (row) => row.sku },
+    {
+      key: 'files',
+      label: 'Photos reconnues',
+      render: (row) => row.files.length > 0 ? `${row.files.length} · ${row.files.join(', ')}` : 'Aucune',
+    },
+    {
+      key: 'errors',
+      label: 'Erreurs',
+      render: (row) => row.errors.length > 0
+        ? <Badge variant="warning">{row.errors.join(' ')}</Badge>
+        : <Badge variant="success">Aucune</Badge>,
+    },
+  ]
+  const reportColumns: DataTableColumn<ReportTableRow>[] = [
+    { key: 'line', label: 'Ligne', render: (entry) => entry.line || '—' },
+    { key: 'sku', label: 'SKU', render: (entry) => entry.sku || '—' },
+    {
+      key: 'action',
+      label: 'Résultat',
+      render: (entry) => <Badge variant={entry.action === 'Échec' ? 'danger' : 'neutral'}>{entry.action}</Badge>,
+    },
+    {
+      key: 'published',
+      label: 'Publié',
+      render: (entry) => <Badge variant={entry.published ? 'success' : 'neutral'}>{entry.published ? 'Oui' : 'Non'}</Badge>,
+    },
+    { key: 'price', label: 'Prix calculé', render: (entry) => entry.price || '—' },
+    { key: 'reason', label: 'Raison', render: (entry) => entry.reason || '—' },
+  ]
 
   async function readSpreadsheet(file: File) {
     setFeedback(null)
@@ -854,7 +916,25 @@ export default function ProductImportPage() {
   }
 
   const photosTotal = Object.values(photoGroups).reduce((count, group) => count + group.files.length, 0)
-  const currentStep = report.length > 0 ? 4 : busy ? 3 : spreadsheetReady || photoArchiveName || photoErrors.length > 0 ? 2 : 1
+  const photoPreviewRows: PhotoPreviewRow[] = [
+    ...Object.entries(photoGroups).map(([sku, group]) => ({
+      key: `sku-${sku}`,
+      sku,
+      files: group.files.map((file) => file.name),
+      errors: group.errors,
+    })),
+    ...photoErrors.map((message, index) => ({
+      key: `archive-error-${index}`,
+      sku: '—',
+      files: [],
+      errors: [message],
+    })),
+  ]
+  const reportRows = report.map((entry, index) => ({
+    ...entry,
+    tableKey: `${entry.sku}-${entry.line}-${index}`,
+  }))
+  const currentStep = busy ? 3 : report.length > 0 ? 4 : spreadsheetReady || photoArchiveName || photoErrors.length > 0 ? 2 : 1
   const steps = ['Fichiers', 'Vérification', 'Import', 'Rapport']
 
   return (
@@ -933,49 +1013,35 @@ export default function ProductImportPage() {
         </Card>
 
         {rows.length > 0 && (
-          <section className="product-import-preview">
-            <div className="product-import-section-heading">
-              <div><h2>Aperçu Excel</h2><p>{validRows.length} ligne(s) valide(s), {invalidRows.length} ligne(s) à corriger.</p></div>
-              <span>{rows.length} ligne(s)</span>
-            </div>
-            <div className="product-import-table-scroll">
-              <table className="product-import-table">
-                <thead><tr><th>Ligne</th><th>SKU normalisé</th><th>Nom source</th><th>Prix CNY</th><th>Poids kg</th><th>État</th></tr></thead>
-                <tbody>
-                  {rows.map((entry) => {
-                    const rowErrors = [
-                      ...entry.errors,
-                      ...(testMode && entry.sku && !entry.sku.startsWith('TEST')
-                        ? ['Mode test : le SKU doit commencer par TEST. Cette ligne ne sera pas envoyée.']
-                        : []),
-                    ]
-                    return (
-                      <tr className={rowErrors.length ? 'invalid' : ''} key={entry.number}>
-                        <td>{entry.number}</td><td>{entry.sku || '—'}</td><td>{entry.row?.sourceName ?? '—'}</td>
-                        <td>{entry.row?.purchasePriceCny ?? '—'}</td><td>{entry.row?.weightKg ?? '—'}</td>
-                        <td>{rowErrors.length ? rowErrors.join(' ') : 'Prête à importer'}</td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </section>
+          <Card
+            title="Aperçu Excel"
+            description={`${validRows.length} ligne(s) valide(s), ${invalidRows.length} ligne(s) à corriger.`}
+            actions={<Badge variant="neutral">{rows.length} ligne(s)</Badge>}
+          >
+            <DataTable
+              caption="Aperçu des lignes du fichier Excel ou CSV"
+              columns={spreadsheetColumns}
+              emptyState={<EmptyState title="Aucune ligne produit" />}
+              rowKey={(entry) => entry.number}
+              rows={rows}
+            />
+          </Card>
         )}
 
         {(photoArchiveName || photoErrors.length > 0) && (
-          <section className="product-import-preview">
-            <div className="product-import-section-heading">
-              <div><h2>Aperçu des photos</h2><p>{photosTotal} photo(s) JPG, PNG ou WebP détectée(s).</p></div>
-              <span>{Object.keys(photoGroups).length} SKU</span>
-            </div>
-            {photoErrors.map((message, index) => <p className="product-import-row-error" key={`archive-error-${index}`}>{message}</p>)}
-            {Object.entries(photoGroups).map(([sku, group]) => (
-              <p className="product-import-photo-group" key={sku}>
-                <strong>{sku}</strong> · {group.files.length} photo(s){group.errors.length > 0 && ` · ${group.errors.join(' ')}`}
-              </p>
-            ))}
-          </section>
+          <Card
+            title="Aperçu des photos"
+            description={`${photosTotal} photo(s) JPG, PNG ou WebP détectée(s).`}
+            actions={<Badge variant="neutral">{Object.keys(photoGroups).length} SKU</Badge>}
+          >
+            <DataTable
+              caption="Groupes de photos reconnues et erreurs"
+              columns={photoColumns}
+              emptyState={<EmptyState title="Aucune photo reconnue" description="Les photos valides regroupées par SKU apparaîtront ici." />}
+              rowKey={(row) => row.key}
+              rows={photoPreviewRows}
+            />
+          </Card>
         )}
 
         <Card title="Import" description="Vérifiez les fichiers et les options avant de lancer le traitement.">
@@ -1002,32 +1068,29 @@ export default function ProductImportPage() {
           </Card>
         )}
         {report.length > 0 && (
-          <section className="product-import-report">
-            <div className="product-import-section-heading">
-              <div><h2>Rapport d’import</h2><p>Les produits qui n’ont pas trois photos restent non publiés.</p></div>
-              <button className="product-import-download" onClick={downloadReport} type="button">Télécharger le rapport CSV</button>
-            </div>
-            <div className="product-import-report-counts">
-              <span>Créés <strong>{reportCounts.created}</strong></span>
-              <span>Mis à jour <strong>{reportCounts.updated}</strong></span>
-              <span>Publiés <strong>{reportCounts.published}</strong></span>
-              <span>À compléter <strong>{reportCounts.incomplete}</strong></span>
-              <span>En échec <strong>{reportCounts.failed}</strong></span>
-            </div>
-            <div className="product-import-table-scroll">
-              <table className="product-import-table">
-                <thead><tr><th>Ligne</th><th>SKU</th><th>Résultat</th><th>Publié</th><th>Prix calculé</th><th>Raison</th></tr></thead>
-                <tbody>
-                  {report.map((entry, index) => (
-                    <tr className={entry.action === 'Échec' ? 'invalid' : ''} key={`${entry.sku}-${entry.line}-${index}`}>
-                      <td>{entry.line || '—'}</td><td>{entry.sku || '—'}</td><td>{entry.action}</td>
-                      <td>{entry.published ? 'Oui' : 'Non'}</td><td>{entry.price || '—'}</td><td>{entry.reason || '—'}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </section>
+          <>
+            <Card title="Résumé du rapport" description="Les produits qui n’ont pas trois photos restent non publiés.">
+              <div className="admin-ui-dashboard-stats" aria-label="Compteurs du rapport">
+                <StatCard label="Créés" value={reportCounts.created} />
+                <StatCard label="Mis à jour" value={reportCounts.updated} />
+                <StatCard label="Publiés" value={reportCounts.published} />
+                <StatCard label="À compléter" value={reportCounts.incomplete} />
+                <StatCard label="En échec" value={reportCounts.failed} />
+              </div>
+            </Card>
+            <Card
+              title="Rapport d’import"
+              actions={<Button variant="outline" onClick={downloadReport}>Télécharger le rapport CSV</Button>}
+            >
+              <DataTable
+                caption="Résultats détaillés de l’import"
+                columns={reportColumns}
+                emptyState={<EmptyState title="Aucun résultat d’import" />}
+                rowKey={(entry) => entry.tableKey}
+                rows={reportRows}
+              />
+            </Card>
+          </>
         )}
       </div>
     </main>
