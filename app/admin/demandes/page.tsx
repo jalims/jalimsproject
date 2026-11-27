@@ -242,7 +242,6 @@ export default function AdminDemandesPage() {
           title="Demandes produit"
           description="Produits recherchés ou demandés par les clients. Répondez sur WhatsApp sous 24h."
           eyebrow="JALIMS · DEMANDES"
-          actions={<Link className="admin-secondary-link" href="/admin">← Tableau de bord</Link>}
         />
 
         <Card
