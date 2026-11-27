@@ -398,6 +398,7 @@ export default function AdminShell({ children }: { children: ReactNode }) {
           <AdminDashboardProvider
             newRequestCount={notificationCount}
             newRequestError={notificationError || null}
+            updateNewRequestCount={setNotificationCount}
           >
             {children}
           </AdminDashboardProvider>

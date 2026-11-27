@@ -6,6 +6,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { canAccessAdminPath } from '../../../lib/admin-staff-client'
 import { supabase } from '../../../lib/supabase'
 import { useAdminSession } from '../admin-session-provider'
+import { useAdminDashboard } from '../admin-dashboard-context'
 import {
   Badge,
   Button,
@@ -94,6 +95,7 @@ function isSearchMetricArray(value: unknown): value is SearchMetric[] {
 
 export default function AdminDemandesPage() {
   const { userId, role, loading: checking } = useAdminSession()
+  const { updateNewRequestCount } = useAdminDashboard()
   const { toast } = useToast()
   const hasSession = Boolean(userId)
   const [statusFilter, setStatusFilter] = useState<(typeof STATUS_OPTIONS)[number]['value']>('all')
@@ -131,14 +133,16 @@ export default function AdminDemandesPage() {
         admin_notes: item.admin_notes ?? '',
         quoted_price: item.quoted_price ?? '',
       })))
-      setNewCount(typeof body.newCount === 'number' ? body.newCount : 0)
+      const count = typeof body.newCount === 'number' ? body.newCount : 0
+      setNewCount(count)
+      updateNewRequestCount(count)
       setZeroResultSearches(isSearchMetricArray(body.zeroResultSearches) ? body.zeroResultSearches : [])
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Impossible de charger les demandes.')
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [updateNewRequestCount])
 
   useEffect(() => {
     if (checking) return
@@ -186,7 +190,10 @@ export default function AdminDemandesPage() {
       if (!response.ok) {
         throw new Error(typeof body.error === 'string' ? body.error : 'La demande n’a pas pu être enregistrée.')
       }
-      if (typeof body.newCount === 'number') setNewCount(body.newCount)
+      if (typeof body.newCount === 'number') {
+        setNewCount(body.newCount)
+        updateNewRequestCount(body.newCount)
+      }
       if (body.request) {
         setRequests((current) => current.map((row) => (row.id === item.id ? { ...row, ...body.request } : row)))
       }
