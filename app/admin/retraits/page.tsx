@@ -84,7 +84,6 @@ export default function AdminPickupPointsPage() {
       logClientError('Pickup point save failed', error)
       const message = 'Le point de retrait n’a pas pu être enregistré.'
       setFormError(message)
-      toast({ title: 'Enregistrement impossible', description: message, variant: 'danger' })
     } finally {
       setSaving(false)
     }
@@ -102,7 +101,6 @@ export default function AdminPickupPointsPage() {
       logClientError('Pickup point update failed', error)
       const message = 'La modification du point de retrait a échoué.'
       setToggleError(message)
-      toast({ title: 'Modification impossible', description: message, variant: 'danger' })
     } finally {
       setUpdatingPointId('')
     }
