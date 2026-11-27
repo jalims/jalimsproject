@@ -200,13 +200,11 @@ export default function AdminHomepageSettingsPage() {
       }
       uploadedPathsRef.current.push(body.path)
       updateDesign(field, body.path)
-      setFeedback({ kind: 'success', text: 'Image téléversée. Enregistrez les réglages pour la publier.' })
       toast({ title: 'Image téléversée', description: 'Enregistrez les réglages pour la publier.', variant: 'success' })
     } catch (error) {
       logClientError('Homepage image upload failed', error)
       const message = error instanceof Error ? error.message : 'L’image n’a pas pu être téléversée.'
       setFeedback({ kind: 'error', text: message })
-      toast({ title: 'Téléversement impossible', description: message, variant: 'danger' })
     } finally {
       setUploading(null)
     }
@@ -256,24 +254,18 @@ export default function AdminHomepageSettingsPage() {
       pendingRemovalsRef.current = [...new Set([...pendingRemovalsRef.current, ...oldPaths, ...unusedUploads])]
       const cleanupSucceeded = await removeUnusedImages(pendingRemovalsRef.current)
       if (cleanupSucceeded) pendingRemovalsRef.current = []
-      setFeedback({
-        kind: cleanupSucceeded ? 'success' : 'error',
-        text: cleanupSucceeded
-          ? 'Les réglages de l’accueil ont été enregistrés.'
-          : 'Les réglages sont enregistrés, mais une ancienne image n’a pas pu être supprimée. Réessayez ou contactez le support.',
-      })
-      toast({
-        title: cleanupSucceeded ? 'Accueil enregistré' : 'Nettoyage incomplet',
-        description: cleanupSucceeded
-          ? 'Les réglages de l’accueil ont été enregistrés.'
-          : 'Les réglages sont enregistrés, mais une ancienne image n’a pas pu être supprimée.',
-        variant: cleanupSucceeded ? 'success' : 'warning',
-      })
+      if (cleanupSucceeded) {
+        toast({ title: 'Accueil enregistré', description: 'Les réglages de l’accueil ont été enregistrés.', variant: 'success' })
+      } else {
+        setFeedback({
+          kind: 'error',
+          text: 'Les réglages sont bien enregistrés, mais une ancienne image n’a pas pu être supprimée. Réessayez ou contactez le support.',
+        })
+      }
     } catch (error) {
       logClientError('Homepage settings save failed', error)
       const message = error instanceof Error ? error.message : 'Les réglages de l’accueil n’ont pas pu être enregistrés.'
       setFeedback({ kind: 'error', text: message })
-      toast({ title: 'Enregistrement impossible', description: message, variant: 'danger' })
     } finally {
       setSaving(false)
     }
@@ -281,7 +273,7 @@ export default function AdminHomepageSettingsPage() {
 
   function restoreDefaults() {
     setDesignContent(defaultHomepageDesignContent)
-    setFeedback({ kind: 'success', text: 'Valeurs par défaut rétablies dans l’aperçu. Enregistrez pour les appliquer.' })
+    setFeedback(null)
     setConfirmRestoreDefaults(false)
     toast({
       title: 'Valeurs par défaut rétablies',
