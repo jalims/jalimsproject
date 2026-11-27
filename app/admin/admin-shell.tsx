@@ -94,33 +94,10 @@ const searchTargets: SearchTarget[] = [
   { value: 'clients', label: 'Clients', href: '/admin/clients' },
 ]
 
-const pageTitles: Record<string, string> = {
-  '/admin': 'Tableau de bord',
-  '/admin/accueil': 'Textes accueil',
-  '/admin/clients': 'Clients',
-  '/admin/commandes': 'Commandes',
-  '/admin/conditions': 'Conditions générales',
-  '/admin/demandes': 'Demandes clients',
-  '/admin/equipe': 'Équipe',
-  '/admin/importer': 'Importer',
-  '/admin/messages': 'Messages clients',
-  '/admin/parametres': 'Paramètres',
-  '/admin/partenaires': 'Partenaires',
-  '/admin/produits': 'Produits',
-  '/admin/retraits': 'Points de retrait',
-  '/admin/statistiques': 'Statistiques',
-}
-
 const roleLabels: Record<StaffRole, string> = {
   owner: 'Propriétaire',
   admin: 'Administrateur',
   order_manager: 'Gestionnaire de commandes',
-}
-
-function getPageTitle(pathname: string) {
-  if (pathname === '/admin/produits/nouveau') return 'Nouveau produit'
-  if (pathname.startsWith('/admin/produits/')) return 'Modifier le produit'
-  return pageTitles[pathname] ?? 'Administration'
 }
 
 export default function AdminShell({ children }: { children: ReactNode }) {
@@ -319,7 +296,7 @@ export default function AdminShell({ children }: { children: ReactNode }) {
             >
               <Menu size={21} />
             </button>
-            <h1>{getPageTitle(pathname)}</h1>
+            <span className="admin-topbar-label">Administration</span>
           </div>
 
           <div className="admin-topbar-actions">

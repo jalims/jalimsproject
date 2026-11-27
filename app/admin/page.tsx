@@ -133,7 +133,7 @@ function isDashboardStats(value: unknown): value is DashboardStats {
 function DashboardLoading() {
   return (
     <main className="admin-page" aria-busy="true">
-      <PageHeader level={2} eyebrow="Pilotage" title="Tableau de bord" />
+      <PageHeader level={1} eyebrow="Pilotage" title="Tableau de bord" />
       <section className="admin-ui-dashboard-stats" aria-label="Chargement des indicateurs" aria-busy="true">
         {Array.from({ length: 4 }, (_, index) => (
           <StatCard
@@ -276,7 +276,7 @@ export default function AdminDashboardPage() {
   return (
     <main className="admin-page">
       <PageHeader
-        level={2}
+        level={1}
         eyebrow="Pilotage"
         title="Vue d’ensemble"
         description="Votre activité récente et les actions à traiter."

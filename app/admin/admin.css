@@ -279,12 +279,12 @@
   gap: 12px;
 }
 
-.admin-topbar-title h1 {
+.admin-topbar-label {
   overflow: hidden;
   margin: 0;
-  color: var(--admin-text);
-  font-size: 18px;
-  font-weight: 700;
+  color: var(--admin-text-muted);
+  font-size: 13px;
+  font-weight: 600;
   line-height: 1.3;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -687,8 +687,8 @@ body:has(.admin-app) {
     gap: 8px;
   }
 
-  .admin-topbar-title h1 {
-    font-size: 16px;
+  .admin-topbar-label {
+    font-size: 12px;
   }
 
   .admin-topbar-actions {

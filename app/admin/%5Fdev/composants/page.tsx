@@ -111,7 +111,7 @@ export default function AdminComponentsPage() {
     <main className="admin-page">
       <div className="admin-shell">
         <PageHeader
-          level={2}
+          level={1}
           eyebrow="Bibliothèque admin"
           title="Validation des composants"
           description="Page temporaire pour comparer les états, variantes et comportements avant intégration aux écrans."
