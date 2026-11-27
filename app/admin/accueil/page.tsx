@@ -18,6 +18,18 @@ import {
 import { supabase } from '../../../lib/supabase'
 import { HomepageDesignPreview } from '../../ui/homepage-redesign-sections'
 import { useAdminSession } from '../admin-session-provider'
+import {
+  Badge,
+  Button,
+  Card,
+  ConfirmDialog,
+  Input,
+  PageHeader,
+  Select,
+  Skeleton,
+  Textarea,
+  useToast,
+} from '../_components'
 
 const footerFields: { key: keyof HomepageContent; label: string; hint: string; multiline?: boolean }[] = [
   { key: 'footer_about_title', label: 'Pied de page · titre à propos', hint: 'Ex. À propos de Jalims' },
@@ -97,16 +109,22 @@ async function compressImage(file: File) {
 
 export default function AdminHomepageSettingsPage() {
   const { userId, role, loading: sessionLoading } = useAdminSession()
+  const { toast } = useToast()
   const [checking, setChecking] = useState(true)
   const hasSession = Boolean(userId)
   const [content, setContent] = useState<HomepageContent>(defaultHomepageContent)
+  const [savedContent, setSavedContent] = useState<HomepageContent>(defaultHomepageContent)
   const [designContent, setDesignContent] = useState<HomepageDesignContent>(defaultHomepageDesignContent)
+  const [savedDesignContent, setSavedDesignContent] = useState<HomepageDesignContent>(defaultHomepageDesignContent)
   const [saving, setSaving] = useState(false)
   const [uploading, setUploading] = useState<ImageField | null>(null)
   const [feedback, setFeedback] = useState<{ kind: 'success' | 'error'; text: string } | null>(null)
+  const [confirmRestoreDefaults, setConfirmRestoreDefaults] = useState(false)
   const initialDesignRef = useRef<HomepageDesignContent>(defaultHomepageDesignContent)
   const uploadedPathsRef = useRef<string[]>([])
   const pendingRemovalsRef = useRef<string[]>([])
+  const hasUnsavedDesignChanges = JSON.stringify(designContent) !== JSON.stringify(savedDesignContent)
+  const hasUnsavedChanges = hasUnsavedDesignChanges || JSON.stringify(content) !== JSON.stringify(savedContent)
 
   useEffect(() => {
     if (sessionLoading) return
@@ -136,7 +154,9 @@ export default function AdminHomepageSettingsPage() {
         const nextContent = { ...defaultHomepageContent, ...settings.content }
         const nextDesign = { ...defaultHomepageDesignContent, ...settings.designContent }
         setContent(nextContent)
+        setSavedContent(nextContent)
         setDesignContent(nextDesign)
+        setSavedDesignContent(nextDesign)
         initialDesignRef.current = nextDesign
       } catch (error) {
         if (active) {
@@ -181,9 +201,12 @@ export default function AdminHomepageSettingsPage() {
       uploadedPathsRef.current.push(body.path)
       updateDesign(field, body.path)
       setFeedback({ kind: 'success', text: 'Image téléversée. Enregistrez les réglages pour la publier.' })
+      toast({ title: 'Image téléversée', description: 'Enregistrez les réglages pour la publier.', variant: 'success' })
     } catch (error) {
       logClientError('Homepage image upload failed', error)
-      setFeedback({ kind: 'error', text: error instanceof Error ? error.message : 'L’image n’a pas pu être téléversée.' })
+      const message = error instanceof Error ? error.message : 'L’image n’a pas pu être téléversée.'
+      setFeedback({ kind: 'error', text: message })
+      toast({ title: 'Téléversement impossible', description: message, variant: 'danger' })
     } finally {
       setUploading(null)
     }
@@ -226,6 +249,8 @@ export default function AdminHomepageSettingsPage() {
       const oldPaths = getImagePaths(initialDesignRef.current).filter((path) => !retainedPaths.has(path))
       const unusedUploads = uploadedPathsRef.current.filter((path) => !retainedPaths.has(path))
       initialDesignRef.current = designContent
+      setSavedContent(content)
+      setSavedDesignContent(designContent)
       uploadedPathsRef.current = uploadedPathsRef.current.filter((path) => retainedPaths.has(path))
 
       pendingRemovalsRef.current = [...new Set([...pendingRemovalsRef.current, ...oldPaths, ...unusedUploads])]
@@ -237,9 +262,18 @@ export default function AdminHomepageSettingsPage() {
           ? 'Les réglages de l’accueil ont été enregistrés.'
           : 'Les réglages sont enregistrés, mais une ancienne image n’a pas pu être supprimée. Réessayez ou contactez le support.',
       })
+      toast({
+        title: cleanupSucceeded ? 'Accueil enregistré' : 'Nettoyage incomplet',
+        description: cleanupSucceeded
+          ? 'Les réglages de l’accueil ont été enregistrés.'
+          : 'Les réglages sont enregistrés, mais une ancienne image n’a pas pu être supprimée.',
+        variant: cleanupSucceeded ? 'success' : 'warning',
+      })
     } catch (error) {
       logClientError('Homepage settings save failed', error)
-      setFeedback({ kind: 'error', text: error instanceof Error ? error.message : 'Les réglages de l’accueil n’ont pas pu être enregistrés.' })
+      const message = error instanceof Error ? error.message : 'Les réglages de l’accueil n’ont pas pu être enregistrés.'
+      setFeedback({ kind: 'error', text: message })
+      toast({ title: 'Enregistrement impossible', description: message, variant: 'danger' })
     } finally {
       setSaving(false)
     }
@@ -248,9 +282,24 @@ export default function AdminHomepageSettingsPage() {
   function restoreDefaults() {
     setDesignContent(defaultHomepageDesignContent)
     setFeedback({ kind: 'success', text: 'Valeurs par défaut rétablies dans l’aperçu. Enregistrez pour les appliquer.' })
+    setConfirmRestoreDefaults(false)
+    toast({
+      title: 'Valeurs par défaut rétablies',
+      description: 'Elles ne seront publiées qu’après l’enregistrement.',
+      variant: 'success',
+    })
   }
 
-  if (sessionLoading || checking) return <main className="admin-page"><div className="admin-state">Vérification de l’accès...</div></main>
+  if (sessionLoading || checking) {
+    return (
+      <main className="admin-page">
+        <div className="admin-shell">
+          <PageHeader title="Accueil de la boutique" description="Chargement des réglages…" eyebrow="JALIMS · ESPACE ADMIN" />
+          <Card title="Éditeur de l’accueil"><Skeleton variant="rect" width="100%" height={280} /></Card>
+        </div>
+      </main>
+    )
+  }
   if (!hasSession) {
     return (
       <main className="admin-page"><section className="admin-access-state">
@@ -274,31 +323,39 @@ export default function AdminHomepageSettingsPage() {
 
   return (
     <main className="admin-page">
-      <div className="admin-shell home-redesign-admin">
-        <header className="admin-header">
-          <div><p className="eyebrow">JALIMS <span className="admin-header-divider">/</span> ESPACE ADMIN</p><h1>Accueil de la boutique</h1><p>Modifiez chaque section, vérifiez l’aperçu, puis enregistrez.</p></div>
-          <Link className="admin-catalog-link" href="/">Voir la boutique <span aria-hidden="true">↗</span></Link>
-        </header>
+      <div className="admin-shell">
+        <PageHeader
+          eyebrow="JALIMS · ESPACE ADMIN"
+          title="Accueil de la boutique"
+          description="Modifiez chaque section, vérifiez l’aperçu, puis enregistrez."
+          actions={(
+            <>
+              {hasUnsavedChanges && <Badge variant="warning">Modifications non enregistrées</Badge>}
+              <Link className="admin-catalog-link" href="/">Voir la boutique <span aria-hidden="true">↗</span></Link>
+            </>
+          )}
+        />
+        {feedback && (
+          <Card title={feedback.kind === 'error' ? 'Action impossible' : 'Information'}>
+            <p role={feedback.kind === 'error' ? 'alert' : 'status'}>{feedback.text}</p>
+          </Card>
+        )}
         <div className="home-redesign-admin-layout">
           <form className="home-redesign-editor" onSubmit={saveSettings}>
-            <section className="home-redesign-editor-section">
-              <p className="eyebrow">A · BANDEAU SUPÉRIEUR</p>
-              <h2>Message et lien</h2>
-              <label>Texte<input maxLength={120} value={designContent.announcementText} onChange={(event) => updateDesign('announcementText', event.target.value)} /></label>
-              <label>Texte du lien<input maxLength={48} value={designContent.announcementLinkText} onChange={(event) => updateDesign('announcementLinkText', event.target.value)} /></label>
-              <label>Lien (chemin interne ou HTTPS)<input maxLength={300} value={designContent.announcementHref} onChange={(event) => updateDesign('announcementHref', event.target.value)} /></label>
-            </section>
+            <Card title="Bandeau supérieur" description="Message et lien affichés au-dessus de la page.">
+              <Input label="Texte" maxLength={120} value={designContent.announcementText} onChange={(event) => updateDesign('announcementText', event.target.value)} disabled={saving} />
+              <Input label="Texte du lien" maxLength={48} value={designContent.announcementLinkText} onChange={(event) => updateDesign('announcementLinkText', event.target.value)} disabled={saving} />
+              <Input label="Lien (chemin interne ou HTTPS)" maxLength={300} value={designContent.announcementHref} onChange={(event) => updateDesign('announcementHref', event.target.value)} disabled={saving} />
+            </Card>
 
-            <section className="home-redesign-editor-section">
-              <p className="eyebrow">B · HERO</p>
-              <h2>Bandeau principal</h2>
-              <label>Étiquette<input maxLength={80} value={designContent.heroKicker} onChange={(event) => updateDesign('heroKicker', event.target.value)} /></label>
-              <label>Première ligne du titre<input maxLength={100} value={designContent.heroTitleLine1} onChange={(event) => updateDesign('heroTitleLine1', event.target.value)} /></label>
-              <label>Fin du titre (en jaune)<input maxLength={70} value={designContent.heroTitleHighlight} onChange={(event) => updateDesign('heroTitleHighlight', event.target.value)} /></label>
-              <label>Sous-titre<textarea rows={3} maxLength={260} value={designContent.heroSubtitle} onChange={(event) => updateDesign('heroSubtitle', event.target.value)} /></label>
-              <label>Texte du bouton<input maxLength={48} value={designContent.heroButtonText} onChange={(event) => updateDesign('heroButtonText', event.target.value)} /></label>
-              <label>Lien du bouton (chemin interne ou HTTPS)<input maxLength={300} value={designContent.heroButtonHref} onChange={(event) => updateDesign('heroButtonHref', event.target.value)} /></label>
-              <label>Texte alternatif de l’image<input maxLength={180} value={designContent.heroAlt} onChange={(event) => updateDesign('heroAlt', event.target.value)} /></label>
+            <Card title="Bandeau principal" description="Étiquette, contenu du hero et visuels desktop/mobile.">
+              <Input label="Étiquette" maxLength={80} value={designContent.heroKicker} onChange={(event) => updateDesign('heroKicker', event.target.value)} disabled={saving} />
+              <Input label="Première ligne du titre" maxLength={100} value={designContent.heroTitleLine1} onChange={(event) => updateDesign('heroTitleLine1', event.target.value)} disabled={saving} />
+              <Input label="Fin du titre (en jaune)" maxLength={70} value={designContent.heroTitleHighlight} onChange={(event) => updateDesign('heroTitleHighlight', event.target.value)} disabled={saving} />
+              <Textarea label="Sous-titre" rows={3} maxLength={260} value={designContent.heroSubtitle} onChange={(event) => updateDesign('heroSubtitle', event.target.value)} disabled={saving} />
+              <Input label="Texte du bouton" maxLength={48} value={designContent.heroButtonText} onChange={(event) => updateDesign('heroButtonText', event.target.value)} disabled={saving} />
+              <Input label="Lien du bouton (chemin interne ou HTTPS)" maxLength={300} value={designContent.heroButtonHref} onChange={(event) => updateDesign('heroButtonHref', event.target.value)} disabled={saving} />
+              <Input label="Texte alternatif de l’image" maxLength={180} value={designContent.heroAlt} onChange={(event) => updateDesign('heroAlt', event.target.value)} disabled={saving} />
               <ImageUpload
                 label="Image de fond desktop"
                 path={designContent.heroDesktopImagePath}
@@ -315,78 +372,69 @@ export default function AdminHomepageSettingsPage() {
                 onUpload={(file) => uploadImage('heroMobileImagePath', 'hero-mobile', file)}
                 onRemove={() => updateDesign('heroMobileImagePath', null)}
               />
-            </section>
+            </Card>
 
-            <section className="home-redesign-editor-section">
-              <p className="eyebrow">C · AVANTAGES</p>
-              <h2>Les trois arguments</h2>
+            <Card title="Les trois arguments">
               {designContent.benefits.map((benefit, index) => (
-                <fieldset className="home-redesign-editor-item" key={index}>
-                  <legend>Avantage {index + 1}</legend>
-                  <label>Icône
-                    <select
-                      value={benefit.icon}
-                      onChange={(event) => {
-                        const benefits = [...designContent.benefits]
-                        benefits[index] = { ...benefit, icon: event.target.value as HomepageBenefitIcon }
-                        updateDesign('benefits', benefits as HomepageDesignContent['benefits'])
-                      }}
-                    >
+                <Card key={index} title={`Avantage ${index + 1}`}>
+                  <Select
+                    label="Icône"
+                    value={benefit.icon}
+                    disabled={saving}
+                    onChange={(event) => {
+                      const benefits = [...designContent.benefits]
+                      benefits[index] = { ...benefit, icon: event.target.value as HomepageBenefitIcon }
+                      updateDesign('benefits', benefits as HomepageDesignContent['benefits'])
+                    }}
+                  >
                       {homepageBenefitIcons.map((icon) => <option value={icon} key={icon}>{icon === 'wallet' ? 'Coût / portefeuille' : icon === 'truck' ? 'Transport' : 'Accompagnement'}</option>)}
-                    </select>
-                  </label>
-                  <label>Première ligne<input maxLength={70} value={benefit.firstLine} onChange={(event) => {
+                  </Select>
+                  <Input label="Première ligne" maxLength={70} value={benefit.firstLine} disabled={saving} onChange={(event) => {
                     const benefits = [...designContent.benefits]
                     benefits[index] = { ...benefit, firstLine: event.target.value }
                     updateDesign('benefits', benefits as HomepageDesignContent['benefits'])
-                  }} /></label>
-                  <label>Deuxième ligne<input maxLength={70} value={benefit.secondLine} onChange={(event) => {
+                  }} />
+                  <Input label="Deuxième ligne" maxLength={70} value={benefit.secondLine} disabled={saving} onChange={(event) => {
                     const benefits = [...designContent.benefits]
                     benefits[index] = { ...benefit, secondLine: event.target.value }
                     updateDesign('benefits', benefits as HomepageDesignContent['benefits'])
-                  }} /></label>
-                </fieldset>
+                  }} />
+                </Card>
               ))}
-            </section>
+            </Card>
 
-            <section className="home-redesign-editor-section">
-              <p className="eyebrow">D · PRODUITS VEDETTES</p>
-              <h2>Notre sélection de départ</h2>
-              <p className="home-redesign-editor-help">Les produits marqués « vedette » dans le catalogue apparaissent automatiquement dans cette rangée.</p>
-              <label>Titre<input maxLength={100} value={designContent.featuredTitle} onChange={(event) => updateDesign('featuredTitle', event.target.value)} /></label>
-              <label>Texte du lien<input maxLength={48} value={designContent.featuredLinkText} onChange={(event) => updateDesign('featuredLinkText', event.target.value)} /></label>
-              <label>Destination du lien (chemin interne ou HTTPS)<input maxLength={300} value={designContent.featuredHref} onChange={(event) => updateDesign('featuredHref', event.target.value)} /></label>
-              <label>Message si aucun produit vedette<input maxLength={120} value={designContent.featuredEmptyText} onChange={(event) => updateDesign('featuredEmptyText', event.target.value)} /></label>
-            </section>
+            <Card title="Produits vedettes" description="Les produits marqués « vedette » dans le catalogue apparaissent automatiquement dans cette rangée.">
+              <Input label="Titre" maxLength={100} value={designContent.featuredTitle} onChange={(event) => updateDesign('featuredTitle', event.target.value)} disabled={saving} />
+              <Input label="Texte du lien" maxLength={48} value={designContent.featuredLinkText} onChange={(event) => updateDesign('featuredLinkText', event.target.value)} disabled={saving} />
+              <Input label="Destination du lien (chemin interne ou HTTPS)" maxLength={300} value={designContent.featuredHref} onChange={(event) => updateDesign('featuredHref', event.target.value)} disabled={saving} />
+              <Input label="Message si aucun produit vedette" maxLength={120} value={designContent.featuredEmptyText} onChange={(event) => updateDesign('featuredEmptyText', event.target.value)} disabled={saving} />
+            </Card>
 
-            <section className="home-redesign-editor-section">
-              <p className="eyebrow">E · ÉTAPES</p>
-              <h2>Comment ça fonctionne ?</h2>
-              <label>Texte d’introduction<input maxLength={80} value={designContent.processEyebrow} onChange={(event) => updateDesign('processEyebrow', event.target.value)} /></label>
-              <label>Titre de la section<input maxLength={100} value={designContent.processTitle} onChange={(event) => updateDesign('processTitle', event.target.value)} /></label>
+            <Card title="Étapes" description="Expliquez comment fonctionne la commande.">
+              <Input label="Texte d’introduction" maxLength={80} value={designContent.processEyebrow} onChange={(event) => updateDesign('processEyebrow', event.target.value)} disabled={saving} />
+              <Input label="Titre de la section" maxLength={100} value={designContent.processTitle} onChange={(event) => updateDesign('processTitle', event.target.value)} disabled={saving} />
               {designContent.processSteps.map((step, index) => (
-                <fieldset className="home-redesign-editor-item" key={index}>
-                  <legend>Étape {index + 1}</legend>
-                  <label>Icône
-                    <select
-                      value={step.icon}
-                      onChange={(event) => {
-                        const processSteps = [...designContent.processSteps]
-                        processSteps[index] = { ...step, icon: event.target.value as HomepageStepIcon }
-                        updateDesign('processSteps', processSteps as HomepageDesignContent['processSteps'])
-                      }}
-                    >
+                <Card key={index} title={`Étape ${index + 1}`}>
+                  <Select
+                    label="Icône"
+                    value={step.icon}
+                    disabled={saving}
+                    onChange={(event) => {
+                      const processSteps = [...designContent.processSteps]
+                      processSteps[index] = { ...step, icon: event.target.value as HomepageStepIcon }
+                      updateDesign('processSteps', processSteps as HomepageDesignContent['processSteps'])
+                    }}
+                  >
                       {homepageStepIcons.map((icon) => <option value={icon} key={icon}>{icon === 'shopping' ? 'Choisir' : icon === 'package' ? 'Commander' : icon === 'payment' ? 'Payer' : 'Recevoir'}</option>)}
-                    </select>
-                  </label>
-                  <label>Texte<input maxLength={50} value={step.title} onChange={(event) => {
+                  </Select>
+                  <Input label="Texte" maxLength={50} value={step.title} disabled={saving} onChange={(event) => {
                     const processSteps = [...designContent.processSteps]
                     processSteps[index] = { ...step, title: event.target.value }
                     updateDesign('processSteps', processSteps as HomepageDesignContent['processSteps'])
-                  }} /></label>
-                </fieldset>
+                  }} />
+                </Card>
               ))}
-              <label>Texte alternatif de l’illustration<input maxLength={180} value={designContent.processImageAlt} onChange={(event) => updateDesign('processImageAlt', event.target.value)} /></label>
+              <Input label="Texte alternatif de l’illustration" maxLength={180} value={designContent.processImageAlt} onChange={(event) => updateDesign('processImageAlt', event.target.value)} disabled={saving} />
               <ImageUpload
                 label="Illustration facultative"
                 path={designContent.processImagePath}
@@ -395,49 +443,76 @@ export default function AdminHomepageSettingsPage() {
                 onUpload={(file) => uploadImage('processImagePath', 'process', file)}
                 onRemove={() => updateDesign('processImagePath', null)}
               />
-            </section>
+            </Card>
 
-            <section className="home-redesign-editor-section">
-              <p className="eyebrow">PIED DE PAGE</p>
-              <h2>Contact et réseaux</h2>
+            <Card title="Pied de page" description="Coordonnées et réseaux affichés sur la boutique.">
               {footerFields.map((field) => (
-                <label key={field.key}>
-                  {field.label}
+                <div key={field.key}>
                   {field.multiline ? (
-                    <textarea rows={3} maxLength={1000} value={String(content[field.key])} onChange={(event) => setContent({ ...content, [field.key]: event.target.value })} />
+                    <Textarea
+                      label={field.label}
+                      rows={3}
+                      maxLength={1000}
+                      value={String(content[field.key])}
+                      onChange={(event) => setContent((current) => ({ ...current, [field.key]: event.target.value }))}
+                      hint={field.hint}
+                      disabled={saving}
+                    />
                   ) : (
-                    <input
+                    <Input
+                      label={field.label}
                       type={field.key === 'footer_contact_email' ? 'email' : field.key.endsWith('_url') ? 'url' : 'text'}
                       maxLength={300}
                       value={String(content[field.key])}
-                      onChange={(event) => setContent({ ...content, [field.key]: event.target.value })}
+                      onChange={(event) => setContent((current) => ({ ...current, [field.key]: event.target.value }))}
                       placeholder={field.hint}
+                      hint={field.hint}
+                      disabled={saving}
                     />
                   )}
-                  <small>{field.hint}</small>
-                </label>
+                </div>
               ))}
-            </section>
+            </Card>
 
-            {feedback && <p className={`admin-feedback ${feedback.kind}`} role={feedback.kind === 'error' ? 'alert' : 'status'}>{feedback.text}</p>}
             <div className="home-redesign-admin-actions">
-              <button className="admin-submit" type="submit" disabled={saving || uploading !== null}>
-                <Save aria-hidden="true" size={17} /> {saving ? 'Enregistrement...' : 'Enregistrer les modifications'}
-              </button>
-              <button className="home-redesign-reset" type="button" disabled={saving || uploading !== null} onClick={() => void restoreDefaults()}>
-                <RotateCcw aria-hidden="true" size={16} /> Rétablir les valeurs par défaut
-              </button>
+              <Button type="submit" loading={saving} disabled={uploading !== null} leadingIcon={<Save size={17} aria-hidden="true" />}>
+                Enregistrer les modifications
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={saving || uploading !== null}
+                leadingIcon={<RotateCcw size={16} aria-hidden="true" />}
+                onClick={() => {
+                  if (hasUnsavedDesignChanges) setConfirmRestoreDefaults(true)
+                  else restoreDefaults()
+                }}
+              >
+                Rétablir les valeurs par défaut
+              </Button>
             </div>
           </form>
 
-          <aside className="home-redesign-preview-panel">
-            <div className="home-redesign-preview-heading">
-              <p className="eyebrow">APERÇU EN DIRECT</p>
-              <span>Les changements ne sont pas publiés avant l’enregistrement.</span>
-            </div>
+          <Card
+            title="Aperçu en direct"
+            description="Les changements ne sont pas publiés avant l’enregistrement."
+            className="home-redesign-preview-panel"
+          >
             <HomepageDesignPreview design={designContent} />
-          </aside>
+          </Card>
         </div>
+        <ConfirmDialog
+          open={confirmRestoreDefaults}
+          onClose={() => {
+            if (!saving && uploading === null) setConfirmRestoreDefaults(false)
+          }}
+          onConfirm={restoreDefaults}
+          title="Rétablir les valeurs par défaut ?"
+          description="Cette action remplacera les saisies non enregistrées de la présentation de l’accueil. Les valeurs par défaut ne seront publiées qu’après l’enregistrement."
+          confirmLabel="Rétablir les valeurs"
+          confirmVariant="danger"
+          loading={saving || uploading !== null}
+        />
       </div>
     </main>
   )
@@ -460,20 +535,30 @@ function ImageUpload({
 }) {
   const inputId = `homepage-image-${slot}`
   const [pendingResize, setPendingResize] = useState<File | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   return (
     <div className="home-redesign-upload">
       <span>{label}</span>
       <small>JPG, PNG ou WebP · 2 Mo maximum. Au-delà de 400 Ko, une option de redimensionnement s’affiche.</small>
       <div className="home-redesign-upload-actions">
-        <label className="home-redesign-upload-button" htmlFor={inputId}>
-          <ImagePlus aria-hidden="true" size={17} /> {uploading ? 'Compression et envoi...' : path ? 'Remplacer l’image' : 'Choisir une image'}
-        </label>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          leadingIcon={<ImagePlus size={17} aria-hidden="true" />}
+          loading={uploading}
+          onClick={() => fileInputRef.current?.click()}
+        >
+          {uploading ? 'Compression et envoi…' : path ? 'Remplacer l’image' : 'Choisir une image'}
+        </Button>
         <input
+          ref={fileInputRef}
           id={inputId}
           type="file"
           accept="image/jpeg,image/png,image/webp"
           disabled={uploading}
+          aria-label={label}
           onChange={(event) => {
             const file = event.target.files?.[0]
             if (file && file.size > imageResizeWarningSize) {
@@ -486,18 +571,25 @@ function ImageUpload({
           }}
         />
         {path && (
-          <button type="button" className="home-redesign-remove-image" onClick={onRemove}>
-            <Trash2 aria-hidden="true" size={16} /> Retirer
-          </button>
+          <Button
+            type="button"
+            size="sm"
+            variant="danger"
+            leadingIcon={<Trash2 size={16} aria-hidden="true" />}
+            onClick={onRemove}
+          >
+            Retirer
+          </Button>
         )}
       </div>
       {pendingResize && (
-        <div className="home-redesign-editor-help" role="alert">
-          <p>Cette image est lourde, elle ralentira le site sur mobile.</p>
+        <Card title="Image volumineuse" description="Cette image est lourde, elle ralentira le site sur mobile.">
           <div className="home-redesign-upload-actions">
-            <button
+            <Button
               type="button"
-              className="home-redesign-upload-button"
+              size="sm"
+              variant="primary"
+              disabled={uploading}
               onClick={() => {
                 const file = pendingResize
                 setPendingResize(null)
@@ -505,12 +597,10 @@ function ImageUpload({
               }}
             >
               Redimensionner à 1600 px maximum en WebP et envoyer
-            </button>
-            <button type="button" className="home-redesign-remove-image" onClick={() => setPendingResize(null)}>
-              Annuler
-            </button>
+            </Button>
+            <Button type="button" size="sm" variant="outline" disabled={uploading} onClick={() => setPendingResize(null)}>Annuler</Button>
           </div>
-        </div>
+        </Card>
       )}
       {path && <span className="home-redesign-upload-filename">Image sélectionnée pour l’enregistrement</span>}
     </div>
