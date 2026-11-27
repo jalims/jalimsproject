@@ -140,7 +140,6 @@ export default function AdminPartnersPage() {
       logClientError('Admin partner save failed', error)
       const message = error instanceof Error ? error.message : 'Le partenaire n’a pas pu être enregistré.'
       setFormError(message)
-      toast({ title: 'Enregistrement impossible', description: message, variant: 'danger' })
     } finally {
       setSaving(false)
     }
@@ -167,7 +166,6 @@ export default function AdminPartnersPage() {
       logClientError('Admin partner activation update failed', error)
       const message = error instanceof Error ? error.message : 'La modification du partenaire a échoué.'
       setToggleError(message)
-      toast({ title: 'Modification impossible', description: message, variant: 'danger' })
     } finally {
       setUpdatingPartnerId('')
     }
