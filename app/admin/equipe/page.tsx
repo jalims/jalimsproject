@@ -236,7 +236,6 @@ export default function AdminTeamPage() {
           eyebrow="JALIMS · ADMINISTRATION"
           title="Équipe"
           description="Gérez les accès à l’espace d’administration."
-          actions={<Link className="admin-catalog-link" href="/admin">Retour à l’administration →</Link>}
         />
         {actionError && (
           <Card title="Action impossible">
