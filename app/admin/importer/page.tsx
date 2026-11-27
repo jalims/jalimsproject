@@ -6,7 +6,7 @@ import { supabase } from '../../../lib/supabase'
 import { canAccessAdminPath } from '../../../lib/admin-staff-client'
 import { logClientError } from '../../../lib/user-facing-errors'
 import { useAdminSession } from '../admin-session-provider'
-import { Badge, Button, Card, DataTable, EmptyState, PageHeader, Skeleton, StatCard, useToast, type DataTableColumn } from '../_components'
+import { Badge, Button, Card, ConfirmDialog, DataTable, EmptyState, PageHeader, Skeleton, StatCard, useToast, type DataTableColumn } from '../_components'
 
 const MAX_IMAGE_SIZE = 6 * 1024 * 1024
 const imageTypes = {
@@ -359,6 +359,7 @@ export default function ProductImportPage() {
   const [testMode, setTestMode] = useState(false)
   const [overwriteText, setOverwriteText] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [confirmOpen, setConfirmOpen] = useState(false)
   const [progress, setProgress] = useState<{ current: number; total: number; message: string } | null>(null)
   const [feedback, setFeedback] = useState<{ kind: 'success' | 'error'; text: string } | null>(null)
   const [report, setReport] = useState<ReportRow[]>([])
@@ -1004,7 +1005,11 @@ export default function ProductImportPage() {
               <input checked={testMode} disabled={busy} onChange={(event) => setTestMode(event.target.checked)} type="checkbox" />
               <span><strong>Mode test</strong><small>Utilise « [À rédiger] » + nom_source. Il n’appelle jamais l’IA et n’accepte que les SKU commençant par TEST.</small></span>
             </label>
-            <p className="product-import-warning"><strong>Attention :</strong> le mode test écrit dans la vraie base de données. Utilisez uniquement des SKU de test commençant par TEST.</p>
+            <p className="product-import-warning" role="alert">
+              <Badge variant="danger">Important · écrit dans la vraie base</Badge>
+              <br />
+              <strong>Le mode test écrit dans la vraie base de données.</strong> Il ne simule pas un environnement séparé. Seuls les produits dont le SKU commence par TEST sont traités; utilisez uniquement des SKU de test.
+            </p>
             <label className="product-import-checkbox">
               <input checked={overwriteText} disabled={busy} onChange={(event) => setOverwriteText(event.target.checked)} type="checkbox" />
               <span><strong>Écraser les textes</strong><small>Pour un SKU existant, remplace le titre et la description uniquement si cette case est cochée.</small></span>
@@ -1049,9 +1054,9 @@ export default function ProductImportPage() {
             <Button
               disabled={busy || (rows.length === 0 && photosTotal === 0 && photoErrors.length === 0)}
               loading={busy}
-              onClick={() => void runImport()}
+              onClick={() => setConfirmOpen(true)}
             >
-              {busy ? 'Import en cours…' : rows.length > 0 && photosTotal > 0 ? 'Importer les produits et les photos' : photosTotal > 0 && rows.length === 0 ? 'Envoyer les photos' : 'Importer les lignes valides'}
+              {busy ? 'Import en cours…' : rows.length > 0 && photosTotal > 0 ? 'Vérifier et lancer l’import produits et photos' : photosTotal > 0 && rows.length === 0 ? 'Vérifier et envoyer les photos' : 'Vérifier et importer les lignes valides'}
             </Button>
             {progress && (
               <div className="product-import-progress" role="status">
@@ -1092,6 +1097,35 @@ export default function ProductImportPage() {
             </Card>
           </>
         )}
+        <ConfirmDialog
+          open={confirmOpen}
+          onClose={() => setConfirmOpen(false)}
+          onConfirm={() => {
+            setConfirmOpen(false)
+            void runImport()
+          }}
+          title="Confirmer le lancement de l’import"
+          description="Vérifiez les éléments ci-dessous avant de poursuivre. Annuler ne lance aucun traitement."
+          confirmLabel={testMode ? 'Lancer l’import de test' : 'Lancer l’import réel'}
+          confirmVariant="primary"
+        >
+          <dl>
+            <dt>Lignes valides à traiter</dt>
+            <dd>{validRows.length}</dd>
+            {rows.length > 0 && (
+              <>
+                <dt>Lignes ignorées ou en erreur</dt>
+                <dd>{invalidRows.length}</dd>
+              </>
+            )}
+            <dt>Mode</dt>
+            <dd>{testMode ? 'Test — écrit dans la vraie base; SKU commençant par TEST uniquement' : 'Réel'}</dd>
+            <dt>Textes de SKU existants</dt>
+            <dd>{overwriteText ? 'Seront écrasés selon l’option sélectionnée' : 'Ne seront pas écrasés'}</dd>
+            <dt>Photos incluses</dt>
+            <dd>{photosTotal > 0 ? `Oui — ${photosTotal} photo(s) reconnue(s)` : 'Non — aucune photo reconnue'}</dd>
+          </dl>
+        </ConfirmDialog>
       </div>
     </main>
   )
