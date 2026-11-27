@@ -285,10 +285,10 @@ export async function PATCH(request: Request) {
 
     if (updateError) {
       console.error('[Admin team] Staff role update failed', updateError.message)
-      const message = /dernier propriétaire actif|last active owner/i.test(updateError.message)
+      const message = /dernier propriétaire actif|last active owner|at_least_one_active_owner_required/i.test(updateError.message)
         ? 'Impossible de retirer ou de rétrograder le dernier propriétaire actif.'
         : 'La modification du membre a échoué.'
-      const status = /dernier propriétaire actif|last active owner/i.test(updateError.message) ? 409 : 500
+      const status = /dernier propriétaire actif|last active owner|at_least_one_active_owner_required/i.test(updateError.message) ? 409 : 500
       return NextResponse.json({ error: message }, { status })
     }
 
