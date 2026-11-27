@@ -273,6 +273,8 @@ export default function AdminDemandesPage() {
           )}
         >
           <Tabs
+            id="request-status-tabs"
+            panelId="request-results-panel"
             label="Filtrer les demandes par statut"
             value={statusFilter}
             onChange={(value) => setStatusFilter(value as (typeof STATUS_OPTIONS)[number]['value'])}
@@ -280,109 +282,116 @@ export default function AdminDemandesPage() {
           />
         </Card>
 
-        {error && (
-          <Card title="Impossible de charger les demandes">
-            <p role="alert">{error}</p>
-            <Button variant="outline" onClick={() => void loadRequests(statusFilter)}>Réessayer</Button>
-          </Card>
-        )}
+        <div
+          id="request-results-panel"
+          role="tabpanel"
+          aria-labelledby={`request-status-tabs-tab-${STATUS_OPTIONS.findIndex((option) => option.value === statusFilter)}`}
+          tabIndex={0}
+        >
+          {error && (
+            <Card title="Impossible de charger les demandes">
+              <p role="alert">{error}</p>
+              <Button variant="outline" onClick={() => void loadRequests(statusFilter)}>Réessayer</Button>
+            </Card>
+          )}
 
-        {loading ? (
-          <div className="admin-stats-grid" aria-label="Chargement des demandes" aria-busy="true">
-            {Array.from({ length: 2 }, (_, index) => (
-              <Card key={index} title="Chargement de la demande">
-                <Skeleton variant="rect" className="admin-stats-skeleton-table" />
-              </Card>
-            ))}
-          </div>
-        ) : error ? null : requests.length === 0 ? (
-          <EmptyState title="Aucune demande pour ce filtre" description="Les nouvelles demandes apparaîtront ici." />
-        ) : (
-          <div className="admin-stats-grid">
-            {requests.map((item) => (
-              <Card
-                key={item.id}
-                title={item.search_query?.trim()
-                  ? `Recherche : « ${item.search_query.trim()} »`
-                  : 'Demande sans terme recherché'}
-                description={formatDate(item.created_at)}
-                actions={<Badge variant={item.status === 'new' ? 'brand' : 'neutral'}>{STATUS_LABELS[item.status] ?? item.status}</Badge>}
-              >
-                <div className="admin-stats-grid">
-                  <div>
-                    {item.image_url ? (
-                      <a href={item.image_url} target="_blank" rel="noreferrer">
-                        <Image
-                          src={item.image_url}
-                          alt="Photo du produit demandé"
-                          width={320}
-                          height={220}
-                          sizes="(max-width: 700px) 100vw, 320px"
-                        />
-                      </a>
-                    ) : (
-                      <EmptyState title="Aucune photo" />
-                    )}
-                    {item.description?.trim() && (
-                      <div>
-                        <h3>Description / quantité</h3>
-                        <p>{item.description}</p>
-                      </div>
-                    )}
-                  </div>
-
-                  <div>
-                    <div className="admin-ui-page-actions">
-                      <a className="admin-primary-link" href={buildWhatsAppUrl(item)} target="_blank" rel="noreferrer">
-                        WhatsApp ({item.whatsapp})
-                      </a>
-                      {item.link && (
-                        <a className="admin-secondary-link" href={item.link} target="_blank" rel="noreferrer">
-                          Ouvrir le lien source
+          {loading ? (
+            <div className="admin-stats-grid" aria-label="Chargement des demandes" aria-busy="true">
+              {Array.from({ length: 2 }, (_, index) => (
+                <Card key={index} title="Chargement de la demande">
+                  <Skeleton variant="rect" className="admin-stats-skeleton-table" />
+                </Card>
+              ))}
+            </div>
+          ) : error ? null : requests.length === 0 ? (
+            <EmptyState title="Aucune demande pour ce filtre" description="Les nouvelles demandes apparaîtront ici." />
+          ) : (
+            <div className="admin-stats-grid">
+              {requests.map((item) => (
+                <Card
+                  key={item.id}
+                  title={item.search_query?.trim()
+                    ? `Recherche : « ${item.search_query.trim()} »`
+                    : 'Demande sans terme recherché'}
+                  description={formatDate(item.created_at)}
+                  actions={<Badge variant={item.status === 'new' ? 'brand' : 'neutral'}>{STATUS_LABELS[item.status] ?? item.status}</Badge>}
+                >
+                  <div className="admin-stats-grid">
+                    <div>
+                      {item.image_url ? (
+                        <a href={item.image_url} target="_blank" rel="noreferrer">
+                          <Image
+                            src={item.image_url}
+                            alt="Photo du produit demandé"
+                            width={320}
+                            height={220}
+                            sizes="(max-width: 700px) 100vw, 320px"
+                          />
                         </a>
+                      ) : (
+                        <EmptyState title="Aucune photo" />
+                      )}
+                      {item.description?.trim() && (
+                        <div>
+                          <h3>Description / quantité</h3>
+                          <p>{item.description}</p>
+                        </div>
                       )}
                     </div>
 
-                    <Select
-                      label="Statut"
-                      value={item.status}
-                      onChange={(event) => updateRequest(item.id, { status: event.target.value })}
-                    >
-                      {STATUS_OPTIONS.filter((option) => option.value !== 'all').map((option) => (
-                        <option key={option.value} value={option.value}>{option.label}</option>
-                      ))}
-                    </Select>
+                    <div>
+                      <div className="admin-ui-page-actions">
+                        <a className="admin-primary-link" href={buildWhatsAppUrl(item)} target="_blank" rel="noreferrer">
+                          WhatsApp ({item.whatsapp})
+                        </a>
+                        {item.link && (
+                          <a className="admin-secondary-link" href={item.link} target="_blank" rel="noreferrer">
+                            Ouvrir le lien source
+                          </a>
+                        )}
+                      </div>
 
-                    <Input
-                      label="Prix proposé (FCFA)"
-                      type="text"
-                      inputMode="decimal"
-                      value={item.quoted_price}
-                      onChange={(event) => updateRequest(item.id, { quoted_price: event.target.value })}
-                      placeholder="Ex : 25000"
-                    />
+                      <Select
+                        label="Statut"
+                        value={item.status}
+                        onChange={(event) => updateRequest(item.id, { status: event.target.value })}
+                      >
+                        {STATUS_OPTIONS.filter((option) => option.value !== 'all').map((option) => (
+                          <option key={option.value} value={option.value}>{option.label}</option>
+                        ))}
+                      </Select>
 
-                    <Textarea
-                      label="Notes internes"
-                      value={item.admin_notes}
-                      onChange={(event) => updateRequest(item.id, { admin_notes: event.target.value })}
-                      rows={4}
-                      placeholder="Notes pour l’équipe, devis, suivi…"
-                    />
+                      <Input
+                        label="Prix proposé (FCFA)"
+                        type="text"
+                        inputMode="decimal"
+                        value={item.quoted_price}
+                        onChange={(event) => updateRequest(item.id, { quoted_price: event.target.value })}
+                        placeholder="Ex : 25000"
+                      />
 
-                    {saveError[item.id] && <p className="admin-analytics-error" role="alert">{saveError[item.id]}</p>}
-                    <Button
-                      onClick={() => void saveRequest(item)}
-                      loading={savingId === item.id}
-                    >
-                      Enregistrer
-                    </Button>
+                      <Textarea
+                        label="Notes internes"
+                        value={item.admin_notes}
+                        onChange={(event) => updateRequest(item.id, { admin_notes: event.target.value })}
+                        rows={4}
+                        placeholder="Notes pour l’équipe, devis, suivi…"
+                      />
+
+                      {saveError[item.id] && <p className="admin-analytics-error" role="alert">{saveError[item.id]}</p>}
+                      <Button
+                        onClick={() => void saveRequest(item)}
+                        loading={savingId === item.id}
+                      >
+                        Enregistrer
+                      </Button>
+                    </div>
                   </div>
-                </div>
-              </Card>
-            ))}
-          </div>
-        )}
+                </Card>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     </main>
   )

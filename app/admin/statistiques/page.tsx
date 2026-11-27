@@ -394,6 +394,8 @@ export default function AdminStatisticsPage() {
           eyebrow="JALIMS · ESPACE ADMIN"
           actions={(
             <Tabs
+              id="statistics-period-tabs"
+              panelId="statistics-period-panel"
               label="Période des statistiques"
               value={period}
               onChange={setPeriod}
@@ -401,6 +403,12 @@ export default function AdminStatisticsPage() {
             />
           )}
         />
+        <div
+          id="statistics-period-panel"
+          role="tabpanel"
+          aria-labelledby={`statistics-period-tabs-tab-${Object.keys(periodLabels).indexOf(period)}`}
+          tabIndex={0}
+        >
         {loading ? <StatisticsSkeletons /> : errorMessage ? (
           <RequestErrorCard
             title="Les statistiques sont indisponibles"
@@ -561,6 +569,7 @@ export default function AdminStatisticsPage() {
             />
           </Card>
         )}
+        </div>
       </div>
     </main>
   )

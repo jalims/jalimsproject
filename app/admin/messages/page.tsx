@@ -349,6 +349,8 @@ export default function AdminMessagesPage() {
           </Card>
           <Card title="Modèles de messages">
             <Tabs
+              id="message-template-tabs"
+              panelId="message-template-panel"
               items={ORDER_MESSAGE_TEMPLATE_KEYS.map((templateKey) => ({
                 id: templateKey,
                 label: templateLabels[templateKey],
@@ -357,41 +359,48 @@ export default function AdminMessagesPage() {
               onChange={(value) => setActiveTemplateKey(value as OrderMessageTemplateKey)}
               label="Modèles de messages"
             />
-            {activeTemplate ? (
-              <div role="tabpanel">
-                <Switch
-                  label="Actif"
-                  checked={activeTemplate.active}
-                  onCheckedChange={(active) => updateTemplate(activeTemplate.template_key, { active })}
-                  disabled={saving}
-                />
-                <Input
-                  label="Objet"
-                  maxLength={200}
-                  value={activeTemplate.subject}
-                  onChange={(event) => updateTemplate(activeTemplate.template_key, { subject: event.target.value })}
-                  disabled={saving}
-                />
-                <Textarea
-                  label="Corps du message"
-                  rows={6}
-                  maxLength={10000}
-                  value={activeTemplate.body}
-                  onChange={(event) => updateTemplate(activeTemplate.template_key, { body: event.target.value })}
-                  disabled={saving}
-                />
-                <Card title="Variables autorisées">
-                  <p>{ORDER_MESSAGE_VARIABLES[activeTemplate.template_key].map((variable) => <code key={variable}>{`{${variable}}`}</code>)}</p>
-                </Card>
-                <Card title="Aperçu avec des données d’exemple">
-                  {activePreview?.error
-                    ? <p role="alert">{activePreview.error}</p>
-                    : <pre>{activePreview?.text}</pre>}
-                </Card>
-              </div>
-            ) : (
-              <EmptyState title="Modèle introuvable" description="Le modèle sélectionné n’est pas présent dans la configuration chargée." />
-            )}
+            <div
+              id="message-template-panel"
+              role="tabpanel"
+              aria-labelledby={`message-template-tabs-tab-${ORDER_MESSAGE_TEMPLATE_KEYS.indexOf(activeTemplateKey)}`}
+              tabIndex={0}
+            >
+              {activeTemplate ? (
+                <>
+                  <Switch
+                    label="Actif"
+                    checked={activeTemplate.active}
+                    onCheckedChange={(active) => updateTemplate(activeTemplate.template_key, { active })}
+                    disabled={saving}
+                  />
+                  <Input
+                    label="Objet"
+                    maxLength={200}
+                    value={activeTemplate.subject}
+                    onChange={(event) => updateTemplate(activeTemplate.template_key, { subject: event.target.value })}
+                    disabled={saving}
+                  />
+                  <Textarea
+                    label="Corps du message"
+                    rows={6}
+                    maxLength={10000}
+                    value={activeTemplate.body}
+                    onChange={(event) => updateTemplate(activeTemplate.template_key, { body: event.target.value })}
+                    disabled={saving}
+                  />
+                  <Card title="Variables autorisées">
+                    <p>{ORDER_MESSAGE_VARIABLES[activeTemplate.template_key].map((variable) => <code key={variable}>{`{${variable}}`}</code>)}</p>
+                  </Card>
+                  <Card title="Aperçu avec des données d’exemple">
+                    {activePreview?.error
+                      ? <p role="alert">{activePreview.error}</p>
+                      : <pre>{activePreview?.text}</pre>}
+                  </Card>
+                </>
+              ) : (
+                <EmptyState title="Modèle introuvable" description="Le modèle sélectionné n’est pas présent dans la configuration chargée." />
+              )}
+            </div>
           </Card>
           {saveError && (
             <Card title="Enregistrement impossible">

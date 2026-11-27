@@ -112,12 +112,16 @@ export function SearchInput({
 export type TabItem = { id: string; label: string; count?: number }
 
 export function Tabs({
+  id,
+  panelId,
   items,
   value,
   onChange,
   label = 'Onglets',
   className = '',
 }: {
+  id: string
+  panelId: string
   items: TabItem[]
   value: string
   onChange: (value: string) => void
@@ -141,14 +145,16 @@ export function Tabs({
   }
 
   return (
-    <div className={`admin-ui-tabs${className ? ` ${className}` : ''}`} role="tablist" aria-label={label}>
+    <div id={id} className={`admin-ui-tabs${className ? ` ${className}` : ''}`} role="tablist" aria-label={label}>
       {items.map((item, index) => (
         <button
           key={item.id}
+          id={`${id}-tab-${index}`}
           ref={(element) => { tabRefs.current[index] = element }}
           type="button"
           role="tab"
           aria-selected={value === item.id}
+          aria-controls={panelId}
           tabIndex={value === item.id ? 0 : -1}
           onClick={() => onChange(item.id)}
           onKeyDown={(event) => handleKeyDown(event, index)}

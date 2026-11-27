@@ -268,6 +268,8 @@ function AdminClientsPageContent({ initialSearch }: { initialSearch: string }) {
               onChange={(value) => { setSearch(value); setPage(1) }}
             />
             <Tabs
+              id="clients-filter-tabs"
+              panelId="clients-results-panel"
               label="Filtrer les clients"
               value={withoutOrder ? 'without-order' : 'all'}
               onChange={(value) => { setWithoutOrder(value === 'without-order'); setPage(1) }}
@@ -277,37 +279,44 @@ function AdminClientsPageContent({ initialSearch }: { initialSearch: string }) {
               ]}
             />
           </div>
-          {errorMessage ? (
-            <Card title="Impossible de charger les clients">
-              <p role="alert">{errorMessage}</p>
-            </Card>
-          ) : (
-            <DataTable
-              columns={columns}
-              rows={clients}
-              rowKey={(client) => client.id}
-              caption="Comptes clients, inscriptions, commandes, dépenses et messages de bienvenue"
-              loading={loading}
-              loadingRows={5}
-              emptyState={(
-                <EmptyState
-                  title="Aucun compte à afficher"
-                  description={search || withoutOrder
-                    ? 'Essayez une autre recherche ou désactivez le filtre « Sans commande ».'
-                    : 'Les nouveaux comptes apparaîtront ici dès leur inscription.'}
-                />
-              )}
+          <div
+            id="clients-results-panel"
+            role="tabpanel"
+            aria-labelledby={`clients-filter-tabs-tab-${withoutOrder ? 1 : 0}`}
+            tabIndex={0}
+          >
+            {errorMessage ? (
+              <Card title="Impossible de charger les clients">
+                <p role="alert">{errorMessage}</p>
+              </Card>
+            ) : (
+              <DataTable
+                columns={columns}
+                rows={clients}
+                rowKey={(client) => client.id}
+                caption="Comptes clients, inscriptions, commandes, dépenses et messages de bienvenue"
+                loading={loading}
+                loadingRows={5}
+                emptyState={(
+                  <EmptyState
+                    title="Aucun compte à afficher"
+                    description={search || withoutOrder
+                      ? 'Essayez une autre recherche ou désactivez le filtre « Sans commande ».'
+                      : 'Les nouveaux comptes apparaîtront ici dès leur inscription.'}
+                  />
+                )}
+              />
+            )}
+            <Pagination
+              page={page}
+              pageSize={20}
+              hasMore={hasMore}
+              currentItems={clients.length}
+              onPageChange={setPage}
+              label="Pagination des clients"
+              disabled={loading}
             />
-          )}
-          <Pagination
-            page={page}
-            pageSize={20}
-            hasMore={hasMore}
-            currentItems={clients.length}
-            onPageChange={setPage}
-            label="Pagination des clients"
-            disabled={loading}
-          />
+          </div>
         </Card>
       </div>
     </main>

@@ -210,8 +210,22 @@ export default function AdminComponentsPage() {
               <span className="admin-ui-demo-copy">Terme temporisé : {debouncedQuery || '—'}</span>
             </div>
             <div className="admin-ui-demo-tabs">
-              <Tabs items={demoTabs} value={activeTab} onChange={setActiveTab} label="Filtres de démonstration" />
-              <p className="admin-ui-demo-copy">Onglet sélectionné : {activeTab}</p>
+              <Tabs
+                id="demo-filter-tabs"
+                panelId="demo-filter-panel"
+                items={demoTabs}
+                value={activeTab}
+                onChange={setActiveTab}
+                label="Filtres de démonstration"
+              />
+              <div
+                id="demo-filter-panel"
+                role="tabpanel"
+                aria-labelledby={`demo-filter-tabs-tab-${demoTabs.findIndex((tab) => tab.id === activeTab)}`}
+                tabIndex={0}
+              >
+                <p className="admin-ui-demo-copy">Onglet sélectionné : {activeTab}</p>
+              </div>
             </div>
           </Card>
         </section>

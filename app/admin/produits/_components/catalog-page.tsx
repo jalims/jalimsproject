@@ -487,6 +487,8 @@ export default function CatalogPage() {
               placeholder="Nom ou catégorie"
             />
             <Tabs
+              id="product-filter-tabs"
+              panelId="product-results-panel"
               label="Filtrer les produits"
               items={filterTabs}
               value={productFilter}
@@ -497,37 +499,44 @@ export default function CatalogPage() {
             />
           </div>
 
-          {productsError && <p className="admin-ui-inline-error" role="alert">{productsError}</p>}
-          {productsError && products.length > 0 && (
-            <Button variant="outline" onClick={() => void loadProducts()}>Réessayer</Button>
-          )}
+          <div
+            id="product-results-panel"
+            role="tabpanel"
+            aria-labelledby={`product-filter-tabs-tab-${filterTabs.findIndex((tab) => tab.id === productFilter)}`}
+            tabIndex={0}
+          >
+            {productsError && <p className="admin-ui-inline-error" role="alert">{productsError}</p>}
+            {productsError && products.length > 0 && (
+              <Button variant="outline" onClick={() => void loadProducts()}>Réessayer</Button>
+            )}
 
-          {productsError && products.length === 0 && !loadingProducts ? (
-            <Button variant="outline" onClick={() => void loadProducts()}>Réessayer</Button>
-          ) : noProductsFound ? (
-            <p className="admin-ui-no-results" role="status">Aucun produit ne correspond à ces critères.</p>
-          ) : (
-            <DataTable
-              columns={columns}
-              rows={paginatedProducts}
-              rowKey={(product) => product.id}
-              caption="Catalogue des produits"
-              loading={loadingProducts}
-              emptyState={catalogIsEmpty
-                ? <EmptyState title="Aucun produit pour le moment" description="Ajoutez le premier produit au catalogue." action={<Button leadingIcon={<Plus size={16} aria-hidden="true" />} onClick={() => router.push('/admin/produits/nouveau')}>Ajouter un produit</Button>} />
-                : <span>Aucun produit ne correspond à ces critères.</span>}
-            />
-          )}
+            {productsError && products.length === 0 && !loadingProducts ? (
+              <Button variant="outline" onClick={() => void loadProducts()}>Réessayer</Button>
+            ) : noProductsFound ? (
+              <p className="admin-ui-no-results" role="status">Aucun produit ne correspond à ces critères.</p>
+            ) : (
+              <DataTable
+                columns={columns}
+                rows={paginatedProducts}
+                rowKey={(product) => product.id}
+                caption="Catalogue des produits"
+                loading={loadingProducts}
+                emptyState={catalogIsEmpty
+                  ? <EmptyState title="Aucun produit pour le moment" description="Ajoutez le premier produit au catalogue." action={<Button leadingIcon={<Plus size={16} aria-hidden="true" />} onClick={() => router.push('/admin/produits/nouveau')}>Ajouter un produit</Button>} />
+                  : <span>Aucun produit ne correspond à ces critères.</span>}
+              />
+            )}
 
-          {!loadingProducts && filteredProducts.length > 0 && (
-            <Pagination
-              page={safePage}
-              pageSize={productsPageSize}
-              totalItems={filteredProducts.length}
-              onPageChange={setCurrentPage}
-              label="Pagination du catalogue de produits"
-            />
-          )}
+            {!loadingProducts && filteredProducts.length > 0 && (
+              <Pagination
+                page={safePage}
+                pageSize={productsPageSize}
+                totalItems={filteredProducts.length}
+                onPageChange={setCurrentPage}
+                label="Pagination du catalogue de produits"
+              />
+            )}
+          </div>
         </Card>
 
       </div>
