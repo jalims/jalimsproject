@@ -298,7 +298,7 @@ export default function AdminTeamPage() {
               {members.map((member) => {
                 const isSelf = member.user_id === actorUserId
                 const canChangeRole = pageRole === 'owner' && !isSelf
-                const canDeactivate = member.active && (pageRole === 'owner' || (pageRole === 'admin' && member.role === 'order_manager'))
+                const canDeactivate = member.active && !isSelf && (pageRole === 'owner' || (pageRole === 'admin' && member.role === 'order_manager'))
                 const canActivate = !member.active && pageRole === 'owner'
                 return (
                   <Card
