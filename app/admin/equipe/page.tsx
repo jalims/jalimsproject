@@ -1,10 +1,22 @@
 ﻿'use client'
 
 import Link from 'next/link'
-import { FormEvent, useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { canAccessAdminPath, type StaffRole } from '../../../lib/admin-staff-client'
 import { supabase } from '../../../lib/supabase'
 import { useAdminSession } from '../admin-session-provider'
+import {
+  Badge,
+  Button,
+  Card,
+  ConfirmDialog,
+  EmptyState,
+  Input,
+  PageHeader,
+  Select,
+  Skeleton,
+  useToast,
+} from '../_components'
 
 type TeamMember = {
   user_id: string
@@ -57,22 +69,28 @@ async function requestTeam(method: 'GET' | 'POST' | 'PATCH', payload?: Record<st
 
 export default function AdminTeamPage() {
   const { userId: actorUserId, role: pageRole, loading: checking } = useAdminSession()
+  const { toast } = useToast()
   const hasSession = Boolean(actorUserId)
   const [members, setMembers] = useState<TeamMember[]>([])
   const [loading, setLoading] = useState(true)
+  const [listError, setListError] = useState('')
   const [email, setEmail] = useState('')
   const [newRole, setNewRole] = useState<StaffRole>('order_manager')
   const [saving, setSaving] = useState(false)
   const [busyId, setBusyId] = useState('')
-  const [feedback, setFeedback] = useState<{ text: string; error: boolean } | null>(null)
+  const [formError, setFormError] = useState('')
+  const [actionError, setActionError] = useState('')
+  const [deactivationTarget, setDeactivationTarget] = useState<TeamMember | null>(null)
 
   const loadMembers = useCallback(async () => {
+    setLoading(true)
+    setListError('')
     try {
       const result = await requestTeam('GET')
-      const list = Array.isArray(result.members) ? (result.members as TeamMember[]) : []
-      setMembers(list)
+      if (!Array.isArray(result.members)) throw new Error('La liste des membres reçue est invalide.')
+      setMembers(result.members as TeamMember[])
     } catch (error) {
-      setFeedback({ text: error instanceof Error ? error.message : 'Impossible de charger l’équipe.', error: true })
+      setListError(error instanceof Error ? error.message : 'Impossible de charger l’équipe.')
     } finally {
       setLoading(false)
     }
@@ -93,15 +111,21 @@ export default function AdminTeamPage() {
     event.preventDefault()
     if (!canManageTeam) return
     setSaving(true)
-    setFeedback(null)
+    setFormError('')
     try {
       const result = await requestTeam('POST', { email: email.trim(), role: newRole })
-      setFeedback({ text: typeof result.message === 'string' ? result.message : 'Membre ajouté.', error: false })
+      toast({
+        title: 'Membre ajouté',
+        description: typeof result.message === 'string' ? result.message : undefined,
+        variant: 'success',
+      })
       setEmail('')
       setNewRole('order_manager')
       await loadMembers()
     } catch (error) {
-      setFeedback({ text: error instanceof Error ? error.message : 'Le membre n’a pas pu être ajouté.', error: true })
+      const message = error instanceof Error ? error.message : 'Le membre n’a pas pu être ajouté.'
+      setFormError(message)
+      toast({ title: 'Ajout impossible', description: message, variant: 'danger' })
     } finally {
       setSaving(false)
     }
@@ -110,13 +134,19 @@ export default function AdminTeamPage() {
   async function changeRole(member: TeamMember, role: StaffRole) {
     if (pageRole !== 'owner' || member.user_id === actorUserId || role === member.role) return
     setBusyId(member.user_id)
-    setFeedback(null)
+    setActionError('')
     try {
       const result = await requestTeam('PATCH', { userId: member.user_id, role })
-      setFeedback({ text: typeof result.message === 'string' ? result.message : 'Rôle mis à jour.', error: false })
+      toast({
+        title: 'Rôle mis à jour',
+        description: typeof result.message === 'string' ? result.message : undefined,
+        variant: 'success',
+      })
       await loadMembers()
     } catch (error) {
-      setFeedback({ text: error instanceof Error ? error.message : 'La modification a échoué.', error: true })
+      const message = error instanceof Error ? error.message : 'La modification a échoué.'
+      setActionError(message)
+      toast({ title: 'Modification impossible', description: message, variant: 'danger' })
     } finally {
       setBusyId('')
     }
@@ -126,15 +156,21 @@ export default function AdminTeamPage() {
     if (!member.active) return
     const adminAllowed = pageRole === 'admin' && member.role === 'order_manager'
     if (pageRole !== 'owner' && !adminAllowed) return
-    if (!window.confirm(`Désactiver l’accès de ${member.email || 'ce membre'} ?`)) return
     setBusyId(member.user_id)
-    setFeedback(null)
+    setActionError('')
     try {
       const result = await requestTeam('PATCH', { userId: member.user_id, active: false })
-      setFeedback({ text: typeof result.message === 'string' ? result.message : 'Membre désactivé.', error: false })
+      toast({
+        title: 'Membre désactivé',
+        description: typeof result.message === 'string' ? result.message : undefined,
+        variant: 'success',
+      })
       await loadMembers()
+      setDeactivationTarget(null)
     } catch (error) {
-      setFeedback({ text: error instanceof Error ? error.message : 'La désactivation a échoué.', error: true })
+      const message = error instanceof Error ? error.message : 'La désactivation a échoué.'
+      setActionError(message)
+      toast({ title: 'Désactivation impossible', description: message, variant: 'danger' })
     } finally {
       setBusyId('')
     }
@@ -144,19 +180,34 @@ export default function AdminTeamPage() {
     if (member.active) return
     if (pageRole !== 'owner') return
     setBusyId(member.user_id)
-    setFeedback(null)
+    setActionError('')
     try {
       const result = await requestTeam('PATCH', { userId: member.user_id, active: true })
-      setFeedback({ text: typeof result.message === 'string' ? result.message : 'Membre réactivé.', error: false })
+      toast({
+        title: 'Membre réactivé',
+        description: typeof result.message === 'string' ? result.message : undefined,
+        variant: 'success',
+      })
       await loadMembers()
     } catch (error) {
-      setFeedback({ text: error instanceof Error ? error.message : 'La réactivation a échoué.', error: true })
+      const message = error instanceof Error ? error.message : 'La réactivation a échoué.'
+      setActionError(message)
+      toast({ title: 'Réactivation impossible', description: message, variant: 'danger' })
     } finally {
       setBusyId('')
     }
   }
 
-  if (checking) return <main className="admin-page"><div className="admin-state">Vérification de l’accès...</div></main>
+  if (checking) {
+    return (
+      <main className="admin-page">
+        <div className="admin-shell">
+          <PageHeader title="Équipe" description="Vérification de l’accès…" eyebrow="JALIMS · ADMINISTRATION" />
+          <Card title="Chargement des membres"><Skeleton variant="rect" width="100%" height={96} /></Card>
+        </div>
+      </main>
+    )
+  }
   if (!hasSession) {
     return (
       <main className="admin-page"><section className="admin-access-state">
@@ -181,76 +232,140 @@ export default function AdminTeamPage() {
   return (
     <main className="admin-page">
       <div className="admin-shell">
-        <header className="admin-header">
-          <div><p className="eyebrow">JALIMS · ADMINISTRATION</p><h1>Équipe</h1><p>Gérez les accès à l’espace d’administration.</p></div>
-          <Link className="admin-catalog-link" href="/admin">Retour à l’administration →</Link>
-        </header>
-        {feedback && <p className={`admin-feedback ${feedback.error ? 'error' : 'success'}`} role={feedback.error ? 'alert' : 'status'}>{feedback.text}</p>}
+        <PageHeader
+          eyebrow="JALIMS · ADMINISTRATION"
+          title="Équipe"
+          description="Gérez les accès à l’espace d’administration."
+          actions={<Link className="admin-catalog-link" href="/admin">Retour à l’administration →</Link>}
+        />
+        {actionError && (
+          <Card title="Action impossible">
+            <p role="alert">{actionError}</p>
+          </Card>
+        )}
 
         {canManageTeam && (
-          <section className="admin-form-panel">
-            <div className="admin-section-heading"><div><p className="eyebrow">MEMBRE</p><h2>Ajouter un membre</h2></div></div>
-            <form className="admin-product-form" onSubmit={addMember}>
-              <label>
-                <span>Adresse e-mail</span>
-                <input required type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="personne@exemple.com" />
-              </label>
-              <label>
-                <span>Rôle</span>
-                <select value={newRole} onChange={(event) => setNewRole(event.target.value as StaffRole)}>
+          <Card
+            title="Ajouter un membre"
+            description="Une invitation par e-mail sera envoyée si la personne n’a pas encore de compte."
+          >
+            <form onSubmit={addMember}>
+              <Input
+                label="Adresse e-mail"
+                required
+                type="email"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                placeholder="personne@exemple.com"
+                disabled={saving}
+              />
+              <Select
+                label="Rôle"
+                value={newRole}
+                onChange={(event) => setNewRole(event.target.value as StaffRole)}
+                disabled={saving}
+              >
                   {roleOptionsFor(pageRole).map((roleOption) => (
                     <option key={roleOption} value={roleOption}>{roleLabels[roleOption]}</option>
                   ))}
-                </select>
-              </label>
-              <button className="admin-submit" disabled={saving} type="submit">{saving ? 'Envoi...' : 'Ajouter / inviter'} <span aria-hidden="true">→</span></button>
+              </Select>
+              {formError && <p role="alert">{formError}</p>}
+              <Button type="submit" loading={saving}>Ajouter / inviter</Button>
             </form>
-            <p className="admin-form-note">Si la personne n’a pas encore de compte, une invitation lui sera envoyée pour créer son mot de passe.</p>
-          </section>
+          </Card>
         )}
 
-        <section className="admin-products-panel">
-          <div className="admin-section-heading"><div><p className="eyebrow">ACCÈS</p><h2>Membres de l’équipe</h2></div><span className="admin-product-count">{members.filter((member) => member.active).length}</span></div>
-          {loading ? (
-            <p className="admin-empty-list">Chargement des membres...</p>
-          ) : members.length === 0 ? (
-            <p className="admin-empty-list">Aucun membre enregistré.</p>
+        {listError ? (
+          <Card title="Membres de l’équipe">
+            <EmptyState
+              title="Impossible de charger l’équipe"
+              description={listError}
+              action={<Button onClick={() => void loadMembers()}>Réessayer</Button>}
+            />
+          </Card>
+        ) : loading ? (
+          <Card title="Membres de l’équipe" description="Chargement des accès…">
+            <Skeleton variant="rect" width="100%" height={112} />
+            <Skeleton variant="rect" width="100%" height={112} />
+            <Skeleton variant="rect" width="100%" height={112} />
+          </Card>
+        ) : members.length === 0 ? (
+          <Card title="Membres de l’équipe">
+            <EmptyState title="Aucun membre enregistré" description="Les comptes autorisés apparaîtront ici." />
+          </Card>
           ) : (
-            <ul className="pickup-points-list">
+          <Card title="Membres de l’équipe" description={`${members.filter((member) => member.active).length} comptes actifs`}>
               {members.map((member) => {
                 const isSelf = member.user_id === actorUserId
                 const canChangeRole = pageRole === 'owner' && !isSelf
                 const canDeactivate = member.active && (pageRole === 'owner' || (pageRole === 'admin' && member.role === 'order_manager'))
                 const canActivate = !member.active && pageRole === 'owner'
                 return (
-                  <li key={member.user_id}>
-                    <div>
-                      <strong>{member.email || 'Adresse e-mail indisponible'}</strong>
-                      <span>{roleLabels[member.role]}{isSelf ? ' · Votre compte' : ''}</span>
-                      <small>{member.active ? 'Actif' : 'Désactivé'} · Ajouté le {new Date(member.created_at).toLocaleDateString('fr-FR')}</small>
-                    </div>
+                  <Card
+                    key={member.user_id}
+                    title={member.email || 'Adresse e-mail indisponible'}
+                    description={`${isSelf ? 'Votre compte · ' : ''}Ajouté le ${new Date(member.created_at).toLocaleDateString('fr-FR')}`}
+                    actions={(
+                      <>
+                        <Badge variant={member.role === 'owner' ? 'brand' : member.role === 'admin' ? 'info' : 'neutral'}>
+                          {roleLabels[member.role]}
+                        </Badge>
+                        <Badge variant={member.active ? 'success' : 'neutral'}>
+                          {member.active ? 'Actif' : 'Désactivé'}
+                        </Badge>
+                      </>
+                    )}
+                  >
                     {canChangeRole && (
-                      <label>
-                        <span className="sr-only">Rôle de {member.email || member.user_id}</span>
-                        <select value={member.role} disabled={busyId === member.user_id} onChange={(event) => void changeRole(member, event.target.value as StaffRole)}>
+                      <Select
+                        label={`Rôle de ${member.email || member.user_id}`}
+                        value={member.role}
+                        disabled={busyId === member.user_id}
+                        onChange={(event) => void changeRole(member, event.target.value as StaffRole)}
+                      >
                           <option value="owner">Propriétaire</option>
                           <option value="admin">Administrateur</option>
                           <option value="order_manager">Gestionnaire de commandes</option>
-                        </select>
-                      </label>
+                      </Select>
                     )}
                     {canDeactivate && (
-                      <button type="button" disabled={busyId === member.user_id} onClick={() => void deactivateMember(member)}>Désactiver</button>
+                      <Button
+                        variant="danger"
+                        disabled={busyId === member.user_id}
+                        onClick={() => setDeactivationTarget(member)}
+                      >
+                        Désactiver
+                      </Button>
                     )}
                     {canActivate && (
-                      <button type="button" disabled={busyId === member.user_id} onClick={() => void activateMember(member)}>Réactiver</button>
+                      <Button
+                        variant="outline"
+                        loading={busyId === member.user_id}
+                        onClick={() => void activateMember(member)}
+                      >
+                        Réactiver
+                      </Button>
                     )}
-                  </li>
+                  </Card>
                 )
               })}
-            </ul>
-          )}
-        </section>
+          </Card>
+        )}
+        <ConfirmDialog
+          open={Boolean(deactivationTarget)}
+          onClose={() => {
+            if (!deactivationTarget || busyId !== deactivationTarget.user_id) setDeactivationTarget(null)
+          }}
+          onConfirm={() => {
+            if (deactivationTarget) void deactivateMember(deactivationTarget)
+          }}
+          title={`Désactiver l’accès de ${deactivationTarget?.email || 'ce membre'} ?`}
+          description={deactivationTarget
+            ? `Rôle : ${roleLabels[deactivationTarget.role]}. Cette personne ne pourra plus accéder à l’espace d’administration.`
+            : 'Confirmez la désactivation du membre.'}
+          confirmLabel="Désactiver"
+          loading={Boolean(deactivationTarget && busyId === deactivationTarget.user_id)}
+        />
       </div>
     </main>
   )
