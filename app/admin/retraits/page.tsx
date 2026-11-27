@@ -75,6 +75,7 @@ export default function AdminPickupPointsPage() {
         ? await supabase.from('pickup_points').update(values).eq('id', editingId)
         : await supabase.from('pickup_points').insert(values)
       if (result.error) throw result.error
+      setToggleError('')
       const wasEditing = Boolean(editingId)
       setForm(emptyForm)
       setEditingId('')
