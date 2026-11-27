@@ -6,6 +6,7 @@ import { supabase } from '../../../lib/supabase'
 import { canAccessAdminPath } from '../../../lib/admin-staff-client'
 import { logClientError } from '../../../lib/user-facing-errors'
 import { useAdminSession } from '../admin-session-provider'
+import { Badge, Button, Card, EmptyState, PageHeader, Skeleton, useToast } from '../_components'
 
 const MAX_IMAGE_SIZE = 6 * 1024 * 1024
 const imageTypes = {
@@ -337,6 +338,7 @@ function csvCell(value: string | number) {
 
 export default function ProductImportPage() {
   const { userId, email: adminEmail, role: staffRole, loading: sessionLoading, error: sessionError } = useAdminSession()
+  const { toast } = useToast()
   const [access, setAccess] = useState<AccessState>('checking')
   const [spreadsheetName, setSpreadsheetName] = useState('')
   const [spreadsheetReady, setSpreadsheetReady] = useState(false)
@@ -351,6 +353,15 @@ export default function ProductImportPage() {
   const [progress, setProgress] = useState<{ current: number; total: number; message: string } | null>(null)
   const [feedback, setFeedback] = useState<{ kind: 'success' | 'error'; text: string } | null>(null)
   const [report, setReport] = useState<ReportRow[]>([])
+
+  useEffect(() => {
+    if (!feedback) return
+    toast({
+      title: feedback.kind === 'error' ? 'Opération à vérifier' : 'Opération terminée',
+      description: feedback.text,
+      variant: feedback.kind === 'error' ? 'danger' : 'success',
+    })
+  }, [feedback, toast])
 
   useEffect(() => {
     if (sessionLoading) return
@@ -810,7 +821,16 @@ export default function ProductImportPage() {
     URL.revokeObjectURL(url)
   }
 
-  if (sessionLoading) return <main className="product-import-page"><p>Vérification de l’accès administrateur…</p></main>
+  if (sessionLoading) {
+    return (
+      <main className="admin-page">
+        <div className="admin-shell">
+          <PageHeader title="Importer des produits" description="Vérification de l’accès administrateur…" eyebrow="JALIMS · ESPACE ADMIN" />
+          <Card title="Chargement de l’import"><Skeleton variant="rect" width="100%" height={180} /></Card>
+        </div>
+      </main>
+    )
+  }
   if (sessionError || !userId || !canAccessAdminPath(staffRole, '/admin/importer') || access !== 'ready') {
     const message = sessionError
       ?? (!userId
@@ -820,34 +840,50 @@ export default function ProductImportPage() {
           : 'Ce compte ne dispose pas des droits nécessaires.')
     const denied = Boolean(userId && staffRole)
     return (
-      <main className="product-import-page">
-        <section className="product-import-card">
-          <h1>{denied ? 'Accès refusé' : 'Importer des produits'}</h1>
-          <p role="alert">{message}</p>
-          {!userId && <Link href="/login?next=%2Fadmin%2Fimporter">Se connecter</Link>}
-          {denied && staffRole === 'order_manager' && <Link href="/admin/commandes">Aller aux commandes</Link>}
-        </section>
+      <main className="admin-page">
+        <div className="admin-shell">
+          <Card title={denied ? 'Accès refusé' : 'Importer des produits'}>
+            <EmptyState title={denied ? 'Accès refusé' : 'Connexion requise'} />
+            <p role="alert">{message}</p>
+            {!userId && <Link href="/login?next=%2Fadmin%2Fimporter">Se connecter</Link>}
+            {denied && staffRole === 'order_manager' && <Link href="/admin/commandes">Aller aux commandes</Link>}
+          </Card>
+        </div>
       </main>
     )
   }
 
   const photosTotal = Object.values(photoGroups).reduce((count, group) => count + group.files.length, 0)
+  const currentStep = report.length > 0 ? 4 : busy ? 3 : spreadsheetReady || photoArchiveName || photoErrors.length > 0 ? 2 : 1
+  const steps = ['Fichiers', 'Vérification', 'Import', 'Rapport']
 
   return (
-    <main className="product-import-page">
-      <div className="product-import-shell">
-        <header className="product-import-header">
-          <div>
-            <p className="product-import-eyebrow">JALIMS / ESPACE ADMIN</p>
-            <h1>Importer des produits</h1>
-            <p>Importez votre fichier produit et vos photos ensemble ou en deux temps.</p>
-          </div>
-          <div className="product-import-session">
-            <span>{adminEmail}</span>
-          </div>
-        </header>
+    <main className="admin-page">
+      <div className="admin-shell">
+        <PageHeader
+          title="Importer des produits"
+          description="Importez votre fichier produit et vos photos ensemble ou en deux temps."
+          eyebrow="JALIMS · ESPACE ADMIN"
+          actions={adminEmail ? <Badge variant="neutral">{adminEmail}</Badge> : undefined}
+        />
 
-        {feedback && <p className={`product-import-feedback ${feedback.kind}`} role={feedback.kind === 'error' ? 'alert' : 'status'}>{feedback.text}</p>}
+        <Card title="Étapes de l’import" description="Progression de la sélection au rapport final.">
+          <ol aria-label="Étapes de l’import">
+            {steps.map((step, index) => (
+              <li aria-current={currentStep === index + 1 ? 'step' : undefined} key={step}>
+                <Badge variant={index + 1 < currentStep ? 'success' : index + 1 === currentStep ? 'brand' : 'neutral'}>
+                  {index + 1}. {step}
+                </Badge>
+              </li>
+            ))}
+          </ol>
+        </Card>
+
+        {feedback && (
+          <Card title={feedback.kind === 'error' ? 'Opération à vérifier' : 'Opération terminée'}>
+            <p className={`product-import-feedback ${feedback.kind}`} role={feedback.kind === 'error' ? 'alert' : 'status'}>{feedback.text}</p>
+          </Card>
+        )}
         {anthropicConfigured === false && (
           <p className="product-import-notice" role="status">
             La rédaction automatique n’est pas configurée : ANTHROPIC_API_KEY est absente. Aucun appel à l’IA ne sera effectué. Activez le mode test pour continuer.
@@ -855,42 +891,46 @@ export default function ProductImportPage() {
         )}
         {anthropicConfigured === null && <p className="product-import-hint">Vérification de la configuration de rédaction automatique…</p>}
 
-        <div className="product-import-drop-grid">
-          <label
-            className="product-import-dropzone"
-            onDragOver={(event) => event.preventDefault()}
-            onDrop={(event) => handleDrop(event, 'spreadsheet')}
-          >
-            <span className="product-import-step">1</span>
-            <strong>Fichier Excel ou CSV</strong>
-            <span>Colonnes attendues : sku, lien_fournisseur, nom_source, prix_achat_cny, frais_livraison_chine_cny, poids_kg, couleurs, tailles, marge_pourcent, moq, delivery_estimate, category.</span>
-            <span className="product-import-file-name">{spreadsheetName || 'Déposez le fichier ici ou cliquez pour le choisir'}</span>
-            <input accept=".xlsx,.csv" disabled={busy} onChange={handleSpreadsheetChange} type="file" />
-          </label>
-          <label
-            className="product-import-dropzone"
-            onDragOver={(event) => event.preventDefault()}
-            onDrop={(event) => handleDrop(event, 'archive')}
-          >
-            <span className="product-import-step">2</span>
-            <strong>ZIP de photos</strong>
-            <span>Un sous-dossier par SKU, par exemple JAL001/1.jpg. Formats JPG, PNG ou WebP uniquement.</span>
-            <span className="product-import-file-name">{photoArchiveName || 'Déposez le ZIP ici ou cliquez pour le choisir'}</span>
-            <input accept=".zip,application/zip" disabled={busy} onChange={handleArchiveChange} type="file" />
-          </label>
-        </div>
+        <Card title="Fichiers" description="Choisissez les données produits, les photos ou les deux.">
+          <div className="product-import-drop-grid">
+            <label
+              className="product-import-dropzone"
+              onDragOver={(event) => event.preventDefault()}
+              onDrop={(event) => handleDrop(event, 'spreadsheet')}
+            >
+              <span className="product-import-step">1</span>
+              <strong>Fichier Excel ou CSV</strong>
+              <span>Colonnes attendues : sku, lien_fournisseur, nom_source, prix_achat_cny, frais_livraison_chine_cny, poids_kg, couleurs, tailles, marge_pourcent, moq, delivery_estimate, category.</span>
+              <span className="product-import-file-name">{spreadsheetName || 'Déposez le fichier ici ou cliquez pour le choisir'}</span>
+              <input accept=".xlsx,.csv" disabled={busy} onChange={handleSpreadsheetChange} type="file" />
+            </label>
+            <label
+              className="product-import-dropzone"
+              onDragOver={(event) => event.preventDefault()}
+              onDrop={(event) => handleDrop(event, 'archive')}
+            >
+              <span className="product-import-step">2</span>
+              <strong>ZIP de photos</strong>
+              <span>Un sous-dossier par SKU, par exemple JAL001/1.jpg. Formats JPG, PNG ou WebP uniquement.</span>
+              <span className="product-import-file-name">{photoArchiveName || 'Déposez le ZIP ici ou cliquez pour le choisir'}</span>
+              <input accept=".zip,application/zip" disabled={busy} onChange={handleArchiveChange} type="file" />
+            </label>
+          </div>
+        </Card>
 
-        <section className="product-import-options">
-          <label className="product-import-checkbox">
-            <input checked={testMode} disabled={busy} onChange={(event) => setTestMode(event.target.checked)} type="checkbox" />
-            <span><strong>Mode test</strong><small>Utilise « [À rédiger] » + nom_source. Il n’appelle jamais l’IA et n’accepte que les SKU commençant par TEST.</small></span>
-          </label>
-          <p className="product-import-warning"><strong>Attention :</strong> le mode test écrit dans la vraie base de données. Utilisez uniquement des SKU de test commençant par TEST.</p>
-          <label className="product-import-checkbox">
-            <input checked={overwriteText} disabled={busy} onChange={(event) => setOverwriteText(event.target.checked)} type="checkbox" />
-            <span><strong>Écraser les textes</strong><small>Pour un SKU existant, remplace le titre et la description uniquement si cette case est cochée.</small></span>
-          </label>
-        </section>
+        <Card title="Options d’import">
+          <section className="product-import-options">
+            <label className="product-import-checkbox">
+              <input checked={testMode} disabled={busy} onChange={(event) => setTestMode(event.target.checked)} type="checkbox" />
+              <span><strong>Mode test</strong><small>Utilise « [À rédiger] » + nom_source. Il n’appelle jamais l’IA et n’accepte que les SKU commençant par TEST.</small></span>
+            </label>
+            <p className="product-import-warning"><strong>Attention :</strong> le mode test écrit dans la vraie base de données. Utilisez uniquement des SKU de test commençant par TEST.</p>
+            <label className="product-import-checkbox">
+              <input checked={overwriteText} disabled={busy} onChange={(event) => setOverwriteText(event.target.checked)} type="checkbox" />
+              <span><strong>Écraser les textes</strong><small>Pour un SKU existant, remplace le titre et la description uniquement si cette case est cochée.</small></span>
+            </label>
+          </section>
+        </Card>
 
         {rows.length > 0 && (
           <section className="product-import-preview">
@@ -938,23 +978,29 @@ export default function ProductImportPage() {
           </section>
         )}
 
-        <div className="product-import-actions">
-          <button
-            className="product-import-submit"
-            disabled={busy || (rows.length === 0 && photosTotal === 0 && photoErrors.length === 0)}
-            onClick={() => void runImport()}
-            type="button"
-          >
-            {busy ? 'Import en cours…' : rows.length > 0 && photosTotal > 0 ? 'Importer les produits et les photos' : photosTotal > 0 && rows.length === 0 ? 'Envoyer les photos' : 'Importer les lignes valides'}
-          </button>
-          {progress && (
-            <div className="product-import-progress" role="status">
-              <progress max={Math.max(progress.total, progress.current, 1)} value={progress.current} />
-              <span>{progress.current} / {progress.total} · {progress.message}</span>
-            </div>
-          )}
-        </div>
+        <Card title="Import" description="Vérifiez les fichiers et les options avant de lancer le traitement.">
+          <div className="product-import-actions">
+            <Button
+              disabled={busy || (rows.length === 0 && photosTotal === 0 && photoErrors.length === 0)}
+              loading={busy}
+              onClick={() => void runImport()}
+            >
+              {busy ? 'Import en cours…' : rows.length > 0 && photosTotal > 0 ? 'Importer les produits et les photos' : photosTotal > 0 && rows.length === 0 ? 'Envoyer les photos' : 'Importer les lignes valides'}
+            </Button>
+            {progress && (
+              <div className="product-import-progress" role="status">
+                <progress max={Math.max(progress.total, progress.current, 1)} value={progress.current} />
+                <span>{progress.current} / {progress.total} · {progress.message}</span>
+              </div>
+            )}
+          </div>
+        </Card>
 
+        {report.length === 0 && (
+          <Card title="Rapport">
+            <EmptyState title="Aucun rapport pour le moment" description="Le compte rendu apparaîtra ici après le traitement des fichiers." />
+          </Card>
+        )}
         {report.length > 0 && (
           <section className="product-import-report">
             <div className="product-import-section-heading">
