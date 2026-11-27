@@ -129,6 +129,7 @@ export default function AdminPartnersPage() {
       })
       if (!isPartner(body.partner)) throw new Error('La réponse du serveur ne contient pas le partenaire enregistré.')
       updatePartnerList(body.partner)
+      setToggleError('')
       toast({
         title: editingId ? 'Partenaire modifié' : 'Partenaire ajouté',
         variant: 'success',
