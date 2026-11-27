@@ -22,23 +22,11 @@
 
 .admin-app .admin-ui-button.is-primary {
   background: var(--admin-brand);
-  color: #fff;
+  color: #24211f;
 }
 
 .admin-app .admin-ui-button.is-primary:hover:not(:disabled) {
   background: var(--admin-brand-hover);
-}
-
-.admin-app .admin-ui-button.admin-ui-button-contrast-dark,
-.admin-app .admin-ui-button.admin-ui-button-contrast-dark:hover:not(:disabled) {
-  background: #f97316;
-  color: #24211f;
-}
-
-.admin-app .admin-ui-button.admin-ui-button-contrast-white,
-.admin-app .admin-ui-button.admin-ui-button-contrast-white:hover:not(:disabled) {
-  background: #c24a00;
-  color: #fff;
 }
 
 .admin-app .admin-ui-button.is-secondary {

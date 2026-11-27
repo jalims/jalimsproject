@@ -4441,16 +4441,16 @@ button {
   transition: color 150ms ease, background 150ms ease;
 }
 
-.admin-primary-link {
+.admin-app .admin-primary-link {
   padding: 0 18px;
   border-radius: 6px;
   background: var(--orange);
-  color: white;
+  color: #24211f;
   font-size: 13px;
   font-weight: 680;
 }
 
-.admin-primary-link:hover {
+.admin-app .admin-primary-link:hover {
   background: var(--orange-dark);
 }
 
