@@ -135,6 +135,15 @@ export default function AdminComponentsPage() {
               <Button variant="ghost">Fantôme</Button>
               <Button variant="danger" leadingIcon={<Trash2 size={16} />}>Destructif</Button>
             </div>
+            <Card title="Comparaison du bouton primaire" description="Le bouton de production reste inchangé en attendant votre choix.">
+              <div className="admin-ui-demo-row">
+                <Button className="admin-ui-button-contrast-dark">Texte sombre · 5,71:1</Button>
+                <Button className="admin-ui-button-contrast-white">Texte blanc · 4,91:1</Button>
+              </div>
+              <p className="admin-ui-demo-copy">
+                Texte sombre (#24211f) sur orange #f97316 : 5,71:1. Texte blanc sur orange foncé #c24a00 : 4,91:1.
+              </p>
+            </Card>
             <div className="admin-ui-demo-row">
               <Button size="sm">Petit</Button>
               <Button size="md">Moyen</Button>

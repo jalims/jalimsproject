@@ -29,6 +29,18 @@
   background: var(--admin-brand-hover);
 }
 
+.admin-app .admin-ui-button.admin-ui-button-contrast-dark,
+.admin-app .admin-ui-button.admin-ui-button-contrast-dark:hover:not(:disabled) {
+  background: #f97316;
+  color: #24211f;
+}
+
+.admin-app .admin-ui-button.admin-ui-button-contrast-white,
+.admin-app .admin-ui-button.admin-ui-button-contrast-white:hover:not(:disabled) {
+  background: #c24a00;
+  color: #fff;
+}
+
 .admin-app .admin-ui-button.is-secondary {
   border-color: #f4d0b4;
   background: var(--admin-brand-soft);
@@ -107,7 +119,7 @@
   width: 100%;
   min-height: 40px;
   padding: 9px 11px;
-  border: 1px solid #dcd6d0;
+  border: 1px solid var(--admin-field-border);
   border-radius: 8px;
   background: var(--admin-surface);
   color: var(--admin-text);
@@ -117,17 +129,42 @@
 }
 
 .admin-app .admin-ui-control:hover {
-  border-color: #c9c0b8;
+  border-color: var(--admin-field-border);
 }
 
 .admin-app .admin-ui-control:focus {
-  border-color: var(--admin-brand);
+  border-color: var(--admin-focus);
   outline: 0;
-  box-shadow: 0 0 0 3px rgb(249 115 22 / 14%);
+  box-shadow: none;
+}
+
+.admin-app .admin-ui-control:focus-visible {
+  outline: 3px solid var(--admin-focus);
+  outline-offset: 2px;
 }
 
 .admin-app .admin-ui-control::placeholder {
-  color: #948c85;
+  color: #776c62;
+}
+
+.admin-app .admin-product-form input,
+.admin-app .admin-product-form textarea,
+.admin-app .admin-product-form select {
+  border-color: var(--admin-field-border);
+}
+
+.admin-app .admin-product-form input:focus,
+.admin-app .admin-product-form textarea:focus,
+.admin-app .admin-product-form select:focus {
+  border-color: var(--admin-focus);
+  box-shadow: none;
+}
+
+.admin-app .admin-product-form input:focus-visible,
+.admin-app .admin-product-form textarea:focus-visible,
+.admin-app .admin-product-form select:focus-visible {
+  outline: 3px solid var(--admin-focus);
+  outline-offset: 2px;
 }
 
 .admin-app .admin-ui-control.is-invalid,
@@ -173,7 +210,7 @@
   height: 24px;
   flex: 0 0 42px;
   appearance: none;
-  border: 1px solid #c9c2bc;
+  border: 1px solid var(--admin-field-border);
   border-radius: 999px;
   background: #e7e2dd;
   cursor: pointer;
@@ -194,8 +231,8 @@
 }
 
 .admin-app input.admin-ui-switch:checked {
-  border-color: var(--admin-brand);
-  background: var(--admin-brand);
+  border-color: var(--admin-link-color);
+  background: var(--admin-link-color);
 }
 
 .admin-app input.admin-ui-switch:checked::before {
@@ -356,7 +393,7 @@
   place-items: center;
   border-radius: 10px;
   background: var(--admin-brand-soft);
-  color: var(--admin-brand-hover);
+  color: var(--admin-link-color);
 }
 
 .admin-app .admin-ui-page-header {
@@ -384,7 +421,7 @@
 
 .admin-app .admin-ui-eyebrow {
   margin: 0;
-  color: var(--admin-brand-hover);
+  color: var(--admin-link-color);
   font-size: 11px;
   font-weight: 750;
   letter-spacing: 0.08em;
@@ -512,7 +549,7 @@
 }
 
 .admin-app .admin-ui-sort-button:hover {
-  color: var(--admin-brand-hover);
+  color: var(--admin-link-color);
 }
 
 .admin-app .admin-ui-table-empty {
@@ -561,15 +598,16 @@
   align-items: center;
   gap: 9px;
   padding: 0 10px;
-  border: 1px solid #dcd6d0;
+  border: 1px solid var(--admin-field-border);
   border-radius: 8px;
   background: #fff;
   color: var(--admin-text-muted);
 }
 
 .admin-app .admin-ui-search:focus-within {
-  border-color: var(--admin-brand);
-  box-shadow: 0 0 0 3px rgb(249 115 22 / 12%);
+  border-color: var(--admin-focus);
+  outline: 3px solid var(--admin-focus);
+  outline-offset: 2px;
 }
 
 .admin-app .admin-ui-search input {
@@ -631,7 +669,7 @@
 }
 
 .admin-app .admin-ui-tabs button[aria-selected='true'] {
-  color: var(--admin-brand-hover);
+  color: var(--admin-link-color);
 }
 
 .admin-app .admin-ui-tabs button[aria-selected='true']::after {
@@ -641,7 +679,7 @@
   left: 8px;
   height: 2px;
   border-radius: 2px 2px 0 0;
-  background: var(--admin-brand);
+  background: var(--admin-link-color);
   content: '';
 }
 
@@ -1088,7 +1126,7 @@
 }
 
 .admin-app .admin-ui-product-edit-link {
-  color: var(--admin-brand-hover);
+  color: var(--admin-link-color);
   font-size: 12px;
   font-weight: 650;
   text-decoration: underline;
@@ -1182,7 +1220,7 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  color: var(--admin-brand-hover);
+  color: var(--admin-link-color);
   font-weight: 700;
   text-decoration: none;
 }
@@ -1320,7 +1358,7 @@
 
 .admin-app .admin-ui-order-details > summary {
   padding: 11px 16px;
-  color: var(--admin-brand-hover);
+  color: var(--admin-link-color);
   font-size: 12px;
   font-weight: 650;
   cursor: pointer;

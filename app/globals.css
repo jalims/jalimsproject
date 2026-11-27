@@ -4160,8 +4160,8 @@ button {
   white-space: nowrap;
 }
 
-.admin-preview-copy b {
-  color: var(--orange-dark);
+.admin-app .admin-preview-copy b {
+  color: var(--admin-link-color);
   font-size: 12px;
 }
 
@@ -4374,9 +4374,9 @@ button {
   transition: border-color 150ms ease, color 150ms ease;
 }
 
-.admin-catalog-link:hover {
+.admin-app .admin-catalog-link:hover {
   border-color: #f5b789;
-  color: var(--orange-dark);
+  color: var(--admin-link-color);
 }
 
 .admin-access-state {
@@ -4460,8 +4460,8 @@ button {
   font-size: 12px;
 }
 
-.admin-secondary-link:hover {
-  color: var(--orange-dark);
+.admin-app .admin-secondary-link:hover {
+  color: var(--admin-link-color);
 }
 
 .admin-state {
@@ -5610,8 +5610,8 @@ button {
   white-space: nowrap;
 }
 
-.admin-order-total {
-  color: var(--orange-dark);
+.admin-app .admin-order-total {
+  color: var(--admin-link-color);
   font-size: 11px;
   white-space: nowrap;
 }
@@ -7061,9 +7061,9 @@ button {
   color: #77695f;
 }
 
-.product-import-eyebrow,
-.product-import-step {
-  color: #bd6828;
+.admin-app .product-import-eyebrow,
+.admin-app .product-import-step {
+  color: var(--admin-link-color);
   font-size: 12px;
   font-weight: 750;
   letter-spacing: 0.08em;
@@ -7137,7 +7137,7 @@ button {
   gap: 16px;
 }
 
-.product-import-dropzone {
+.admin-app .product-import-dropzone {
   display: flex;
   min-height: 220px;
   flex-direction: column;
@@ -7145,15 +7145,21 @@ button {
   justify-content: center;
   gap: 12px;
   padding: 24px;
-  border: 1px dashed #d7a77e;
+  border: 1px dashed var(--admin-field-border);
   border-radius: 12px;
   background: rgba(255, 255, 255, 0.85);
   cursor: pointer;
 }
 
-.product-import-dropzone:hover {
-  border-color: #bd6828;
+.admin-app .product-import-dropzone:hover {
+  border-color: var(--admin-link-color);
   background: #fffaf6;
+}
+
+.admin-app .product-import-dropzone:focus-within {
+  border-color: var(--admin-focus);
+  outline: 3px solid var(--admin-focus);
+  outline-offset: 2px;
 }
 
 .product-import-dropzone strong {
@@ -8111,8 +8117,8 @@ button {
   fill: var(--orange-dark);
 }
 
-.admin-stats-chart text {
-  fill: var(--muted);
+.admin-app .admin-stats-chart text {
+  fill: var(--admin-text-muted);
   font-size: 10px;
 }
 
@@ -8809,10 +8815,15 @@ button {
   line-height: 1.6;
 }
 
-.legal-admin-field input:focus,
-.legal-admin-field textarea:focus {
-  outline: 2px solid rgba(189, 104, 40, 0.2);
-  border-color: #bd6828;
+.admin-app .legal-admin-field input:focus,
+.admin-app .legal-admin-field textarea:focus {
+  border-color: var(--admin-focus);
+}
+
+.admin-app .legal-admin-field input:focus-visible,
+.admin-app .legal-admin-field textarea:focus-visible {
+  outline: 3px solid var(--admin-focus);
+  outline-offset: 2px;
 }
 
 .legal-admin-actions {
@@ -9522,13 +9533,13 @@ button {
   font-weight: 700;
 }
 
-.home-redesign-editor input:not([type="file"]),
-.home-redesign-editor textarea,
-.home-redesign-editor select {
+.admin-app .home-redesign-editor input:not([type="file"]),
+.admin-app .home-redesign-editor textarea,
+.admin-app .home-redesign-editor select {
   width: 100%;
   min-height: 42px;
   padding: 10px 11px;
-  border: 1px solid #ded5cd;
+  border: 1px solid var(--admin-field-border);
   border-radius: 8px;
   color: #2f2924;
   background: #fff;
@@ -9540,11 +9551,17 @@ button {
   resize: vertical;
 }
 
-.home-redesign-editor input:focus,
-.home-redesign-editor textarea:focus,
-.home-redesign-editor select:focus {
-  outline: 3px solid rgba(176, 79, 32, .2);
-  border-color: #a84b1e;
+.admin-app .home-redesign-editor input:focus,
+.admin-app .home-redesign-editor textarea:focus,
+.admin-app .home-redesign-editor select:focus {
+  border-color: var(--admin-focus);
+}
+
+.admin-app .home-redesign-editor input:focus-visible,
+.admin-app .home-redesign-editor textarea:focus-visible,
+.admin-app .home-redesign-editor select:focus-visible {
+  outline: 3px solid var(--admin-focus);
+  outline-offset: 2px;
 }
 
 .home-redesign-editor label small,
@@ -9632,14 +9649,16 @@ button {
   text-decoration: none;
 }
 
-.home-redesign-upload-button:focus-visible,
-.home-redesign-remove-image:focus-visible,
-.home-redesign-reset:focus-visible {
-  outline: 3px solid rgba(176, 79, 32, .25);
+.admin-app .home-redesign-upload-button:focus-visible,
+.admin-app .home-redesign-remove-image:focus-visible,
+.admin-app .home-redesign-reset:focus-visible {
+  outline: 3px solid var(--admin-focus);
+  outline-offset: 2px;
 }
 
-.home-redesign-upload:focus-within .home-redesign-upload-button {
-  outline: 3px solid rgba(176, 79, 32, .25);
+.admin-app .home-redesign-upload:focus-within .home-redesign-upload-button {
+  outline: 3px solid var(--admin-focus);
+  outline-offset: 2px;
 }
 
 .home-redesign-remove-image {

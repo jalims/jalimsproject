@@ -2,6 +2,9 @@
   --admin-brand: #f97316;
   --admin-brand-hover: #df5d08;
   --admin-brand-soft: #fff0e3;
+  --admin-link-color: #bd4a00;
+  --admin-field-border: #948c85;
+  --admin-focus: #a94300;
   --admin-bg: #f8f7f5;
   --admin-surface: #ffffff;
   --admin-text: #24211f;
@@ -53,8 +56,9 @@
 .admin-app a:focus-visible,
 .admin-app input:focus-visible,
 .admin-app select:focus-visible,
+.admin-app textarea:focus-visible,
 .admin-app summary:focus-visible {
-  outline: 3px solid rgb(249 115 22 / 40%);
+  outline: 3px solid var(--admin-focus);
   outline-offset: 2px;
 }
 
@@ -212,7 +216,7 @@
 }
 
 .admin-nav-link.is-active svg {
-  color: var(--admin-brand-hover);
+  color: var(--admin-link-color);
 }
 
 .admin-nav-link svg,
@@ -231,7 +235,7 @@
   margin-left: auto;
   padding: 0 6px;
   border-radius: 999px;
-  background: var(--admin-brand);
+  background: var(--admin-link-color);
   color: #fff;
   font-size: 11px;
   font-weight: 700;
@@ -300,14 +304,15 @@
   min-height: 40px;
   align-items: center;
   overflow: hidden;
-  border: 1px solid var(--admin-border);
+  border: 1px solid var(--admin-field-border);
   border-radius: 9px;
   background: #fff;
 }
 
 .admin-global-search:focus-within {
-  border-color: #f7a16b;
-  box-shadow: 0 0 0 3px rgb(249 115 22 / 12%);
+  border-color: var(--admin-focus);
+  outline: 3px solid var(--admin-focus);
+  outline-offset: 2px;
 }
 
 .admin-global-search select {
@@ -315,7 +320,7 @@
   height: 38px;
   padding: 0 8px 0 11px;
   border: 0;
-  border-right: 1px solid var(--admin-border);
+  border-right: 1px solid var(--admin-field-border);
   background: transparent;
   color: var(--admin-text-muted);
   font-size: 12px;
@@ -339,7 +344,7 @@
 }
 
 .admin-global-search input::placeholder {
-  color: #9a938d;
+  color: #776c62;
 }
 
 .admin-global-search button {
@@ -355,7 +360,7 @@
 }
 
 .admin-global-search button:hover {
-  color: var(--admin-brand-hover);
+  color: var(--admin-link-color);
 }
 
 .admin-notification-link {
