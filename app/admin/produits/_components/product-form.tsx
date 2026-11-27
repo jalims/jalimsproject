@@ -518,7 +518,6 @@ export default function ProductForm({ productId }: { productId?: string }) {
       const failedNames = failedImageFiles.map((file) => `« ${file.name} »`).join(', ')
       const uploadMessage = `Le produit reste en brouillon. Échec de l’envoi pour ${failedNames}. Les autres photos et les informations du produit sont enregistrées; réessayez l’envoi des photos restantes.`
       setFeedback({ kind: 'error', text: uploadMessage })
-      toast({ title: 'Certaines photos n’ont pas été envoyées', description: failedImageFiles.map((file) => file.name).join(', '), variant: 'danger' })
       return
     }
 
@@ -535,7 +534,6 @@ export default function ProductForm({ productId }: { productId?: string }) {
       setSaving(false)
       setUploadRetryAvailable(true)
       setFeedback({ kind: 'error', text: result.error })
-      toast({ title: 'Nouvel envoi impossible', description: result.error, variant: 'danger' })
       return
     }
 
@@ -548,11 +546,9 @@ export default function ProductForm({ productId }: { productId?: string }) {
       const failedNames = result.failedFiles.map((file) => `« ${file.name} »`).join(', ')
       const uploadMessage = `Le produit reste en brouillon. Échec de l’envoi pour ${failedNames}. Réessayez l’envoi des photos restantes.`
       setFeedback({ kind: 'error', text: uploadMessage })
-      toast({ title: 'Certaines photos n’ont pas été envoyées', description: result.failedFiles.map((file) => file.name).join(', '), variant: 'danger' })
       return
     }
 
-    setFeedback({ kind: 'success', text: 'Toutes les photos restantes ont été ajoutées. Enregistrez le produit ou publiez-le lorsque les 3 photos minimum sont atteintes.' })
     toast({ title: 'Photos envoyées', description: 'Les photos enregistrées sont maintenant dans la galerie.', variant: 'success' })
   }
 
@@ -568,7 +564,6 @@ export default function ProductForm({ productId }: { productId?: string }) {
     if (error) {
       logClientError('Admin product unpublish failed', error)
       setFeedback({ kind: 'error', text: error })
-      toast({ title: 'Dépublication impossible', description: error, variant: 'danger' })
       return
     }
 
@@ -612,7 +607,7 @@ export default function ProductForm({ productId }: { productId?: string }) {
     const images = Array.isArray(data?.images) ? (data.images as ExistingProductImage[]) : []
     setExistingImages(images)
     setForm((current) => ({ ...current, imageUrl: images[0]?.image_url ?? '' }))
-    setFeedback({ kind: 'success', text: 'Photo supprimée.' })
+    toast({ title: 'Photo supprimée', variant: 'success' })
   }
 
   async function replaceExistingImage(image: ExistingProductImage, file: File) {
@@ -663,7 +658,7 @@ export default function ProductForm({ productId }: { productId?: string }) {
     const images = Array.isArray(data?.images) ? (data.images as ExistingProductImage[]) : []
     setExistingImages(images)
     setForm((current) => ({ ...current, imageUrl: images[0]?.image_url ?? '' }))
-    setFeedback({ kind: 'success', text: 'Photo remplacée.' })
+    toast({ title: 'Photo remplacée', variant: 'success' })
   }
 
   async function moveExistingImage(index: number, direction: -1 | 1) {
