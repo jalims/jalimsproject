@@ -108,6 +108,10 @@ export default function AdminShell({ children }: { children: ReactNode }) {
   const [notificationError, setNotificationError] = useState('')
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
+  const mobileMenuButtonRef = useRef<HTMLButtonElement>(null)
+  const mobileSidebarRef = useRef<HTMLElement>(null)
+  const mobileSidebarCloseRef = useRef<HTMLButtonElement>(null)
+  const mobileSidebarWasOpen = useRef(false)
   const [searchValue, setSearchValue] = useState('')
   const [searchTarget, setSearchTarget] = useState<SearchTarget['value']>('commandes')
   const [signOutError, setSignOutError] = useState('')
@@ -160,14 +164,47 @@ export default function AdminShell({ children }: { children: ReactNode }) {
   }, [pathname, staffRole])
 
   useEffect(() => {
-    if (!mobileSidebarOpen) return
-
-    function closeOnEscape(event: KeyboardEvent) {
-      if (event.key === 'Escape') setMobileSidebarOpen(false)
+    if (!mobileSidebarOpen) {
+      if (mobileSidebarWasOpen.current && mobileMenuButtonRef.current?.getClientRects().length) {
+        mobileMenuButtonRef.current.focus()
+      }
+      mobileSidebarWasOpen.current = false
+      return
     }
 
-    window.addEventListener('keydown', closeOnEscape)
-    return () => window.removeEventListener('keydown', closeOnEscape)
+    mobileSidebarWasOpen.current = true
+    const sidebar = mobileSidebarRef.current
+    if (!sidebar) return
+    mobileSidebarCloseRef.current?.focus()
+
+    function handleDrawerKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        setMobileSidebarOpen(false)
+        return
+      }
+      if (event.key !== 'Tab') return
+
+      const focusableElements = Array.from(mobileSidebarRef.current?.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      ) ?? []).filter((element) => element.getClientRects().length > 0)
+      const firstElement = focusableElements[0]
+      const lastElement = focusableElements[focusableElements.length - 1]
+
+      if (!firstElement || !lastElement) {
+        event.preventDefault()
+        mobileSidebarCloseRef.current?.focus()
+      } else if (event.shiftKey && document.activeElement === firstElement) {
+        event.preventDefault()
+        lastElement.focus()
+      } else if (!event.shiftKey && document.activeElement === lastElement) {
+        event.preventDefault()
+        firstElement.focus()
+      }
+    }
+
+    sidebar.addEventListener('keydown', handleDrawerKeyDown)
+    return () => sidebar.removeEventListener('keydown', handleDrawerKeyDown)
   }, [mobileSidebarOpen])
 
   const visibleSections = navigationSections
@@ -213,12 +250,20 @@ export default function AdminShell({ children }: { children: ReactNode }) {
         <button
           type="button"
           className="admin-sidebar-backdrop"
-          aria-label="Fermer le menu"
+          aria-hidden="true"
+          tabIndex={-1}
           onClick={() => setMobileSidebarOpen(false)}
         />
       )}
 
-      <aside className="admin-sidebar" aria-label="Navigation admin">
+      <aside
+        id="admin-sidebar"
+        ref={mobileSidebarRef}
+        className="admin-sidebar"
+        aria-label="Navigation admin"
+        aria-modal={mobileSidebarOpen || undefined}
+        role={mobileSidebarOpen ? 'dialog' : undefined}
+      >
         <div className="admin-sidebar-brand">
           <Link href={staffRole === 'order_manager' ? '/admin/commandes' : '/admin'} aria-label="Jalims administration">
             <span className="admin-brand-mark">J</span>
@@ -239,6 +284,7 @@ export default function AdminShell({ children }: { children: ReactNode }) {
           <button
             type="button"
             className="admin-sidebar-mobile-close"
+            ref={mobileSidebarCloseRef}
             aria-label="Fermer le menu"
             onClick={() => setMobileSidebarOpen(false)}
           >
@@ -284,14 +330,16 @@ export default function AdminShell({ children }: { children: ReactNode }) {
         </Link>
       </aside>
 
-      <div className="admin-workspace">
+      <div className="admin-workspace" inert={mobileSidebarOpen}>
         <header className={`admin-topbar${staffRole ? ' has-search' : ''}`}>
           <div className="admin-topbar-title">
             <button
               type="button"
               className="admin-mobile-menu-button"
+              ref={mobileMenuButtonRef}
               aria-label="Ouvrir le menu"
               aria-expanded={mobileSidebarOpen}
+              aria-controls="admin-sidebar"
               onClick={() => setMobileSidebarOpen(true)}
             >
               <Menu size={21} />
